@@ -143,6 +143,14 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 	for p := range t.OutsidePlan {
 		files = append(files, p)
 	}
+	// Every file the task really changed counts too, so a folder or a
+	// pattern in the plan can't hide an auth or payments file from the
+	// specialists.
+	for _, p := range ChangedSince(t.Root, t.StartCommit) {
+		if _, mine := t.Preexisting[p]; !mine {
+			files = append(files, p)
+		}
+	}
 	need := ReviewersFor(t.Size, t.Root, files)
 	var out []string
 	for _, k := range ReviewerKinds {
@@ -190,6 +198,40 @@ func (t *Task) runByAgent(agentID string) *HelperRun {
 func (t *Task) findingsExist(r HelperRun) bool {
 	fi, err := os.Stat(filepath.Join(TaskDocsDir(t.Root, t.ID), r.Findings))
 	return err == nil && fi.Size() > 0
+}
+
+// DisputesName: where the lead writes its disputes of one reviewer's
+// findings. One file per reviewer, so reviews stay independent.
+func DisputesName(kind string) string { return kind + "-disputes.md" }
+
+func (t *Task) findingsText(r HelperRun) string {
+	b, _ := os.ReadFile(filepath.Join(TaskDocsDir(t.Root, t.ID), r.Findings))
+	return string(b)
+}
+
+// disputeOpen: the lead disputed this reviewer's findings and the reviewer
+// hasn't answered yet (the disputes were written after its last run began,
+// or its findings have no "## Disputes" section).
+func (t *Task) disputeOpen(kind string, last HelperRun) bool {
+	fi, err := os.Stat(filepath.Join(TaskDocsDir(t.Root, t.ID), DisputesName(kind)))
+	if err != nil || fi.Size() == 0 {
+		return false
+	}
+	if fi.ModTime().After(last.Started) {
+		return true
+	}
+	return len(Section(t.findingsText(last), "disputes")) == 0
+}
+
+// upheld: the reviewer kept a disputed finding, which makes it the user's
+// call.
+func (t *Task) upheld(last HelperRun) bool {
+	for _, l := range Section(t.findingsText(last), "disputes") {
+		if strings.Contains(strings.ToLower(l), "upheld") {
+			return true
+		}
+	}
+	return false
 }
 
 // lastFinished is the newest helper run of a kind that has stopped.
@@ -403,6 +445,7 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 		for _, r := range c.task.helperRuns(kind) { // includes 0.3.x review-N.md
 			own = own || foldPath(r.Findings) == foldPath(base)
 		}
+		own = own || foldPath(base) == foldPath(DisputesName(kind))
 		if foldPath(filepath.Dir(abs)) == foldPath(docs) && (base == DocUnderstanding || base == DocPlan || own) {
 			return nil
 		}
@@ -444,6 +487,14 @@ func SubagentStart(in *HookInput) Output {
 	}
 	if n > 1 {
 		fmt.Fprintf(&b, " Your earlier findings: %s; check whether each was really fixed, then look at what changed since.", t.helperRuns(kind)[n-2].Findings)
+	}
+	if plan, _, err := ReadDoc(t, DocPlan); err == nil {
+		if shared := CheckPlan(plan).SharedTests; len(shared) > 0 {
+			fmt.Fprintf(&b, " Shared tests: one test is the proof for several cases; check it really proves each of them: %s.", strings.Join(shared, ", "))
+		}
+	}
+	if kind != HelperChallenger && docExists(t, DisputesName(kind)) {
+		fmt.Fprintf(&b, " The lead disputes some of your findings in %s: answer each one under ## Disputes in your findings file (withdrawn, or upheld with your evidence).", filepath.Join(docs, DisputesName(kind)))
 	}
 	fmt.Fprintf(&b, " The shared checklist, scoring and findings format: %s. Write your findings to %s as you go: it is the only file you can write. Terminal commands must only read.", ChecklistPath(), filepath.Join(docs, run.Findings))
 	return Context("SubagentStart", msg(b.String()))
@@ -515,7 +566,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 	if len(kinds) == 0 {
 		return nil
 	}
-	var notRun, running, again, capped []string
+	var notRun, running, again, capped, answer, answerCapped, upheld []string
 	var lastDone time.Time
 	for _, k := range kinds {
 		runs := t.helperRuns(k)
@@ -535,6 +586,16 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 			} else {
 				again = append(again, name)
 			}
+		case t.disputeOpen(k, *last):
+			if len(runs) >= MaxReviews {
+				answerCapped = append(answerCapped, name)
+			} else {
+				answer = append(answer, name)
+			}
+		default:
+			if t.upheld(*last) {
+				upheld = append(upheld, name)
+			}
 		}
 	}
 	var miss []string
@@ -549,6 +610,16 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 	}
 	if len(capped) > 0 {
 		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used (the first plus 2 fix rounds) for %s; stop and ask the user how to go on", MaxReviews, strings.Join(capped, ", ")))
+	}
+	if len(answer) > 0 {
+		miss = append(miss, "review: you disputed findings (<reviewer>-disputes.md in the notes folder); run these again so each answers its disputes, withdrawn or upheld: "+strings.Join(answer, ", "))
+	}
+	forYou := strings.ToLower(strings.Join(Section(report, "for you"), "\n"))
+	if len(answerCapped) > 0 && !strings.Contains(forYou, "disput") {
+		miss = append(miss, fmt.Sprintf("review: you disputed findings, but all %d runs are used for %s; put the disputes under \"For you\" in the report (say \"disputed\", with both sides) and stop and ask the user", MaxReviews, strings.Join(answerCapped, ", ")))
+	}
+	if len(upheld) > 0 && report != "" && !strings.Contains(forYou, "upheld") {
+		miss = append(miss, "report: reviewers upheld findings you disputed, so they're the user's call; list each under \"For you\" (say \"upheld\", with both sides): "+strings.Join(upheld, ", "))
 	}
 	if report != "" {
 		if len(Section(report, "review")) == 0 {

@@ -1,6 +1,6 @@
 # Gap review of the committed 1a code (2026-11-17)
 
-**Status (0.3.1):** H1 to H8, M1 to M8 and M10 to M12 are fixed, each with a test in `internal/core/hardening_test.go` that fails on the 0.3.0 code. Still open: M9, M13, M14 and L1 to L6.
+**Status (0.3.1):** H1 to H8, M1 to M8 and M10 to M12 are fixed, each with a test in `internal/core/hardening_test.go` that fails on the 0.3.0 code. **0.4.1:** M13 fixed (sealed run records, proof tied to the task and the saved command; `TestRunsSealed`, `TestRunsBelongToTheTaskAndCommand` in `internal/core/hardening2a_test.go`). Still open: M9, M14 and L1 to L6.
 
 A read-only, fresh-eyes review of the 1a code as committed on `main` at 56d9d08, done while 1b was built. Each finding was confirmed against the code, most with a throwaway test. H1 and H7 were also reproduced on the 1b branch. Already fixed on the 1b branch: the lost updates part of H5 (the per-task lock), the `plumbline docs-dir`/`status` refusal, and the fingerprint missing same-second edits.
 

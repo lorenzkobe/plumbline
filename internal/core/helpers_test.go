@@ -203,7 +203,7 @@ func (h *harness) finishMissing() string {
 func TestReviewerAfterBuilding(t *testing.T) {
 	h := provenTask(t)
 	a := filepath.Join(h.repo, "src", "a.go")
-	report := "# Report\n## Review\n- review-1: nothing at 80 or more\n"
+	report := "# Report\n## Review\n- review-1: nothing at 80 or more\n## For you\n- nothing\n"
 
 	h.docs(DocReport, "# Report\nDone.\n")
 	if m := h.finishMissing(); !strings.Contains(m, "plumbline:code-reviewer") || strings.Contains(m, "plan-reviewer") || !strings.Contains(m, `"## Review"`) {
@@ -274,7 +274,7 @@ func TestReviewerSwitchedOff(t *testing.T) {
 	must(t, err)
 	_, err = Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard) // the setup file is code too
 	must(t, err)
-	h.docs(DocReport, "# Report\nDone.\n")
+	h.docs(DocReport, "# Report\nDone.\n## For you\n- nothing\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("with the reviewer off, no review is needed: %s", m)
 	}

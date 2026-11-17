@@ -17,11 +17,15 @@ A plumb line is how builders check a wall is truly straight.
 | Commit | Needs passing tests on the current code (related tests for a slice, the full suite for the last commit), lint and build, no new failures, no secrets, no AI markers, the right message format. Then asks you |
 | Before the checkpoint | A read-only challenger attacks the understanding and the plan (skipped for small tasks, at most 2 rounds). The checkpoint needs its finished run and a challenge note in the plan |
 | After building | Read-only reviewers check the change, each on its own without seeing the others' findings: the code reviewer always, the plan reviewer for normal and big tasks, and security, data and performance, or UX and accessibility specialists when the changed files call for them. Only findings scored 80 or more are reported; Claude checks each against the code before fixing. After any fix every reviewer checks again, at most 3 runs each, then it comes to you |
-| Finish | "Done" needs the proof, a review of the code as it is now from every reviewer the change needs, a report written after the last change and the last review, and for a company ticket the drafted Jira comment. Never sends Claude back twice for the same reason |
+| Finish | "Done" needs the proof, a review of the code as it is now from every reviewer the change needs (disputed findings answered by the reviewer, upheld ones under "For you"), a report written after the last change and the last review with a "For you" section and every waiver, a closing chat message with a "For you" line, and for a company ticket the drafted Jira comment. Never sends Claude back twice for the same reason |
 | Jira | Claude reads the ticket and its comments before the checkpoint and drafts the comment in `TICKET-123-jira-comment.md` for you to copy and post. Posts, comments, status changes and edits are refused unless your own message asks for one, and then you confirm the exact text |
-| Always | No `git push`, no `--no-verify`, no editing `.env` or key files, reading them asks you, production and cloud commands ask you, installs ask you, Claude Code settings and plugins are protected, helpers can't start helpers |
+| Always | No `git push`, no `--no-verify`, no editing `.env` or key files, reading them (Read, or a Grep that names them) asks you, production and cloud commands ask you, installs ask you, Claude Code settings and plugins are protected, helpers can't start helpers |
 
 Only you can pause (`/plumbline:pause`), resume, close a task (`/plumbline:cancel`) or mark a block as wrong (`/plumbline:wrong`). Even when paused, the safety rules stay on.
+
+The same refusal twice in a row tells Claude to stop and ask you instead of trying again. Proof runs are sealed with a key kept on your laptop and count only for the task and the saved command that made them. "Small" is refused at the checkpoint when the plan changes a high-impact kind of file.
+
+**When Plumbline itself breaks** (a crash, or a binary that won't start): edits, commands, reads, Jira, the checkpoint question and helpers stay blocked, while searches (Grep, Glob, MemPalace, SocratiCode, Context7, Serena's look-ups) go through so Claude can look around and tell you. A crash report goes to `~/.plumbline/crashes/` (no tool input, code or secrets), a binary that won't start is logged in `~/.plumbline/errors.log`, and the next session start tells you. `/plumbline:stats` counts them. The way out is yours, from your own terminal: reinstall, or `claude plugin disable plumbline`.
 
 ## Install (macOS or Linux)
 

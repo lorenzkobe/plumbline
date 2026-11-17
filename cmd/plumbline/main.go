@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +77,7 @@ func usage() {
   plumbline status                      where the task is, and what's missing
   plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."]
   plumbline task show|list|replan|finish
+  plumbline task size small|normal|big --why "..."   before the plan is approved
   plumbline task tool-down serena|context7|jira --reason "..."
   plumbline task adopt <id>             continue an earlier task in this session
   plumbline run test|related|lint|build|e2e [--files a,b] [--task id]
@@ -88,7 +90,10 @@ func usage() {
 `)
 }
 
-// runHook never lets a crash pass silently: a gate that fails denies.
+// runHook never lets a crash pass silently: it leaves a crash report, and a
+// gate that fails denies. "pre-search" is the same check for searches
+// (Grep, Glob, the search MCP tools): when it fails, the search goes
+// through, so Claude can still look around and tell the user what broke.
 func runHook(args []string) (code int) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "plumbline hook: which event?")
@@ -96,9 +101,11 @@ func runHook(args []string) (code int) {
 	}
 	event := args[0]
 	gate := event == "pre"
+	tool := ""
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "Plumbline hook crashed (%v).", r)
+			p := core.RecordFailure(version, event, tool, fmt.Sprint(r), debug.Stack())
+			fmt.Fprintf(os.Stderr, "Plumbline hook crashed (%v). Report: %s.", r, p)
 			if gate {
 				fmt.Fprint(os.Stderr, " The action was blocked to be safe; tell the user.")
 				code = 2
@@ -109,15 +116,17 @@ func runHook(args []string) (code int) {
 	}()
 	in, err := core.ReadHookInput(os.Stdin)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Plumbline couldn't read the hook input:", err)
+		p := core.RecordFailure(version, event, "", "couldn't read the hook input: "+err.Error(), nil)
+		fmt.Fprintln(os.Stderr, "Plumbline couldn't read the hook input:", err, "Report:", p)
 		if gate {
 			return 2
 		}
 		return 0
 	}
+	tool = in.ToolName
 	var out core.Output
 	switch event {
-	case "pre":
+	case "pre", "pre-search":
 		out = core.PreToolUse(in)
 	case "post":
 		out = core.PostToolUse(in)
@@ -290,6 +299,24 @@ func cmdTask(args []string) error {
 		}
 		t.ToolDown[tool] = f["reason"]
 		fmt.Printf("Recorded: %s not used (%s). Name this in the checkpoint and the report.\n", tool, f["reason"])
+		return core.SaveTask(t)
+	case "size":
+		t, err := lockedTask(root, f)
+		if err != nil {
+			return err
+		}
+		if len(pos) == 0 || (pos[0] != "small" && pos[0] != "normal" && pos[0] != "big") {
+			return errors.New(`which size? plumbline task size small|normal|big --why "..."`)
+		}
+		if strings.TrimSpace(f["why"]) == "" {
+			return errors.New(`say why: --why "..." (size is impact, not lines)`)
+		}
+		if t.Phase == core.PhaseBuilding || !t.Open() {
+			return fmt.Errorf("task is at the %s step; the size is fixed once the plan is approved (replan to change it)", t.Phase)
+		}
+		t.Size, t.SizeWhy = pos[0], f["why"]
+		core.LogEvent(core.Event{Type: "task", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "size"})
+		fmt.Printf("Task %s is now %s (%s). Say why in the checkpoint.\n", t.ID, t.Size, t.SizeWhy)
 		return core.SaveTask(t)
 	case "replan":
 		t, err := lockedTask(root, f)

@@ -1,11 +1,25 @@
 #!/bin/sh
 # Picks the prebuilt Plumbline binary for this laptop. No Go needed.
+# If it can't, it logs why (the next session start reports it) and exits 1:
+# gate hooks then block (onFailure: block), searches and other hooks go on.
 d=${0%/*}/../dist
 case "$(uname -sm)" in
-  "Darwin arm64") exec "$d/plumbline-darwin-arm64" "$@" ;;
-  "Darwin x86_64") exec "$d/plumbline-darwin-amd64" "$@" ;;
-  "Linux x86_64") exec "$d/plumbline-linux-amd64" "$@" ;;
-  "Linux aarch64"|"Linux arm64") exec "$d/plumbline-linux-arm64" "$@" ;;
+  "Darwin arm64") b="$d/plumbline-darwin-arm64" ;;
+  "Darwin x86_64") b="$d/plumbline-darwin-amd64" ;;
+  "Linux x86_64") b="$d/plumbline-linux-amd64" ;;
+  "Linux aarch64"|"Linux arm64") b="$d/plumbline-linux-arm64" ;;
+  *) b="" ;;
 esac
-echo "Plumbline: no binary for $(uname -sm)" >&2
-exit 2
+if [ -n "$b" ] && [ -x "$b" ]; then
+  exec "$b" "$@"
+fi
+if [ -n "$b" ]; then
+  why="the Plumbline binary is missing or can't run: $b"
+else
+  why="no Plumbline binary for $(uname -sm)"
+fi
+home=${PLUMBLINE_HOME:-$HOME/.plumbline}
+mkdir -p "$home" 2>/dev/null &&
+  printf '%s launcher: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$why" >>"$home/errors.log" 2>/dev/null
+echo "Plumbline: $why. Reinstall it (claude plugin install plumbline@plumbline), or turn it off from your own terminal (claude plugin disable plumbline). Until then edits, commands and reads are blocked; searches still work." >&2
+exit 1

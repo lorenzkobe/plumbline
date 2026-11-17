@@ -10,6 +10,12 @@ Every Plumbline helper goes through this list first, then its own focus (in its 
 - Is there a simpler way, or a proven better one (official docs for the exact versions in the lockfile)?
 - Imagine this failed in production next week: why?
 
+## Not a finding
+Style is not a finding: naming, formatting, wording, or how you would have written it. Report it only when it causes a bug, or breaks a rule the project wrote down (its CLAUDE.md, lint config or docs), and quote that rule.
+
+## Disputes
+If the lead disputes your findings, Plumbline tells you the file (`<your kind>-disputes.md`). Check each dispute against the code with fresh eyes and answer it in your findings file under `## Disputes`: `- withdrawn: <finding>, because <why>` or `- upheld: <finding>, because <evidence>`. Don't uphold to save face, and don't withdraw to be agreeable. An upheld finding goes to the user.
+
 ## How to work
 - Commands must only read (`git diff`, `git log`, `grep`, `cat`). You can't change code; the lead runs tests and proof.
 - SocratiCode finds related code; Serena finds exact callers and definitions.
@@ -34,6 +40,9 @@ Give each finding a confidence score from 0 to 100: how sure you are that it is 
 
 ## Not listed
 <n> findings under 80.
+
+## Disputes (only when the lead disputed your findings)
+- withdrawn: <finding>, because <why> / upheld: <finding>, because <evidence>
 ```
 The challenger writes "Suggest: <the change to the understanding or plan>" instead of "Fix", and no must-fix mark.
 

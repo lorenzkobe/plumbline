@@ -44,7 +44,7 @@ If no existing code is involved (a brand-new project), say "No existing code is 
 - [bug] refund of an already-refunded order is refused -> test: src/orders/service.test.ts
 - [normal] full refund of a paid order -> test: src/orders/service.test.ts
 - [edge] refund of 0.00 -> test: src/orders/service.test.ts
-- [repeat-safe] the same refund request twice -> test: src/orders/service.test.ts
+- [repeat-safe] the same refund request twice -> test: `src/orders/service.test.ts::refund twice is refused`
 - [performance] does not apply, because the refund path handles one order at a time
 
 ## Real-world proof
@@ -72,7 +72,7 @@ fix/TICKET-123 from develop (or: main, as the user chose)
 (Small tasks: "skipped, small task".)
 ```
 Approving the plan approves exactly the commands in "Needs your OK", nothing more.
-Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>` or `does not apply, because ...`.
+Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>`, better `test: <file>::<test name>` (in backticks when the name has spaces), or `does not apply, because ...`. Naming the test lets the reviewers see when one test is the proof for several cases.
 
 ## report.md
 ```
@@ -103,6 +103,7 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 - <files Claude was refused (risky or your unsaved work), with what it would change and why>
 - <packages or commands that weren't in the approved list>
 - <decisions or actions only the user can take>
+- <findings a reviewer upheld after your dispute: "upheld by the <reviewer>: <finding>; your view: <evidence>">
 - Jira (ticket tasks): suggested status <status>; the comment is in <TICKET>-jira-comment.md
 - Commit? <proposed message(s)>. You push.
 ```

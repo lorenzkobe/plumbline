@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -159,18 +160,24 @@ func bullet(line string) (string, bool) {
 }
 
 var reCaseLabel = regexp.MustCompile(`^\[(normal|edge|refused|boundary|repeat-safe|bug|performance)\]`)
-var reTestLink = regexp.MustCompile("(?i)test:\\s*`?([^\\s`]+)`?")
+
+// A case's test: "test: path" or "test: path::name", in backticks when the
+// name has spaces ("test: `a.test.ts::refunds twice`").
+var reTestLink = regexp.MustCompile("(?i)test:\\s*(?:`([^`]+)`|([^\\s`]+))")
 
 const notApply = "does not apply, because"
 
 // PlanCheck is what the checkpoint needs from plan.md.
 type PlanCheck struct {
-	Files      []string
-	Cases      int
-	CaseTests  []string // test files the cases link to
-	ProofKinds []string // ui, api, schema that must be proven
-	Approved   []string // commands in "Needs your OK" (packages, outside-laptop commands)
-	Problems   []string
+	Files     []string
+	Cases     int
+	CaseTests []string // test files the cases link to
+	// SharedTests: named tests (file::name) that are the proof for more than
+	// one case, for the challenger and reviewers to check.
+	SharedTests []string
+	ProofKinds  []string // ui, api, schema that must be proven
+	Approved    []string // commands in "Needs your OK" (packages, outside-laptop commands)
+	Problems    []string
 }
 
 func CheckPlan(text string) PlanCheck {
@@ -184,6 +191,7 @@ func CheckPlan(text string) PlanCheck {
 	if len(pc.Files) == 0 {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Files" list naming every file the plan changes`)
 	}
+	refs := map[string]int{}
 	for _, l := range Section(text, "cases") {
 		b, ok := bullet(l)
 		if !ok {
@@ -195,7 +203,11 @@ func CheckPlan(text string) PlanCheck {
 		}
 		lower := strings.ToLower(b)
 		if m := reTestLink.FindStringSubmatch(b); m != nil {
-			pc.CaseTests = append(pc.CaseTests, strings.SplitN(m[1], "::", 2)[0])
+			ref := strings.TrimSpace(m[1] + m[2])
+			pc.CaseTests = append(pc.CaseTests, strings.SplitN(ref, "::", 2)[0])
+			if strings.Contains(ref, "::") {
+				refs[ref]++
+			}
 		} else if !strings.Contains(lower, notApply) {
 			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs \"test: <file>\" or \"does not apply, because ...\"", short(b)))
 		}
@@ -203,6 +215,12 @@ func CheckPlan(text string) PlanCheck {
 	if pc.Cases == 0 {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Cases" list (each case labelled and linked to a test)`)
 	}
+	for ref, n := range refs {
+		if n > 1 {
+			pc.SharedTests = append(pc.SharedTests, fmt.Sprintf("%s (%d cases)", ref, n))
+		}
+	}
+	sort.Strings(pc.SharedTests)
 	proof := Section(text, "real-world proof")
 	if len(proof) == 0 {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Real-world proof" section: ui / api / schema, or "does not apply, because ..."`)

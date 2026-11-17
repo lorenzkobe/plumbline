@@ -75,6 +75,14 @@ func (c *hookCtx) log(typ, rule, detail string) {
 
 func (c *hookCtx) deny(rule, reason string) Output {
 	c.log("block", rule, reason)
+	if noteBlock(c.in.SessionID, c.in.AgentID, rule, reason, blockTarget(c.in)) {
+		c.log("repeat-block", rule, "")
+		if c.in.AgentID != "" {
+			reason += repeatNoteHelper
+		} else {
+			reason += repeatNote
+		}
+	}
 	return Decision("PreToolUse", "deny", msg(reason))
 }
 
@@ -91,6 +99,14 @@ func allow(reason string) Output {
 // checkpoint questions and helpers.
 func PreToolUse(in *HookInput) Output {
 	if (in.ToolName == "Grep" || in.ToolName == "Glob") && helperKind(in.AgentType, false) == "" {
+		if in.ToolName == "Grep" {
+			if p := grepSecret(in); p != "" {
+				// Grep prints matching lines, so it gets Read's prompt.
+				c := newCtx(in)
+				defer c.close()
+				return c.ask("secret-read", fmt.Sprintf("this search shows lines of %s in this chat, and the chat history is kept on your laptop. Allow only if Claude really needs to see the values (for example to debug production). Claude never repeats them.", p))
+			}
+		}
 		return nil // only reviewers' searches are checked; the lead's stay fast
 	}
 	c := newCtx(in)
@@ -98,7 +114,7 @@ func PreToolUse(in *HookInput) Output {
 	if errors.Is(c.taskErr, ErrTampered) {
 		switch {
 		case in.ToolName == "Edit", in.ToolName == "Write", in.ToolName == "MultiEdit", in.ToolName == "NotebookEdit",
-			in.ToolName == "Bash", in.ToolName == "AskUserQuestion", strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
+			in.ToolName == "Bash", in.ToolName == "Monitor", in.ToolName == "AskUserQuestion", strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
 			return c.deny("tamper", "the task state was changed outside Plumbline, so its proof can't be trusted. Stop and tell the user; they can drop the task with /plumbline:cancel and start again.")
 		}
 	}
@@ -132,6 +148,12 @@ func PreToolUse(in *HookInput) Output {
 		}
 	case "Bash":
 		return c.gateBash(in.Str("command"))
+	case "Monitor":
+		// Monitor runs its command in the same shell as Bash, so it gets the
+		// same gate. Its WebSocket form runs no command.
+		if cmd := in.Str("command"); cmd != "" {
+			return c.gateBash(cmd)
+		}
 	case "AskUserQuestion":
 		return c.gateQuestion()
 	case "Agent", "Task":
@@ -147,6 +169,26 @@ func PreToolUse(in *HookInput) Output {
 		}
 	}
 	return nil
+}
+
+// grepSecret: the secret file a Grep names by its path or its glob, or "".
+// A search of a whole folder isn't caught (the file has to be named).
+func grepSecret(in *HookInput) string {
+	if p := in.Str("path"); p != "" && IsSecretFile(Abs(p, in.Cwd)) {
+		return filepath.Base(p)
+	}
+	g := in.Str("glob")
+	for _, part := range strings.FieldsFunc(g, func(r rune) bool { return r == '{' || r == '}' || r == ',' || r == ' ' }) {
+		base := strings.ToLower(filepath.Base(part))
+		plain := strings.ReplaceAll(base, "*", "x")
+		if isTemplateFile(strings.TrimRight(plain, "x")) {
+			continue
+		}
+		if IsSecretFile(plain) || strings.Contains(base, ".env") {
+			return part
+		}
+	}
+	return ""
 }
 
 // MCP servers that only look things up or work outside the code (memory,
@@ -759,7 +801,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case "run":
 				quiet = true // a saved command, or proof whose command after -- is its own segment
 			}
-			if s.Arg(1) == "task" && (s.Arg(2) == "start" || s.Arg(2) == "tool-down" || s.Arg(2) == "finish") {
+			if s.Arg(1) == "task" && (s.Arg(2) == "start" || s.Arg(2) == "tool-down" || s.Arg(2) == "size" || s.Arg(2) == "finish") {
 				quiet = true
 			}
 		case name == "git":
@@ -1119,24 +1161,24 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 	if s.Commands.Test == "" {
 		miss = append(miss, "no test command is saved (run /plumbline:setup)")
 	} else {
-		full := Judge(LatestFor(runs, KindTest, "", fp), BaselineFor(runs, t.ID, KindTest))
+		full := Judge(LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp), BaselineFor(runs, t.ID, KindTest))
 		if final && !full.OK {
 			miss = append(miss, "full test suite: "+full.Reason+" (run: plumbline run test)")
 		}
 		if !final && !full.OK {
-			rel := Judge(LatestFor(runs, KindRelated, "", fp), BaselineFor(runs, t.ID, KindTest))
+			rel := Judge(LatestFor(runs, t.ID, KindRelated, "", s.Commands.TestRelated, fp), BaselineFor(runs, t.ID, KindTest))
 			if !rel.OK {
 				miss = append(miss, "related tests: "+rel.Reason+" (run: plumbline run related --files <changed files>)")
 			}
 		}
 	}
 	if s.Commands.Lint != "" {
-		if v := Judge(LatestFor(runs, KindLint, "", fp), BaselineFor(runs, t.ID, KindLint)); !v.OK {
+		if v := Judge(LatestFor(runs, t.ID, KindLint, "", s.Commands.Lint, fp), BaselineFor(runs, t.ID, KindLint)); !v.OK {
 			miss = append(miss, "lint: "+v.Reason+" (run: plumbline run lint)")
 		}
 	}
 	if s.Commands.Build != "" {
-		if v := Judge(LatestFor(runs, KindBuild, "", fp), BaselineFor(runs, t.ID, KindBuild)); !v.OK {
+		if v := Judge(LatestFor(runs, t.ID, KindBuild, "", s.Commands.Build, fp), BaselineFor(runs, t.ID, KindBuild)); !v.OK {
 			miss = append(miss, "build: "+v.Reason+" (run: plumbline run build)")
 		}
 	}
@@ -1258,7 +1300,42 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, CheckRefs(t, text)...)
 			p = append(p, c.challengeProblems(text)...)
 			p = append(p, c.teamProblems(text, pc.Files)...)
+			p = append(p, c.sizeProblems(pc.Files)...)
 		}
+	}
+	return p
+}
+
+// sizeProblems: "small" means low impact, not few lines. A plan that changes
+// a high-impact kind of file (auth, permissions, payments, user data,
+// secrets, migrations, queries, money math, dependencies, config, deploy)
+// isn't small, so the challenger and the plan reviewer still run.
+func (c *hookCtx) sizeProblems(files []string) []string {
+	if c.task.Size != "small" {
+		return nil
+	}
+	var vague, risky []string
+	for _, f := range files {
+		// A folder or a pattern would let a risky file in unseen (InPlan
+		// matches both), so a small plan names each file.
+		if strings.HasSuffix(f, "/") || strings.ContainsAny(f, "*?[") {
+			vague = append(vague, f)
+			continue
+		}
+		hit := RiskyPath(filepath.ToSlash(f), c.setup)
+		for _, k := range ReviewersFor("small", c.task.Root, []string{f}) {
+			hit = hit || k == HelperSecurity || k == HelperData
+		}
+		if hit {
+			risky = append(risky, f)
+		}
+	}
+	var p []string
+	if len(vague) > 0 {
+		p = append(p, fmt.Sprintf(`a small task's "## Files" names each file it changes, not folders or patterns (%s), so its impact can be checked`, strings.Join(vague, ", ")))
+	}
+	if len(risky) > 0 {
+		p = append(p, fmt.Sprintf(`the task is sized small, but the plan changes high-impact files (%s), so it isn't small: run plumbline task size normal --why "..." (or big), then ask the checkpoint again`, strings.Join(risky, ", ")))
 	}
 	return p
 }

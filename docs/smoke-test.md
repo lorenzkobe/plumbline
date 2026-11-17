@@ -64,4 +64,11 @@ Use a normal-size task (small tasks skip the challenger).
 - Ask Claude to "fix it" and, in the same message, nothing about Jira; if Claude tries to post a comment or move the ticket, **expected: refused** ("draft-only"). Then say "okay, post the comment to the ticket". **Expected: a confirm prompt** showing the exact text.
 - Outside a task, ask Claude to send a Slack message (if the claude.ai Slack connector is on). **Expected: a confirm prompt.** During a task before the checkpoint: **refused**.
 
+## 10. The 2a hardening (0.4.1)
+- Give a small task whose plan changes `package.json` or a migration. **Expected: the checkpoint is refused** ("isn't small"); Claude runs `plumbline task size normal --why ...` and the challenger runs.
+- Make Claude hit the same refusal twice (for example, ask it to edit a file before approval, twice). **Expected:** the second refusal says "second time in a row", and Claude stops and asks you.
+- At the end, **expected:** report.md has `## For you`, and Claude's closing message has a "For you" line. If it doesn't, it's sent back once.
+- Ask Claude, before the checkpoint, to watch a command with the Monitor tool that edits a file (`sed -i ...`). **Expected: refused**, like the same Bash command. Ask it to grep `.env` for a key: **expected: a confirm prompt**.
+- Fail-open split: in `/hooks`, PreToolUse shows two groups (`hook pre`, blocking, and `hook pre-search`). Then, from your own terminal, rename the installed plugin's `dist/plumbline-darwin-arm64` (or your laptop's; it's under `~/.claude/plugins/`) to break the binary on purpose, start a session, and ask Claude to search the code (Grep or SocratiCode) and to edit a file. **Expected: the search runs, the edit is blocked** with the launcher's message. Put the binary back, start a session: **expected: "Plumbline itself failed N time(s)"**, and `/plumbline:stats` counts them. If the search was blocked too, Claude Code didn't accept the lookahead matcher: note what `/hooks` shows.
+
 When all of these pass, run one real task with only the core on, then everything on, end to end. Ten real Kwenta tasks with no gate bypassed and no gate bug come before Plumbline replaces done-gate anywhere.

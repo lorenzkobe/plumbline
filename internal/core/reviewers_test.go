@@ -51,13 +51,19 @@ func TestReviewersFor(t *testing.T) {
 	}
 }
 
-// riskyTask: a small, approved task whose plan touches an auth file.
+// riskyTask: an approved task whose plan touches an auth file. Sized small
+// first, which the checkpoint refuses, then normal.
 func riskyTask(t *testing.T, team string) *harness {
 	h := groundedTask(t, "small")
 	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/session.go\n", 1)
 	h.docs(DocPlan, plan)
+	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "isn't small: run plumbline task size normal")
+	tk := h.task()
+	tk.Size = "normal" // what plumbline task size normal does
+	must(t, SaveTask(tk))
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "must name the security-reviewer")
-	h.docs(DocPlan, plan+"## Team\n"+team+"\n")
+	h.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
+	h.docs(DocPlan, plan+"## Team\n"+team+"\n## Challenge note\n- nothing changed\n")
 	h.approve()
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
@@ -68,20 +74,18 @@ func riskyTask(t *testing.T, team string) *harness {
 }
 
 func TestSpecialistsRequired(t *testing.T) {
-	h := riskyTask(t, "- lead, code-reviewer, security-reviewer, data-reviewer")
-	report := "# Report\n## Review\n- all clean\n"
+	h := riskyTask(t, "- lead, challenger, plan-reviewer, code-reviewer, security-reviewer, data-reviewer")
+	report := "# Report\n## Review\n- all clean\n## For you\n- nothing\n"
 	h.docs(DocReport, report)
 
 	// The Team adds the data reviewer, the auth file the security reviewer.
 	m := h.finishMissing()
-	for _, k := range []string{"plumbline:code-reviewer", "plumbline:security-reviewer", "plumbline:data-reviewer"} {
+	for _, k := range []string{"plumbline:plan-reviewer", "plumbline:code-reviewer", "plumbline:security-reviewer", "plumbline:data-reviewer"} {
 		if !strings.Contains(m, k) {
 			t.Fatalf("finish should need %s: %s", k, m)
 		}
 	}
-	if strings.Contains(m, "plan-reviewer") {
-		t.Fatalf("a small task has no plan reviewer: %s", m)
-	}
+	h.runHelper(HelperPlanReviewer, "# Plan review 1\nnothing\n")
 	h.runHelper(HelperCodeReviewer, "# Code review 1\nnothing\n")
 	h.runHelper(HelperData, "# Data review 1\nnothing\n")
 	if m := h.finishMissing(); !strings.Contains(m, "plumbline:security-reviewer") || strings.Contains(m, "code-reviewer") {
@@ -100,7 +104,7 @@ func TestSpecialistsRequired(t *testing.T) {
 	_, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
 	must(t, err)
 	h.docs(DocReport, report)
-	if m := h.finishMissing(); !strings.Contains(m, "run these again to check the fixes: plumbline:code-reviewer, plumbline:security-reviewer, plumbline:data-reviewer") {
+	if m := h.finishMissing(); !strings.Contains(m, "run these again to check the fixes: plumbline:plan-reviewer, plumbline:code-reviewer, plumbline:security-reviewer, plumbline:data-reviewer") {
 		t.Fatalf("all reviewers re-check the final code: %s", m)
 	}
 	// The second run is told about its own earlier findings only.
@@ -110,6 +114,7 @@ func TestSpecialistsRequired(t *testing.T) {
 	}
 	write(t, h.findingsPath(id), "fixed\n")
 	h.stopHelper(id, HelperSecurity)
+	h.runHelper(HelperPlanReviewer, "fine\n")
 	h.runHelper(HelperCodeReviewer, "fixed\n")
 	h.runHelper(HelperData, "fine\n")
 	h.docs(DocReport, report)
@@ -120,7 +125,7 @@ func TestSpecialistsRequired(t *testing.T) {
 	// Switching a specialist off drops it.
 	s, _, _ := LoadSetup(h.repo)
 	s.Parts = map[string]bool{HelperData: false}
-	if got := strings.Join(RequiredReviewers(h.task(), s), ","); got != "code-reviewer,security-reviewer" {
+	if got := strings.Join(RequiredReviewers(h.task(), s), ","); got != "plan-reviewer,code-reviewer,security-reviewer" {
 		t.Fatalf("data reviewer switched off: %s", got)
 	}
 }
@@ -212,7 +217,7 @@ func TestLegacyReviewerRunCounts(t *testing.T) {
 	if got := h.task().Helpers[0].Kind; got != HelperCodeReviewer {
 		t.Fatalf("a 0.3.x reviewer run should load as the code reviewer's: %s", got)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- fine\n")
+	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n- nothing\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("the 0.3.x review counts: %s", m)
 	}

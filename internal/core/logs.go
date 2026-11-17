@@ -96,6 +96,7 @@ type Summary struct {
 	Wrong     map[string]int `json:"wrong"`
 	Sendbacks map[string]int `json:"sendbacks"`
 	Waivers   int            `json:"waivers"`
+	Failures  int            `json:"failures"` // Plumbline itself broke (crash, bad input, binary that won't start)
 	Asks      map[string]int `json:"asks"`
 }
 
@@ -117,6 +118,8 @@ func summarize(month string, events []Event) Summary {
 			s.Wrong[e.Rule]++
 		case "waiver":
 			s.Waivers++
+		case "failure":
+			s.Failures++
 		}
 	}
 	s.Tasks = len(tasks)
@@ -166,6 +169,13 @@ func Cleanup() {
 			_ = os.Remove(filepath.Join(DataDir(), "summaries", s.Name()))
 		}
 	}
+	// Crash reports older than 6 months go too (the logs keep the count).
+	crashes, _ := os.ReadDir(crashDir())
+	for _, e := range crashes {
+		if fi, err := e.Info(); err == nil && fi.ModTime().Before(now.AddDate(0, -6, 0)) {
+			_ = os.Remove(filepath.Join(crashDir(), e.Name()))
+		}
+	}
 	// Finished task folders older than 6 months go too (logs keep the numbers).
 	projects, _ := os.ReadDir(filepath.Join(DataDir(), "projects"))
 	for _, p := range projects {
@@ -213,6 +223,7 @@ func Stats(months int) string {
 	fmt.Fprintf(&b, "Send-backs at finish: %s\n", orNone(kv(s.Sendbacks)))
 	fmt.Fprintf(&b, "Confirm prompts by rule: %s\n", orNone(kv(s.Asks)))
 	fmt.Fprintf(&b, "Waivers: %d\n", s.Waivers)
+	fmt.Fprintf(&b, "Plumbline failures: %d\n", s.Failures)
 	var noisy []string
 	for r, w := range s.Wrong {
 		if bl := s.Blocks[r]; bl > 0 && w*2 >= bl {

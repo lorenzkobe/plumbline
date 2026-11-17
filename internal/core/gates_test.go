@@ -318,8 +318,16 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	h.runHelper(HelperCodeReviewer, "# Review 1\nnothing at 80 or more\n")
 	h.runHelper(HelperPlanReviewer, "# Review 1\nmatches the plan\n") // a normal task gets both
 	h.docs(DocReport, "# Report\n## Review\n- nothing at 80 or more\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
-	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); o != nil {
+	// Proven, but the closing chat message must be the short report.
+	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo, LastMessage: "All done. Want me to commit?"}); !strings.Contains(fmtOut(o), "final message") {
+		t.Fatalf("a closing message without \"For you\" should be sent back: %v", o)
+	}
+	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo, LastMessage: "Fixed A. Proof: suite passes. For you: src/auth/login.go wasn't changed. Commit?"}); o != nil {
 		t.Fatalf("proven task should stop cleanly: %v", o)
+	}
+	// Once reported, a later message (after the commit, say) isn't checked again.
+	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo, LastMessage: "Committed."}); o != nil {
+		t.Fatalf("a reported task should stop cleanly: %v", o)
 	}
 	// Code changes after the report make it stale again.
 	write(t, a, "package src\n\nfunc A() int { return 22 }\n")

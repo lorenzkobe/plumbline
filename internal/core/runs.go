@@ -64,11 +64,17 @@ func appendRun(root string, r *Run) error {
 	}
 	defer f.Close()
 	b, _ := json.Marshal(r)
-	_, err = f.Write(append(b, '\n'))
+	// Each record carries a seal made with the laptop key, so a line added by
+	// hand, or by a version before 0.4.1, never counts as proof. Like the
+	// task-state seal it doesn't stop a determined process that reads the
+	// key (see sealKey).
+	_, err = f.Write([]byte(seal(b) + " " + string(b) + "\n"))
 	return err
 }
 
-// LoadRuns returns the latest record of every run id.
+// LoadRuns returns the latest record of every run id. Records without a
+// valid seal (added by hand, or by a version before 0.4.1) are skipped, so
+// they never count as proof.
 func LoadRuns(root string) []*Run {
 	f, err := os.Open(runsPath(root))
 	if err != nil {
@@ -80,8 +86,12 @@ func LoadRuns(root string) []*Run {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for sc.Scan() {
+		mark, data, ok := strings.Cut(sc.Text(), " ")
+		if !ok || mark != seal([]byte(data)) {
+			continue
+		}
 		var r Run
-		if json.Unmarshal(sc.Bytes(), &r) != nil {
+		if json.Unmarshal([]byte(data), &r) != nil {
 			continue
 		}
 		if _, ok := byID[r.ID]; !ok {
@@ -404,15 +414,33 @@ func TrivialProof(command string) bool {
 	return true
 }
 
-// LatestFor returns the newest run of a kind (and sub) on the given code.
-func LatestFor(runs []*Run, kind, sub, print string) *Run {
+// LatestFor returns the task's newest run of a kind (and sub) on the given
+// code. A non-empty command is the saved command the run must have used, so
+// a run from an older setup, or another task's run, doesn't count.
+func LatestFor(runs []*Run, taskID, kind, sub, command, print string) *Run {
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
-		if r.Kind == kind && (sub == "" || r.Sub == sub) && r.PrintBefore == print {
-			return r
+		if r.TaskID != taskID || r.Kind != kind || (sub != "" && r.Sub != sub) || r.PrintBefore != print {
+			continue
 		}
+		if command != "" && !commandMatches(kind, command, r.Command) {
+			continue
+		}
+		return r
 	}
 	return nil
+}
+
+// commandMatches: the run used the saved command. The related-tests command
+// is a template whose {files} part changes per run.
+func commandMatches(kind, saved, ran string) bool {
+	if kind == KindRelated {
+		before, after, found := strings.Cut(saved, "{files}")
+		if found {
+			return len(ran) >= len(before)+len(after) && strings.HasPrefix(ran, before) && strings.HasSuffix(ran, after)
+		}
+	}
+	return ran == saved
 }
 
 // BaselineFor returns the task's baseline run of a kind.

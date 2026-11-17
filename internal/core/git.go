@@ -67,6 +67,33 @@ func Fingerprint(root string, ignore []string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
+// ChangedSince lists the files that differ from commit: committed since,
+// staged, unstaged or new (git-ignored ones excluded), relative to root.
+// An empty commit means HEAD.
+func ChangedSince(root, commit string) []string {
+	if commit == "" {
+		commit = "HEAD"
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		for _, p := range strings.Split(s, "\x00") {
+			if p != "" && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	if s, err := gitOut(root, "diff", "--name-only", "-z", "--no-renames", commit, "--"); err == nil {
+		add(s)
+	}
+	if s, err := gitOut(root, "ls-files", "--others", "--exclude-standard", "-z"); err == nil {
+		add(s)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // DirtyFiles lists changed and untracked files (not ignored) with a cheap
 // size+mtime stamp, so a later call can tell what changed in between.
 func DirtyFiles(root string) (map[string]string, error) {

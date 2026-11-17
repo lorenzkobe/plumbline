@@ -16,7 +16,7 @@ Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, s
 ## 2. Check the setup
 - `plumbline status`. No setup: stop and suggest /plumbline:setup.
 - Check MemPalace, SocratiCode and Docker once, in parallel (Serena and Context7 too if the task needs them). One fix attempt each, then ask the user. A required tool that's down means the task doesn't start.
-- Start the task: `plumbline task start --title "..." --ticket ... --size small|normal|big --why "..."`. Size is impact, not lines: say why. A one-line change to auth, payments, permissions, migrations, shared helpers, money math or deploys is big.
+- Start the task: `plumbline task start --title "..." --ticket ... --size small|normal|big --why "..."`. Size is impact, not lines: say why. A one-line change to auth, payments, permissions, migrations, shared helpers, money math or deploys is big. The checkpoint refuses "small" when the plan's files are a high-impact kind; change it with `plumbline task size normal --why "..."` (only before approval).
 
 ## 3. Check the code
 - SocratiCode finds where to look and what depends on it. Serena finds every exact caller and definition. MemPalace answers "have we seen this before?" (never facts about the code).
@@ -57,12 +57,12 @@ AskUserQuestion with header `Checkpoint`, options `Approve` and `Change somethin
 ## 9. Review
 - After the proof passes, start every reviewer in the plan's `## Team` at once, in the background: the Agent tool with `subagent_type: plumbline:code-reviewer` (always), `plumbline:plan-reviewer` (normal and big tasks), and `plumbline:security-reviewer`, `plumbline:data-reviewer`, `plumbline:ux-reviewer` where the files call for them. Plumbline gives each the notes folder, the diff base (the commit the task started from), the shared checklist and its findings file (`code-review-1.md`, ...). The finish check names any you missed, including a specialist called for by a file changed outside the plan.
 - Give each reviewer the task in one line. Never pass one reviewer's findings to another: each review stays independent.
-- Check every finding against the code before fixing. Fix the must-fix ones that hold up; push back on the rest with evidence in the report.
+- Check every finding against the code before fixing. Fix the must-fix ones that hold up. To push back on one, write it with your evidence to `<reviewer>-disputes.md` in the notes folder (`code-reviewer-disputes.md`, ...), then run that reviewer again: it answers each dispute, withdrawn or upheld. An upheld finding is the user's call: put it under "For you" (say "upheld", with both sides).
 - After fixes, re-run the related tests (and the full suite, lint and build if the fix touched more), then every reviewer again: the finish check needs each one's review of the code as it is now. Tell each what changed since its last run. At most 3 runs per reviewer (the first plus 2 fix rounds); still not clean after that, or it's a trade-off: it goes to the user.
 - While reviews run in the background, wait for them; don't end with "done" meanwhile.
 - A project can switch reviews off in its setup (`"parts": {"reviewer": false}`, or one reviewer by name).
 
 ## 10. Report, then the user decides
-Write `report.md` after the last review (format in checkpoints.md; `## Review` is required), then a short chat version: bad news first, "For you" for anything needing the user. Then ask whether to commit (and, where it applies, mention the user pushes). Commit only after they say so; the commit hook checks the proof. After the commit decision: `plumbline task finish`.
+Write `report.md` after the last review (format in checkpoints.md; `## Review`, `## For you` and every waiver under Proof are required), then a short chat version: bad news first, what changed, the proof, the review, and a "For you" line ("For you: nothing" when there's nothing). The finish check sends back a closing message without it. Then ask whether to commit (and, where it applies, mention the user pushes). Commit only after they say so; the commit hook checks the proof. After the commit decision: `plumbline task finish`.
 
 Jira ticket: write the comment to `<TICKET>-jira-comment.md` in the notes folder (`TICKET-123-jira-comment.md`): only the comment, a few plain lines a teammate reads in seconds, ready for the user to copy, check and post. No AI markers, no em dashes. Put the suggested status in the report under "For you". Don't post it: Jira is draft-only, unless the user's own message asks you to post, and then they confirm the exact text.

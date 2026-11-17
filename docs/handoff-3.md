@@ -1,4 +1,4 @@
-# Handoff: phases 1a, 1b, the 1a hardening and 2a done; 2b next
+# Handoff: phases 1a, 1b, the 1a hardening, 2a and the 2a hardening done; 2b next
 
 Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true.
 
@@ -82,7 +82,7 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 - git's read commands (`git diff $(git merge-base ...)`) accept arguments that aren't known yet; an expansion that produces `--output=` would slip through. Kept so research and the reviewer can use merge-base.
 - MCP tools are judged by name. A server whose write tools don't use a write verb (edit, replace, insert, write, create, delete, rename, ...) isn't gated.
 - zsh-only syntax that bash can't parse is refused (Claude Code runs commands in the user's shell, zsh on this laptop).
-- Still open from the gap review: M9 (worktrees as new projects), M13 (`runs.jsonl` unsealed), M14 (two sessions in one repo), L1 to L6.
+- Still open from the gap review: M9 (worktrees as new projects), M14 (two sessions in one repo), L1 to L6. M13 was fixed in 0.4.1.
 
 ## Not verified yet (the smoke test covers these)
 - That PreToolUse fires for MCP tools with the `mcp__.*` matcher (smoke-test step 6b).
@@ -113,6 +113,34 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 - That the SubagentStart/Stop matchers fire for the new agent names, and that `agent_type` is `plumbline:code-reviewer` (smoke-test step 8).
 - The real Jira MCP's tool names: the Atlassian remote server's (`getJiraIssue`, `addCommentToJiraIssue`, `transitionJiraIssue`, ...) and sooperset's mcp-atlassian (`jira_get_issue`, `jira_add_comment`, ...) are covered by tests; another server's names may differ (smoke-test step 9).
 - That the UserPromptSubmit hook's `prompt` holds the user's words as typed.
+
+## What the 2a hardening built (v0.4.1, on main)
+From a review of 14 suggestions against the code and done-gate's logs (the plan's decisions log has what was adopted and turned down).
+- Report checks (`reportShapeMissing`, `finalMessageMissing` in stop.go): `## For you` and every waiver in report.md; the closing chat message (`last_assistant_message`) needs a "For you" line. The Stop hook now runs the finish check on a question too, once the task is proven and not yet reported; an unproven question still goes through.
+- Repeated blocks (repeat.go): `hookCtx.deny` records rule, reason and target per session and helper in `~/.plumbline/sessions/<sid>[-<agent>].lastblock`; the same one twice in a row gets the stop note. UserPromptSubmit clears them.
+- Sealed runs (runs.go): each line is `<seal> <json>`, sealed with the task-state key; `LoadRuns` skips bad lines. `LatestFor(runs, taskID, kind, sub, command, fp)`; `commandMatches` handles the related-tests template.
+- Size (`sizeProblems` in pretool.go): "small" refused at the checkpoint for `RiskyPath` files or the security and data signals. `plumbline task size` (main.go), before approval only, quiet in the Bash gate.
+- Shared tests (`PlanCheck.SharedTests`, docs.go): named refs (`file::name`) used by more than one case; SubagentStart lists them for the challenger and reviewers.
+- Disputes (helpers.go): `DisputesName(kind)` = `<kind>-disputes.md`, written by the lead, readable only by that reviewer. `disputeOpen` (written after the reviewer's last run began, or no `## Disputes` in its findings) makes the finish check ask for another run; `upheld` requires "upheld" under For you; no runs left goes to the user.
+- Failures (failures.go, main.go, bin/plumbline): `RecordFailure` on a panic or unreadable input; the launcher logs to errors.log and exits 1; `FailureNote` at SessionStart (failures.seen keeps the time and the errors.log offset); a `failure` event for stats; 6-month cleanup.
+- hooks.json: two PreToolUse groups, `hook pre` (blocking: the tools PreToolUse gates, MCP tools except the search servers and Serena's look-ups) and `hook pre-search` (no onFailure: Grep, Glob, MemPalace, SocratiCode, Context7, Serena's find/search/list tools). Matchers are anchored JavaScript regexes; `TestHookMatchers` checks them with node, including that no tool is in both.
+- From the fresh-eyes review (there before 0.4.1): `Monitor` goes through `gateBash` (and is in the blocking matcher); `grepSecret` gives a Grep that names a secret file Read's prompt; `RequiredReviewers` adds `ChangedSince(root, StartCommit)` (git.go), minus the user's own files, so specialists follow the real change.
+- Tests: `internal/core/hardening2a_test.go`, `cmd/plumbline/main_test.go` (built binary: hook failure exit codes, `task size`).
+
+## Known limits after 0.4.1
+- The run seal, like the task-state seal, uses a key in the data folder. A process Claude starts while building (a `python3 -c` that builds the path from pieces, or a test file) could read it and write a sealed record. The Bash gate only catches the path when it's written out.
+- Runs recorded before 0.4.1 have no seal and are skipped, baselines included. A task open across the upgrade must run its checks again; with failures that were already there and edits made, only a waiver gets past them. No task was open on the laptop at the upgrade.
+- "In a row" for repeated blocks is per session and helper, cleared by a different refusal or a user message; allowed calls in between don't clear it, and two identical refused calls in one message count at once.
+- A binary that exists but can't run (corrupt, wrong architecture) still blocks the gates, but the failed `exec` leaves nothing in errors.log.
+- "Small" is refused for any file on the risky list, so a copy-only change to a login page needs `task size normal`.
+- The closing-message check looks for a "For you" line and sends back once; it can't check that the bad news comes first.
+- Grep asks only when its path or glob names a secret file; a search of a whole folder that happens to reach a `.env` isn't caught. Grep is in the fail-open group, so while the hook fails it doesn't ask either.
+- Monitor commands get the Bash gate before they run, but not the changed-files check after (PostToolUse doesn't match Monitor, which returns before its command ends); the fingerprint still makes proof stale if it changes code.
+- A task without `StartCommit` (made before 0.3.0) falls back to HEAD for `ChangedSince`, so committed slices don't call for specialists there.
+
+## Not verified yet after 0.4.1 (add to the smoke test run)
+- That Claude Code accepts the lookahead matchers as documented (JavaScript regex, unanchored), and that a search still runs when the binary is missing while an edit is blocked (smoke-test step 10).
+- That `last_assistant_message` holds the closing message as shown (docs say "the text content of Claude's final response").
 
 ## Phase 2b: builders, blind QA, tracers and tester
 Read the plan doc's "Agents and speed" section. Fix gap-review M9 first (key projects by `git rev-parse --git-common-dir`), since builders work in worktrees. Reuse `HelperRun` and the SubagentStart/Stop records; builders are the first helpers that edit, so `gateHelper` needs a per-kind policy instead of "read-only".

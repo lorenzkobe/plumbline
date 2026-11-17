@@ -34,9 +34,20 @@ func SessionStart(in *HookInput) Output {
 	var b strings.Builder
 	b.WriteString(coreRules)
 	b.WriteString("\n## Right now\n")
+	failed := FailureNote()
+	if failed != "" {
+		b.WriteString("- " + failed + " Tell the user this first, with the report's path.\n")
+	}
+	out := func() Output {
+		o := Context("SessionStart", b.String())
+		if failed != "" {
+			o["systemMessage"] = msg(failed)
+		}
+		return o
+	}
 	if c.root == "" {
 		b.WriteString("- Not inside a git repo: Question mode only. Code changes need a project with git.\n")
-		return Context("SessionStart", b.String())
+		return out()
 	}
 	if c.paused {
 		b.WriteString("- Plumbline is PAUSED in this project by the user. Task gates are off; safety rules (production, secrets, push, Jira posts) stay on. Only the user can resume (/plumbline:resume).\n")
@@ -73,7 +84,7 @@ func SessionStart(in *HookInput) Output {
 		b.WriteString("- Leftover open tasks from earlier sessions: " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>).\n")
 	}
 	RefreshSnapshot(in.SessionID, c.root)
-	return Context("SessionStart", b.String())
+	return out()
 }
 
 func orDash(s string) string {
@@ -86,6 +97,7 @@ func orDash(s string) string {
 // UserPromptSubmit adds a one-line reminder to every message you send.
 func UserPromptSubmit(in *HookInput) Output {
 	_ = SetJiraAsked(in.SessionID, UserAsksJira(in.Prompt))
+	ResetBlocks(in.SessionID) // a new message from you: earlier refusals no longer count as "in a row"
 	c := newCtx(in)
 	defer c.close()
 	if c.task != nil && len(c.task.Sendbacks) > 0 {

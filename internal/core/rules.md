@@ -32,6 +32,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`: Plumbline runs the saved command and records the result. Only these runs count as proof.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
+- `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files.
 - `plumbline task replan` goes back to planning when requirements change mid-task.
 - `plumbline task finish` closes the task after the report and the user's commit decision.
 - Pause, resume, cancel and "this block was wrong" are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong.
@@ -53,7 +54,7 @@ The user usually hands over the task and comes back later: research and plan wit
 ## Helpers (read-only, fresh eyes)
 - Challenger (`plumbline:challenger`): before the checkpoint, after understanding.md and plan.md are written. Skipped for small tasks. At most 2 rounds. Answer its findings in plan.md's `## Challenge note`; the checkpoint needs a finished challenger run and that note.
 - Reviewers, after the proof passes, each on its own: `plumbline:code-reviewer` always; `plumbline:plan-reviewer` for normal and big tasks; `plumbline:security-reviewer`, `plumbline:data-reviewer`, `plumbline:ux-reviewer` when the files call for them (the plan's `## Team` names them, and you can add more). The finish check needs, from every one of them, a review of the code as it is now, and a `## Review` section in report.md written after the last. At most 3 runs per reviewer (the first plus 2 fix rounds), then the user decides.
-- Check every finding against the code before acting on it. Push back with evidence when a finding is wrong. Never pass one reviewer's findings to another.
+- Check every finding against the code before acting on it. Push back with evidence when a finding is wrong: write it to `<reviewer>-disputes.md` in the notes folder and run that reviewer again; it answers withdrawn or upheld, and an upheld one goes under "For you". Never pass one reviewer's findings to another.
 - Helpers write only their own findings file (challenge-N.md, code-review-N.md, ...); nobody else edits those. They never ask the user and never start helpers.
 
 ## Jira
@@ -63,9 +64,9 @@ The user usually hands over the task and comes back later: research and plan wit
 
 ## Finishing
 - Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end.
-- Report (`report.md`, then a short chat version, bad news first): what changed, proof (runs and counts), review, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user), and the question about committing.
+- Report (`report.md`, then a short chat version, bad news first): what changed, proof (runs and counts, every waiver), review, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user, or "nothing"), and the question about committing. The finish check needs `## For you`, every waiver, and a "For you" line in the closing chat message.
 - Commits: only after the user says so. Company: `TICKET-123: What changed`. Personal: `feat:`/`fix:`/`chore:`. Short, plain, no AI markers. The user pushes.
-- 3 strikes: after 3 failed fix attempts, stop and give options. The same block twice means stop and tell the user.
+- 3 strikes: after 3 failed fix attempts, stop and give options. The same block twice in a row means stop and tell the user (Plumbline says so on the second one); don't work around it.
 - Before stopping for the user, finish everything that doesn't depend on them, so they get one message with everything.
 
 ## Common excuses, and the answer
