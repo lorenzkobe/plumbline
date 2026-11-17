@@ -1,5 +1,7 @@
 # Gap review of the committed 1a code (2026-11-17)
 
+**Status (0.3.1):** H1 to H8, M1 to M8 and M10 to M12 are fixed, each with a test in `internal/core/hardening_test.go` that fails on the 0.3.0 code. Still open: M9, M13, M14 and L1 to L6.
+
 A read-only, fresh-eyes review of the 1a code as committed on `main` at 56d9d08, done while 1b was built. Each finding was confirmed against the code, most with a throwaway test. H1 and H7 were also reproduced on the 1b branch. Already fixed on the 1b branch: the lost updates part of H5 (the per-task lock), the `plumbline docs-dir`/`status` refusal, and the fingerprint missing same-second edits.
 
 The common cause of H1 to H4: the Bash gate is a blocklist over a partial shell parser. Anything it doesn't understand is treated as harmless. The fix that closes the class is to fail closed: a command counts as read-only only if every part of it was understood and is on the allowlist. Deny rules also need to look inside wrappers.

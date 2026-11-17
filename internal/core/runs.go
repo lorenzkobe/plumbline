@@ -385,6 +385,25 @@ func Judge(r *Run, baseline *Run) Verdict {
 	}
 }
 
+// Commands that prove nothing about a change: they succeed whatever the code
+// does.
+var trivialProof = map[string]bool{"true": true, ":": true, "echo": true, "printf": true, "exit": true,
+	"sleep": true, "test": true, "[": true, "cat": true, "ls": true, "pwd": true, "date": true, "false": true}
+
+// TrivialProof reports a proof command that doesn't exercise anything.
+func TrivialProof(command string) bool {
+	segs := Segments(command)
+	if len(segs) == 0 {
+		return true
+	}
+	for _, s := range segs {
+		if s.Name() != "" && !trivialProof[s.Name()] {
+			return false
+		}
+	}
+	return true
+}
+
 // LatestFor returns the newest run of a kind (and sub) on the given code.
 func LatestFor(runs []*Run, kind, sub, print string) *Run {
 	for i := len(runs) - 1; i >= 0; i-- {

@@ -19,12 +19,15 @@ func FinishMissing(t *Task, s *Setup) []string {
 	miss := ProofMissing(t, s, true)
 	fp, _ := Fingerprint(t.Root, s.IgnoreChanges)
 	runs := LoadRuns(t.Root)
-	if text, _, err := ReadDoc(t, DocPlan); err == nil {
-		pc := CheckPlan(text)
-		for _, tf := range pc.CaseTests {
-			if _, err := os.Stat(filepath.Join(t.Root, filepath.FromSlash(tf))); err != nil {
-				miss = append(miss, fmt.Sprintf("case test %s doesn't exist yet", tf))
-			}
+	caseTests := t.CaseTests
+	if !t.CasesStored { // approved before 0.3.1
+		if text, _, err := ReadDoc(t, DocPlan); err == nil {
+			caseTests = CheckPlan(text).CaseTests
+		}
+	}
+	for _, tf := range caseTests {
+		if _, err := os.Stat(filepath.Join(t.Root, filepath.FromSlash(tf))); err != nil {
+			miss = append(miss, fmt.Sprintf("case test %s doesn't exist yet", tf))
 		}
 	}
 	for _, k := range t.ProofKinds {

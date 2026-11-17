@@ -72,6 +72,10 @@ type Task struct {
 	PlanFiles     []string  `json:"plan_files,omitempty"` // repo-relative
 	ProofKinds    []string  `json:"proof_kinds,omitempty"`
 	ApprovedCmds  []string  `json:"approved_cmds,omitempty"` // "Needs your OK" list in the approved plan
+	// The test files the approved plan's cases link to, kept at approval so
+	// deleting a case from plan.md later doesn't drop its test.
+	CaseTests   []string `json:"case_tests,omitempty"`
+	CasesStored bool     `json:"cases_stored,omitempty"`
 
 	// Files touched outside the plan (allowed, must be in the report) and
 	// files Claude was refused (must be under "For you" in the report).
@@ -102,7 +106,15 @@ func newID() string {
 }
 
 func statePath(root, id string) string { return filepath.Join(TaskDir(root, id), "state.json") }
-func sealPath(root, id string) string  { return filepath.Join(TaskDir(root, id), "state.seal") }
+
+// legacySealPath: before 0.3.1 the seal was a second file, written by a
+// second rename. A hook that read between the two renames saw the old seal
+// beside the new state and called the task tampered.
+func legacySealPath(root, id string) string { return filepath.Join(TaskDir(root, id), "state.seal") }
+
+// sealLine starts state.json; the task's JSON follows it in the same file, so
+// one rename replaces both together.
+const sealLine = "plumbline-seal: "
 
 // sealKey is a per-laptop key kept beside the data. It does not stop a
 // determined edit, but any edit made outside Plumbline is detected.
@@ -128,12 +140,20 @@ func seal(data []byte) string {
 var ErrTampered = errors.New("task state was changed outside Plumbline")
 
 func LoadTask(root, id string) (*Task, error) {
-	b, err := os.ReadFile(statePath(root, id))
+	raw, err := os.ReadFile(statePath(root, id))
 	if err != nil {
 		return nil, err
 	}
-	s, _ := os.ReadFile(sealPath(root, id))
-	if strings.TrimSpace(string(s)) != seal(b) {
+	var b []byte
+	var want string
+	if rest, ok := strings.CutPrefix(string(raw), sealLine); ok {
+		line, data, _ := strings.Cut(rest, "\n")
+		want, b = line, []byte(data)
+	} else {
+		s, _ := os.ReadFile(legacySealPath(root, id))
+		want, b = strings.TrimSpace(string(s)), raw
+	}
+	if want != seal(b) {
 		return nil, ErrTampered
 	}
 	var t Task
@@ -149,10 +169,12 @@ func SaveTask(t *Task) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(statePath(t.Root, t.ID), b); err != nil {
+	out := append([]byte(sealLine+seal(b)+"\n"), b...)
+	if err := writeFileAtomic(statePath(t.Root, t.ID), out); err != nil {
 		return err
 	}
-	return writeFileAtomic(sealPath(t.Root, t.ID), []byte(seal(b)+"\n"))
+	_ = os.Remove(legacySealPath(t.Root, t.ID))
+	return nil
 }
 
 // ListTasks returns every task of the project, newest first.
@@ -266,17 +288,26 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 // Project-level flags.
 func pausedPath(root string) string { return filepath.Join(ProjectDir(root), "paused") }
 
+// The paused flag is sealed: a flag file made any other way (a touch from
+// the terminal) doesn't pause anything.
+func pausedSeal(root, at string) string { return seal([]byte("paused\x00" + root + "\x00" + at)) }
+
 func IsPaused(root string) bool {
 	if root == "" {
 		return false
 	}
-	_, err := os.Stat(pausedPath(root))
-	return err == nil
+	b, err := os.ReadFile(pausedPath(root))
+	if err != nil {
+		return false
+	}
+	at, s, ok := strings.Cut(strings.TrimSpace(string(b)), " ")
+	return ok && s == pausedSeal(root, at)
 }
 
 func SetPaused(root string, on bool) error {
 	if on {
-		return writeFileAtomic(pausedPath(root), []byte(Now().Format(time.RFC3339)+"\n"))
+		at := Now().Format(time.RFC3339)
+		return writeFileAtomic(pausedPath(root), []byte(at+" "+pausedSeal(root, at)+"\n"))
 	}
 	err := os.Remove(pausedPath(root))
 	if os.IsNotExist(err) {

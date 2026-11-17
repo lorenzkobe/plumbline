@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -92,8 +93,9 @@ func PreToolUse(in *HookInput) Output {
 	c := newCtx(in)
 	defer c.close()
 	if errors.Is(c.taskErr, ErrTampered) {
-		switch in.ToolName {
-		case "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "AskUserQuestion":
+		switch {
+		case in.ToolName == "Edit", in.ToolName == "Write", in.ToolName == "MultiEdit", in.ToolName == "NotebookEdit",
+			in.ToolName == "Bash", in.ToolName == "AskUserQuestion", strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
 			return c.deny("tamper", "the task state was changed outside Plumbline, so its proof can't be trusted. Stop and tell the user; they can drop the task with /plumbline:cancel and start again.")
 		}
 	}
@@ -107,6 +109,17 @@ func PreToolUse(in *HookInput) Output {
 		p := in.Str("file_path")
 		if p == "" {
 			p = in.Str("notebook_path")
+		}
+		if c.root == "" && p != "" {
+			// The session started outside the repo (a parent folder): the
+			// file's own repo decides.
+			if r := RepoRoot(existingDir(Abs(p, in.Cwd))); r != "" {
+				sub := *in
+				sub.Cwd = r
+				fc := newCtx(&sub)
+				defer fc.close()
+				return fc.gateEdit(Abs(p, in.Cwd))
+			}
 		}
 		return c.gateEdit(p)
 	case "Read":
@@ -125,8 +138,136 @@ func PreToolUse(in *HookInput) Output {
 		if kind := helperKind(in.Str("subagent_type"), true); kind != "" {
 			return c.gateHelperStart(kind)
 		}
+	default:
+		if strings.HasPrefix(in.ToolName, "mcp__") {
+			return c.gateMCP()
+		}
 	}
 	return nil
+}
+
+// MCP servers that only look things up or work outside the code (memory,
+// code search, docs, the browser).
+var mcpLookupServers = []string{"mempalace", "socraticode", "context7", "claude-in-chrome", "easel", "claude_ai_"}
+
+var (
+	reMCPShell = regexp.MustCompile(`(^|_)(shell|terminal|exec|execute|run|command|bash|script)(_|$)`)
+	reMCPWrite = regexp.MustCompile(`(^|_)(write|edit|create|delete|remove|replace|insert|rename|move|patch|apply|save|modify|append|restore|reset|format|refactor|update|upload|put|set|add|commit|push|merge|checkout|mkdir|copy|clone)(_|$)`)
+	reCamel    = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+)
+
+// MCPKind: "shell" for a tool that runs commands, "write" for one that
+// changes files or things, "" for lookups. Judged by the tool's name.
+func MCPKind(tool string) string {
+	rest := strings.TrimPrefix(tool, "mcp__")
+	server, name := rest, ""
+	if i := strings.LastIndex(rest, "__"); i >= 0 {
+		server, name = rest[:i], rest[i+2:]
+	}
+	low := strings.ToLower(server)
+	for _, s := range mcpLookupServers {
+		if strings.Contains(low, s) {
+			return ""
+		}
+	}
+	name = strings.ToLower(reCamel.ReplaceAllString(name, "${1}_${2}"))
+	name = strings.ReplaceAll(name, "-", "_")
+	switch {
+	case reMCPShell.MatchString(name):
+		return "shell"
+	case reMCPWrite.MatchString(name):
+		return "write"
+	}
+	return ""
+}
+
+var reMCPShellOnly = regexp.MustCompile(`(^|_)(shell|terminal|bash|command)(_|$)`)
+
+// mcpCommand finds the shell command an MCP tool is given: a string, or a
+// list of words.
+func mcpCommand(input map[string]any) (string, bool) {
+	for _, k := range []string{"command", "cmd", "script", "shell_command", "commandLine", "command_line", "args"} {
+		switch v := input[k].(type) {
+		case string:
+			if strings.TrimSpace(v) != "" {
+				return v, true
+			}
+		case []any:
+			var parts []string
+			for _, x := range v {
+				str, ok := x.(string)
+				if !ok {
+					return "", false
+				}
+				parts = append(parts, syntaxQuote(str, false))
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, " "), true
+			}
+		}
+	}
+	return "", false
+}
+
+// mcpPath is the file an MCP tool names, if any.
+func mcpPath(input map[string]any) string {
+	for _, k := range []string{"relative_path", "file_path", "path", "filepath", "target_file", "filename", "file"} {
+		if v, ok := input[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// gateMCP gives MCP tools the same rules as Bash and Edit: a tool that runs
+// commands goes through the Bash gate; one that names a file goes through
+// the edit gate; any other changing tool waits for the approved plan.
+func (c *hookCtx) gateMCP() Output {
+	kind := MCPKind(c.in.ToolName)
+	if kind == "" {
+		return nil
+	}
+	input := c.in.Input()
+	if kind == "shell" {
+		if cmd, ok := mcpCommand(input); ok {
+			return c.gateBash(cmd)
+		}
+		if reMCPShellOnly.MatchString(strings.ToLower(reCamel.ReplaceAllString(c.in.ToolName, "${1}_${2}"))) {
+			return c.deny("unclear-command", fmt.Sprintf("Plumbline can't find the command %s would run, so it can't be checked. Use the Bash tool.", c.in.ToolName))
+		}
+	}
+	if p := mcpPath(input); p != "" {
+		base := c.root
+		if base == "" {
+			base = c.in.Cwd
+		}
+		return c.gateEdit(Abs(p, base))
+	}
+	if c.paused {
+		return nil
+	}
+	if c.task == nil {
+		return c.ask("mcp-change", fmt.Sprintf("%s may change files or things outside the laptop, and no task is active. Allow it if that's fine now.", c.in.ToolName))
+	}
+	if c.task.Phase != PhaseBuilding {
+		return c.deny("before-approval", fmt.Sprintf("%s may change things, and the plan isn't approved yet. Use read-only tools until the checkpoint.", c.in.ToolName))
+	}
+	return nil
+}
+
+// existingDir is the deepest folder of p that exists.
+func existingDir(p string) string {
+	d := filepath.Dir(p)
+	for {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return d
+		}
+		d = parent
+	}
 }
 
 // hold records a file Claude was refused, so the report must list it.
@@ -177,23 +318,24 @@ func claudeHome() string {
 // isProtectedConfig: Claude Code's own settings, installed plugins, and the
 // global config. Editing these could switch Plumbline off.
 func isProtectedConfig(abs string) bool {
+	abs = foldPath(abs)
 	base := filepath.Base(abs)
 	parent := filepath.Base(filepath.Dir(abs))
-	if parent == ".claude" && (base == "settings.json" || base == "settings.local.json") {
+	if foldPath(parent) == foldPath(".claude") && (base == foldPath("settings.json") || base == foldPath("settings.local.json")) {
 		return true
 	}
 	h, _ := os.UserHomeDir()
-	if abs == filepath.Join(h, ".claude.json") {
+	if abs == foldPath(Abs(filepath.Join(h, ".claude.json"), "/")) {
 		return true
 	}
-	ch := claudeHome()
-	if base == "settings.json" && filepath.Dir(abs) == ch {
+	ch := foldPath(Abs(claudeHome(), "/"))
+	if base == foldPath("settings.json") && filepath.Dir(abs) == ch {
 		return true
 	}
-	if IsInside(abs, filepath.Join(ch, "plugins")) {
+	if IsInside(abs, filepath.Join(ch, foldPath("plugins"))) {
 		return true
 	}
-	if strings.Contains(filepath.ToSlash(abs), "managed-settings") {
+	if strings.Contains(strings.ToLower(filepath.ToSlash(abs)), "managed-settings") {
 		return true
 	}
 	return false
@@ -203,8 +345,8 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if path == "" {
 		return nil
 	}
-	abs := Abs(path, c.in.Cwd)
-	if IsInside(abs, Abs(DataDir(), "/")) {
+	abs := realCase(Abs(path, c.in.Cwd))
+	if isInsideFold(abs, Abs(DataDir(), "/")) {
 		if c.task != nil && IsInside(abs, Abs(TaskDocsDir(c.root, c.task.ID), "/")) && strings.HasSuffix(abs, ".md") {
 			if reFindings.MatchString(filepath.Base(abs)) {
 				return c.deny("helper-findings", "challenge-N.md and review-N.md are the helpers' own findings; only the helper that wrote one can change it. Answer the findings in plan.md (## Challenge note) or report.md (## Review).")
@@ -218,6 +360,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	}
 	if isProtectedConfig(abs) {
 		return c.deny("config-protect", "Claude Code's settings and installed plugins are protected so Plumbline can't be switched off by Claude. Tell the user what to change and why.")
+	}
+	if c.root != "" && isInsideFold(abs, filepath.Join(c.root, ".git")) {
+		return c.deny("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
 	}
 	if c.root != "" && abs == filepath.Join(c.root, RepoSetupFile) {
 		return c.ask("setup-change", "this changes Plumbline's saved project setup, including the commands Claude may run before approval. Check the change before allowing it.")
@@ -238,23 +383,10 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.task.Phase != PhaseBuilding {
 		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at the checkpoint.", c.task.ID, c.task.Phase))
 	}
-	rel := c.task.Rel(abs)
-	if c.task.InPlan(rel) {
-		return nil
+	if rule, reason := c.buildFile(c.task.Rel(abs), 0); rule != "" {
+		return c.deny(rule, reason)
 	}
-	if _, ok := c.task.Preexisting[rel]; ok {
-		c.hold(rel, "your own unsaved changes were in it before the task")
-		return c.deny("user-work", fmt.Sprintf("%s had the user's own unsaved changes before this task started, so Claude doesn't touch it. Keep going with the rest, and list it under \"For you\" in the report.", rel))
-	}
-	if RiskyPath(rel, c.setup) {
-		c.hold(rel, "risky file outside the plan")
-		return c.deny("risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel))
-	}
-	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount() >= OutsidePlanCap {
-		c.log("block", "outside-plan-cap", rel)
-		return c.deny("outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, OutsidePlanCap+1))
-	}
-	return nil // part of the same change: allowed, recorded, and must be listed in the report
+	return nil // in the plan, or part of the same change: allowed, recorded, and must be listed in the report
 }
 
 var (
@@ -264,6 +396,7 @@ var (
 		"terraform": true, "tofu": true, "pulumi": true, "gcloud": true, "az": true, "heroku": true,
 		"fly": true, "flyctl": true, "doctl": true, "firebase": true, "netlify": true, "railway": true,
 		"ssh": true, "scp": true, "cdk": true, "sam": true, "eb": true, "wrangler": true, "render": true,
+		"gh": true, "hub": true, "glab": true,
 	}
 	dbClients = map[string]bool{"psql": true, "mysql": true, "mongosh": true, "mongo": true, "redis-cli": true, "pg_dump": true, "pg_restore": true, "mysqldump": true}
 )
@@ -292,7 +425,7 @@ func (c *hookCtx) isSaved(cmd string, seg *Segment) bool {
 		if strings.TrimSpace(cmd) == s {
 			return true
 		}
-		if seg != nil {
+		if seg != nil && !seg.unknownArgs() && len(seg.Env) == 0 && seg.Opaque == "" && redirectsHarmless(*seg) {
 			for _, ss := range Segments(s) {
 				if wordsEqual(ss.Words, seg.Words) {
 					return true
@@ -303,10 +436,30 @@ func (c *hookCtx) isSaved(cmd string, seg *Segment) bool {
 	return false
 }
 
+func redirectsHarmless(s Segment) bool {
+	for _, r := range s.Redirects {
+		if !harmlessRedirect(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// foldPath: macOS disks ignore case, so ~/.PLUMBLINE is ~/.plumbline.
+func foldPath(p string) string {
+	if runtime.GOOS == "darwin" {
+		return strings.ToLower(p)
+	}
+	return p
+}
+
+func isInsideFold(path, dir string) bool { return IsInside(foldPath(path), foldPath(dir)) }
+
 func mentionsDataDir(s Segment) bool {
-	dd := DataDir()
+	dd := strings.ToLower(DataDir())
 	for _, w := range append(append([]string{}, s.Words...), s.Redirects...) {
-		if strings.Contains(w, dd) || strings.Contains(w, "/.plumbline/") || strings.HasSuffix(w, "/.plumbline") || strings.HasPrefix(w, "~/.plumbline") || strings.HasPrefix(w, "$HOME/.plumbline") || strings.HasPrefix(w, ".plumbline/") {
+		w = strings.ToLower(w)
+		if strings.Contains(w, dd) || strings.Contains(w, "/.plumbline/") || strings.HasSuffix(w, "/.plumbline") || strings.HasPrefix(w, "~/.plumbline") || strings.HasPrefix(w, "$home/.plumbline") || strings.HasPrefix(w, "${home}/.plumbline") || strings.HasPrefix(w, ".plumbline/") {
 			return true
 		}
 	}
@@ -314,11 +467,15 @@ func mentionsDataDir(s Segment) bool {
 }
 
 func mentionsProtectedConfig(s Segment, cwd string) bool {
+	if s.Dir != "" {
+		cwd = s.Dir
+	}
 	for _, w := range append(append([]string{}, s.Words...), s.Redirects...) {
-		if strings.Contains(w, ".claude/settings") || strings.HasSuffix(w, ".claude.json") || strings.Contains(w, ".claude/plugins") || strings.Contains(w, "managed-settings") {
+		low := strings.ToLower(w)
+		if strings.Contains(low, ".claude/settings") || strings.HasSuffix(low, ".claude.json") || strings.Contains(low, ".claude/plugins") || strings.Contains(low, "managed-settings") {
 			return true
 		}
-		if strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") || strings.HasPrefix(w, ".") {
+		if strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") || strings.HasPrefix(w, ".") && s.Dir != "" {
 			if isProtectedConfig(Abs(w, cwd)) {
 				return true
 			}
@@ -337,10 +494,10 @@ func plumblineReads(s Segment) bool {
 		return false
 	}
 	switch s.Arg(1) {
-	case "status", "docs-dir", "version", "--version", "-v", "stats", "help", "--help", "-h":
+	case "status", "docs-dir", "version", "--version", "-v", "stats", "help", "--help", "-h", "":
 		return true
 	case "task":
-		return s.Arg(2) == "show" || s.Arg(2) == "list"
+		return s.Arg(2) == "show" || s.Arg(2) == "list" || s.Arg(2) == ""
 	case "setup":
 		return s.Arg(2) == "show" || s.Arg(2) == ""
 	}
@@ -367,17 +524,110 @@ func (v *verdicts) a(rule, r string) {
 	v.ask = append(v.ask, r)
 }
 
+// targetAbs resolves a file a segment writes, or "" when its folder isn't
+// known (a cd to somewhere unknown came first).
+func targetAbs(s Segment, t string) string {
+	if filepath.IsAbs(t) {
+		return realCase(Abs(t, "/"))
+	}
+	if s.Dir == "" {
+		return ""
+	}
+	return realCase(Abs(t, s.Dir))
+}
+
+// protectedRoots are folders no command may write files into wholesale.
+func (c *hookCtx) protectedRoots() []string {
+	h, _ := os.UserHomeDir()
+	roots := []string{Abs(DataDir(), "/"), Abs(claudeHome(), "/"), Abs(filepath.Join(h, ".claude"), "/")}
+	if c.root != "" {
+		roots = append(roots, filepath.Join(c.root, ".git"))
+	}
+	return roots
+}
+
+// isGitConfig: git's global config files.
+func isGitConfig(abs string) bool {
+	h, _ := os.UserHomeDir()
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		xdg = filepath.Join(h, ".config")
+	}
+	f := foldPath(abs)
+	return f == foldPath(filepath.Join(h, ".gitconfig")) || f == foldPath(filepath.Join(xdg, "git", "config"))
+}
+
+// protectedBase: names that are Claude Code's settings wherever they are, for
+// writes whose folder isn't known.
+func protectedBase(t string) bool {
+	switch strings.ToLower(filepath.Base(t)) {
+	case "settings.json", "settings.local.json", ".claude.json":
+		return true
+	}
+	return false
+}
+
+// buildFile is the building-phase rule for one file outside the plan, shared
+// by edits, terminal commands and MCP tools. pending counts other new
+// outside-plan files in the same command. It returns the rule and the reason
+// when the file is refused.
+func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
+	if c.task.InPlan(rel) {
+		return "", ""
+	}
+	if _, ok := c.task.Preexisting[rel]; ok {
+		c.hold(rel, "your own unsaved changes were in it before the task")
+		return "user-work", fmt.Sprintf("%s had the user's own unsaved changes before this task started, so Claude doesn't touch it. Keep going with the rest, and list it under \"For you\" in the report.", rel)
+	}
+	if RiskyPath(rel, c.setup) {
+		c.hold(rel, "risky file outside the plan")
+		return "risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel)
+	}
+	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount()+pending >= OutsidePlanCap {
+		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, c.task.OutsideCount()+pending+1)
+	}
+	return "", ""
+}
+
+// Variables that switch commit hooks off.
+func skipsHooks(e string) bool {
+	name, val, _ := strings.Cut(e, "=")
+	switch {
+	case name == "HUSKY" && val != "1" && val != "true", name == "HUSKY_SKIP_HOOKS", name == "SKIP", name == "PRE_COMMIT_ALLOW_NO_CONFIG",
+		strings.HasPrefix(name, "GIT_CONFIG"):
+		return true
+	}
+	return false
+}
+
 func (c *hookCtx) gateBash(cmd string) Output {
 	if strings.TrimSpace(cmd) == "" {
 		return nil
 	}
-	segs := Segments(cmd)
+	segs := ParseShell(cmd, c.in.Cwd)
 	v := &verdicts{}
 	allQuiet := true // every segment reads only, or is a saved command
-	hasCommit := false
+	var commits []Segment
+	addsAll := false
+	var added []string
+	building := c.task != nil && c.task.Phase == PhaseBuilding && !c.paused
+	pending := map[string]bool{}
+	hookEnv := false
+	for i := range segs {
+		for _, e := range segs[i].Env {
+			if skipsHooks(e) {
+				hookEnv = true
+			}
+		}
+	}
 	for i := range segs {
 		s := segs[i]
 		name := s.Name()
+		if s.Opaque != "" {
+			v.d("unclear-command", fmt.Sprintf("Plumbline can't tell what this runs: %s. Write the command out plainly (no eval, no command name in a variable, no shell reading commands from a pipe) so every part can be checked.", s.Opaque))
+			allQuiet = false
+			continue
+		}
 		quiet := ReadOnly(s)
 		switch {
 		case name == "claude":
@@ -406,31 +656,49 @@ func (c *hookCtx) gateBash(cmd string) Output {
 					v.a("adopt", "this continues an earlier task in this session.")
 				}
 			case "run":
-				if s.Arg(2) == "proof" {
-					inner := afterDashes(s.Words)
-					if len(inner) > 0 {
-						is := Segment{Words: inner}
-						quiet = ReadOnly(is) || c.isSaved(strings.Join(inner, " "), &is)
-					} else {
-						quiet = true
-					}
-				} else {
-					quiet = true // runs a saved command
-				}
+				quiet = true // a saved command, or proof whose command after -- is its own segment
 			}
-			if s.Arg(1) == "task" && s.Arg(2) == "start" || s.Arg(1) == "task" && s.Arg(2) == "tool-down" || s.Arg(1) == "task" && s.Arg(2) == "finish" || plumblineReads(s) {
+			if s.Arg(1) == "task" && (s.Arg(2) == "start" || s.Arg(2) == "tool-down" || s.Arg(2) == "finish") {
 				quiet = true
 			}
 		case name == "git":
 			sub, args := GitSub(s)
+			configs, _ := gitGlobals(s)
+			for _, cf := range configs {
+				if strings.HasPrefix(strings.ToLower(cf), "core.hookspath") {
+					v.d("no-verify", "pointing core.hooksPath elsewhere skips the commit hooks, which is blocked for Claude.")
+				}
+			}
 			switch sub {
 			case "push":
 				v.d("no-push", "pushing is always the user's job. Tell them the branch is ready to push.")
 			case "commit":
-				hasCommit = true
+				commits = append(commits, s)
+			case "add":
 				for _, a := range args {
-					if a == "--no-verify" || a == "-n" || (strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "n") && !strings.ContainsAny(a, "m")) {
-						v.d("no-verify", "--no-verify is blocked for Claude.")
+					if a == "-A" || a == "--all" || a == "." || a == ":/" || strings.HasPrefix(a, "-") && strings.Contains(shortFlags(a), "A") {
+						addsAll = true
+					} else if !strings.HasPrefix(a, "-") {
+						added = append(added, a)
+					}
+				}
+			case "revert":
+				if !contains(args, "-n") && !contains(args, "--no-commit") {
+					v.d("commit-rule", "git revert makes a commit that skips the commit rule. Use git revert --no-commit, then commit with the usual message.")
+				}
+			case "commit-tree", "update-ref", "symbolic-ref", "replace", "notes":
+				if !(sub == "symbolic-ref" && len(args) <= 1) && !(sub == "notes" && (len(args) == 0 || args[0] == "list" || args[0] == "show")) {
+					v.d("commit-rule", "plumbing commands that write commits or move branches skip the commit rule. Use git commit.")
+				}
+			case "config":
+				for k, a := range args {
+					if !strings.EqualFold(a, "core.hooksPath") {
+						continue
+					}
+					for _, rest := range args[k+1:] {
+						if !strings.HasPrefix(rest, "-") {
+							v.d("no-verify", "pointing core.hooksPath elsewhere skips the commit hooks, which is blocked for Claude.")
+						}
 					}
 				}
 			case "reset":
@@ -475,17 +743,48 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 		}
 		if f := ReadsSecretFile(s); f != "" {
-			v.a("secret-read", fmt.Sprintf("this shows the values in %s in the chat. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).", filepath.Base(f)))
+			v.a("secret-read", fmt.Sprintf("this shows or sends the values in %s. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).", filepath.Base(f)))
 		}
-		for _, r := range s.Redirects {
-			if IsSecretFile(r) {
-				v.d("secret-edit", "Claude doesn't write to .env or key files. Tell the user the variable name to add.")
+		for _, t := range TreeTargets(s) {
+			abs := targetAbs(s, t)
+			if abs == "" {
+				v.d("config-protect", "this writes files into a folder Plumbline can't work out. Give the folder as a full path.")
+				continue
+			}
+			for _, p := range c.protectedRoots() {
+				if isInsideFold(abs, p) || isInsideFold(p, abs) {
+					v.d("config-protect", fmt.Sprintf("this writes files anywhere inside %s, which holds %s. Extract or copy into a folder that doesn't.", abs, p))
+				}
 			}
 		}
-		if !quiet && !isPlumblineBin(name) {
-			for _, w := range s.Words[1:] {
-				if IsSecretFile(w) && (name == "sed" || name == "cp" || name == "mv" || name == "tee" || name == "rm" || name == "truncate" || name == "perl" || name == "ln") {
-					v.d("secret-edit", "Claude doesn't change .env or key files. Tell the user the variable name to add.")
+		targets := WriteTargets(s)
+		for _, t := range targets {
+			if IsSecretFile(t) {
+				v.d("secret-edit", "Claude doesn't write to .env or key files. Tell the user the variable name to add.")
+			}
+			if isPlumblineBin(name) {
+				continue
+			}
+			abs := targetAbs(s, t)
+			switch {
+			case abs == "" && protectedBase(t):
+				v.d("config-protect", fmt.Sprintf("%s is written in a folder Plumbline can't work out, and Claude Code's settings are protected. Write to it with a full path, or tell the user what to change.", t))
+			case abs == "" && strings.Contains(strings.ToLower(t), "plumbline"):
+				v.d("own-files", "Plumbline's own files can't be changed from the terminal, and this writes in a folder Plumbline can't work out.")
+			case abs != "" && isInsideFold(abs, DataDir()):
+				v.d("own-files", "Plumbline's own files can't be changed from the terminal. Use the plumbline command.")
+			case abs != "" && isProtectedConfig(abs):
+				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
+			case abs != "" && isGitConfig(abs):
+				v.d("git-internals", "git's config files can change what every git command does. Use git commands, or tell the user what to change.")
+			case abs != "" && c.root != "" && isInsideFold(abs, filepath.Join(c.root, ".git")):
+				v.d("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
+			case building && abs != "" && IsInside(abs, c.root):
+				rel := c.task.Rel(abs)
+				if rule, reason := c.buildFile(rel, len(pending)); rule != "" {
+					v.d(rule, reason)
+				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) {
+					pending[rel] = true
 				}
 			}
 		}
@@ -521,7 +820,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if name == "curl" || name == "wget" || name == "http" {
 			if !isLocalHost(joined) {
 				for _, w := range s.Words {
-					if w == "-X" || w == "--request" || w == "-d" || strings.HasPrefix(w, "--data") || w == "-F" || w == "--form" || w == "-T" || w == "--upload-file" {
+					if w == "-X" || w == "--request" || strings.HasPrefix(w, "-d") || strings.HasPrefix(w, "--data") || strings.HasPrefix(w, "-F") || strings.HasPrefix(w, "--form") || strings.HasPrefix(w, "-T") || strings.HasPrefix(w, "--upload-file") || strings.HasPrefix(w, "--post-") || strings.HasPrefix(w, "--body-") || strings.HasPrefix(w, "--method") {
 						v.a("outside-laptop", "this sends data to a server outside your laptop.")
 						break
 					}
@@ -532,11 +831,24 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			allQuiet = false
 		}
 	}
-	if hasCommit && len(v.deny) == 0 {
-		if o := c.gateCommit(cmd); o != nil {
-			return o
+	for _, s := range commits {
+		ci := ParseCommit(s)
+		if ci.NoVerify || hookEnv {
+			v.d("no-verify", "skipping the commit hooks (--no-verify, -n, HUSKY=0, SKIP=, GIT_CONFIG_*) is blocked for Claude.")
 		}
 	}
+	if len(v.deny) == 0 {
+		// every commit in the line, each in its own repo
+		for _, s := range commits {
+			switch d, rule, reason := c.gateCommit(s, addsAll, added); d {
+			case "deny":
+				v.d(rule, reason)
+			case "ask":
+				v.a(rule, reason)
+			}
+		}
+	}
+	hasCommit := len(commits) > 0
 	if len(v.deny) > 0 {
 		return c.deny(v.denyRule, strings.Join(uniq(v.deny), " "))
 	}
@@ -566,75 +878,86 @@ func contains(s []string, x string) bool {
 	return false
 }
 
-func afterDashes(w []string) []string {
-	for i, x := range w {
-		if x == "--" {
-			return w[i+1:]
+// gateCommit is the commit rule: no commit without proof on the current code.
+// A commit in another repo (git -C, cd) is checked against that repo's task.
+func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision, rule, reason string) {
+	ctx := c
+	if d := gitDir(s); d != "" {
+		if r := RepoRoot(d); r != "" && r != c.root {
+			in := *c.in
+			in.Cwd = d
+			sub := newCtx(&in)
+			defer sub.close()
+			ctx = sub
 		}
 	}
-	return nil
-}
-
-// gateCommit is the commit rule: no commit without proof on the current code.
-func (c *hookCtx) gateCommit(cmd string) Output {
-	if c.root == "" {
-		return nil
+	if ctx.root == "" {
+		return "", "", "" // not in a repo: git refuses it
 	}
-	m, ok := ParseCommitMessage(cmd, c.in.Cwd)
-	if !ok {
-		return c.deny("commit-message", "write the commit message with -m \"...\" so it can be checked.")
+	ci := ParseCommit(s)
+	if ci.MsgBad != "" {
+		return "deny", "commit-message", ci.MsgBad + "."
 	}
-	var problems []string
-	if c.setup != nil {
-		problems = append(problems, CheckCommitMessage(m, c.setup)...)
-	} else {
-		problems = append(problems, CheckCommitMessage(m, nil)...)
+	if !ci.MsgFound {
+		return "deny", "commit-message", "write the commit message with -m \"...\" so it can be checked."
 	}
-	if secrets := c.scanForCommit(cmd); len(secrets) > 0 {
-		return c.deny("secrets", "this commit looks like it contains secrets: "+strings.Join(secrets, "; ")+". Move them to environment variables (the value never goes in the repo), then commit.")
+	m := ci.Message
+	problems := CheckCommitMessage(m, ctx.setup)
+	if secrets := ctx.scanForCommit(ci, addsAll); len(secrets) > 0 {
+		return "deny", "secrets", "this commit looks like it contains secrets: " + strings.Join(secrets, "; ") + ". Move them to environment variables (the value never goes in the repo), then commit."
 	}
 	if len(problems) > 0 {
-		return c.deny("commit-message", strings.Join(problems, "; ")+".")
+		return "deny", "commit-message", strings.Join(problems, "; ") + "."
 	}
 	subject := strings.SplitN(strings.TrimSpace(m), "\n", 2)[0]
-	if c.paused {
-		return c.ask("commit", fmt.Sprintf("commit \"%s\" (Plumbline is paused, so proof isn't checked).", subject))
+	if ctx.paused {
+		return "ask", "commit", fmt.Sprintf("commit \"%s\" (Plumbline is paused, so proof isn't checked).", subject)
 	}
-	if c.task == nil {
-		return c.deny("commit-no-task", "commits happen inside a task, after the report and the user's OK. If this commit is outside any task, the user can pause Plumbline with /plumbline:pause.")
+	if ctx.task == nil {
+		return "deny", "commit-no-task", "commits happen inside a task, after the report and the user's OK. If this commit is outside any task, the user can pause Plumbline with /plumbline:pause."
 	}
-	if c.task.Phase != PhaseBuilding {
-		return c.deny("commit-phase", fmt.Sprintf("task %s is at the %s step; nothing can be committed before the plan is approved and proven.", c.task.ID, c.task.Phase))
+	if ctx.task.Phase != PhaseBuilding {
+		return "deny", "commit-phase", fmt.Sprintf("task %s is at the %s step; nothing can be committed before the plan is approved and proven.", ctx.task.ID, ctx.task.Phase)
 	}
-	if !c.setupOK || c.setup == nil {
-		return c.deny("setup", "the project setup isn't confirmed, so its test command can't be trusted. Run /plumbline:setup.")
+	if !ctx.setupOK || ctx.setup == nil {
+		return "deny", "setup", "the project setup isn't confirmed, so its test command can't be trusted. Run /plumbline:setup."
 	}
-	final := c.isFinalCommit(cmd)
-	missing := ProofMissing(c.task, c.setup, final)
+	final := ctx.isFinalCommit(ci, addsAll, added)
+	missing := ProofMissing(ctx.task, ctx.setup, final)
 	if len(missing) > 0 {
-		return c.deny("commit-proof", "no commit without proof on the current code: "+strings.Join(missing, "; ")+".")
+		return "deny", "commit-proof", "no commit without proof on the current code: " + strings.Join(missing, "; ") + "."
 	}
 	kind := "slice commit, related tests passed"
 	if final {
 		kind = "last commit of the task, full suite passed"
 	}
-	return c.ask("commit", fmt.Sprintf("commit \"%s\" (%s).", subject, kind))
+	return "ask", "commit", fmt.Sprintf("commit \"%s\" (%s).", subject, kind)
 }
 
-func (c *hookCtx) scanForCommit(cmd string) []string {
+// scanForCommit scans what the commit will hold: the staged diff, plus the
+// working-tree changes of -a, git add -A, or the pathspecs given.
+func (c *hookCtx) scanForCommit(ci CommitInfo, addsAll bool) []string {
 	diff := StagedDiff(c.root)
-	if strings.Contains(cmd, "-a") || strings.Contains(cmd, "git add") || strings.Contains(cmd, "--all") {
-		diff += "\n" + WorkingDiff(c.root, "HEAD")
-		if d, err := DirtyFiles(c.root); err == nil {
-			for p := range d {
-				full := filepath.Join(c.root, p)
-				if _, err := gitOut(c.root, "ls-files", "--error-unmatch", p); err != nil {
-					if fi, err := os.Stat(full); err == nil && fi.Size() < 1<<20 && !fi.IsDir() {
-						b, _ := os.ReadFile(full)
-						diff += "\n+++ b/" + p + "\n@@ -0,0 +1 @@\n"
-						for _, l := range strings.Split(string(b), "\n") {
-							diff += "+" + l + "\n"
-						}
+	var paths []string
+	if !ci.All && !addsAll {
+		if len(ci.Paths) == 0 {
+			return uniq(ScanSecrets(diff))
+		}
+		paths = ci.Paths
+	}
+	diff += "\n" + WorkingDiffPaths(c.root, "HEAD", paths)
+	if d, err := DirtyFiles(c.root); err == nil {
+		for p := range d {
+			if paths != nil && !pathspecMatch(paths, p) {
+				continue
+			}
+			full := filepath.Join(c.root, p)
+			if _, err := gitOut(c.root, "ls-files", "--error-unmatch", p); err != nil {
+				if fi, err := os.Stat(full); err == nil && fi.Size() < 1<<20 && !fi.IsDir() {
+					b, _ := os.ReadFile(full)
+					diff += "\n+++ b/" + p + "\n@@ -0,0 +1 @@\n"
+					for _, l := range strings.Split(string(b), "\n") {
+						diff += "+" + l + "\n"
 					}
 				}
 			}
@@ -643,8 +966,23 @@ func (c *hookCtx) scanForCommit(cmd string) []string {
 	return uniq(ScanSecrets(diff))
 }
 
+// pathspecMatch: a repo-relative file is named by one of the pathspecs (the
+// file, a folder holding it, or a pattern).
+func pathspecMatch(specs []string, rel string) bool {
+	for _, s := range specs {
+		s = strings.TrimPrefix(filepath.ToSlash(s), "./")
+		if s == "." || s == rel || strings.HasPrefix(rel, strings.TrimSuffix(s, "/")+"/") {
+			return true
+		}
+		if ok, _ := filepath.Match(s, rel); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // isFinalCommit: this commit leaves no task changes behind.
-func (c *hookCtx) isFinalCommit(cmd string) bool {
+func (c *hookCtx) isFinalCommit(ci CommitInfo, addsAll bool, added []string) bool {
 	dirty, err := DirtyFiles(c.root)
 	if err != nil {
 		return true
@@ -653,7 +991,8 @@ func (c *hookCtx) isFinalCommit(cmd string) bool {
 	for _, p := range StagedFiles(c.root) {
 		staged[p] = true
 	}
-	all := strings.Contains(cmd, " -a") || strings.Contains(cmd, "--all") || strings.Contains(cmd, "git add -A") || strings.Contains(cmd, "git add .") || strings.Contains(cmd, "git add --all")
+	all := ci.All || addsAll
+	named := append(append([]string{}, ci.Paths...), added...)
 	for p := range dirty {
 		if _, mine := c.task.Preexisting[p]; mine {
 			continue
@@ -661,7 +1000,7 @@ func (c *hookCtx) isFinalCommit(cmd string) bool {
 		if c.setup != nil && MatchAny(c.setup.IgnoreChanges, p) {
 			continue
 		}
-		if !staged[p] && !all && !strings.Contains(cmd, p) {
+		if !staged[p] && !all && !pathspecMatch(named, p) {
 			return false
 		}
 	}
@@ -743,12 +1082,16 @@ func checkpointOf(q question) int {
 
 func (c *hookCtx) gateQuestion() Output {
 	qs, answers := c.questions()
-	cp := 0
+	cp, found := 0, 0
 	var cq question
 	for _, q := range qs {
 		if n := checkpointOf(q); n > 0 {
 			cp, cq = n, q
+			found++
 		}
+	}
+	if found > 1 {
+		return c.deny("checkpoint-format", "ask one checkpoint question per prompt, on its own, so the answer the user gives is the one that's recorded.")
 	}
 	if len(answers) > 0 && cp > 0 {
 		return c.deny("self-approval", "checkpoint questions can't come pre-answered. Only the user answers them.")

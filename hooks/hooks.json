@@ -36,7 +36,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|AskUserQuestion|Agent|Task",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|AskUserQuestion|Agent|Task|mcp__.*",
         "hooks": [
           {
             "type": "command",

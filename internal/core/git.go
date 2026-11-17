@@ -150,10 +150,14 @@ func StagedDiff(root string) string {
 	return out
 }
 
-func WorkingDiff(root, base string) string {
+// WorkingDiffPaths is the working-tree diff, limited to paths when given.
+func WorkingDiffPaths(root, base string, paths []string) string {
 	args := []string{"diff", "-U0", "--no-color"}
 	if base != "" {
 		args = append(args, base)
+	}
+	if len(paths) > 0 {
+		args = append(append(args, "--"), paths...)
 	}
 	out, _ := gitOut(root, args...)
 	return out

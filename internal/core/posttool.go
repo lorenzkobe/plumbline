@@ -23,12 +23,14 @@ func jsonUnmarshal(b []byte, v any) error {
 	return json.Unmarshal(b, v)
 }
 
-func snapPath(sessionID string) string {
-	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".snap.json")
+// The snapshot is per session and repo: a command run in another repo is
+// compared with that repo's own earlier state.
+func snapPath(sessionID, root string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+"."+ProjectKey(root)+".snap.json")
 }
 
-func loadSnap(sessionID string) map[string]string {
-	b, err := os.ReadFile(snapPath(sessionID))
+func loadSnap(sessionID, root string) map[string]string {
+	b, err := os.ReadFile(snapPath(sessionID, root))
 	if err != nil {
 		return nil
 	}
@@ -39,9 +41,9 @@ func loadSnap(sessionID string) map[string]string {
 	return m
 }
 
-func saveSnap(sessionID string, m map[string]string) {
+func saveSnap(sessionID, root string, m map[string]string) {
 	b, _ := json.Marshal(m)
-	_ = writeFileAtomic(snapPath(sessionID), b)
+	_ = writeFileAtomic(snapPath(sessionID, root), b)
 }
 
 // RefreshSnapshot records the dirty files as they are now, so the next
@@ -51,7 +53,7 @@ func RefreshSnapshot(sessionID, root string) {
 		return
 	}
 	if d, err := DirtyFiles(root); err == nil {
-		saveSnap(sessionID, d)
+		saveSnap(sessionID, root, d)
 	}
 }
 
@@ -104,6 +106,8 @@ func PostToolUse(in *HookInput) Output {
 		return c.afterBash()
 	case in.ToolName == "AskUserQuestion":
 		return c.afterQuestion()
+	case strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
+		return c.checkChanged(nil)
 	case strings.HasPrefix(in.ToolName, "mcp__"):
 		if c.task != nil {
 			if fam := lookupFamily(in.ToolName); fam != "" {
@@ -135,46 +139,106 @@ func (c *hookCtx) afterBash() Output {
 	in := c.in
 	cmd := in.Str("command")
 	out := responseText(in.ToolResponse)
-	// Bind a task that was just started to this session.
-	if m := reTaskStarted.FindStringSubmatch(out); m != nil && strings.Contains(cmd, "plumbline") {
-		if t, err := LoadTask(c.root, m[1]); err == nil && t.SessionID == "" {
-			t.SessionID = in.SessionID
-			_ = SaveTask(t)
-			_ = BindSession(in.SessionID, t)
-			c.task = t
+	segs := ParseShell(cmd, in.Cwd)
+	// Bind a task to this session only on a real plumbline task start or
+	// adopt: printing the id line some other way binds nothing.
+	onlyPlumbline := len(segs) > 0
+	var start, adopt *Segment
+	for i := range segs {
+		s := &segs[i]
+		switch {
+		case isPlumblineBin(s.Name()) && s.Arg(1) == "task" && s.Arg(2) == "start":
+			start = s
+		case isPlumblineBin(s.Name()) && s.Arg(1) == "task" && s.Arg(2) == "adopt":
+			adopt = s
+		case isPlumblineBin(s.Name()), s.Name() == "cd", s.Name() == "" && len(s.Env) == 0:
+		default:
+			onlyPlumbline = false
 		}
 	}
-	if m := reAdopted.FindStringSubmatch(out); m != nil && strings.Contains(cmd, "plumbline") {
-		if t, err := LoadTask(c.root, m[1]); err == nil && t.Open() {
-			t.SessionID = in.SessionID
-			_ = SaveTask(t)
-			_ = BindSession(in.SessionID, t)
-			c.task = t
-		}
+	if m := reTaskStarted.FindStringSubmatch(out); m != nil && start != nil && onlyPlumbline {
+		c.bind(m[1], true)
 	}
-	if c.task != nil && strings.Contains(cmd, "git") && strings.Contains(cmd, "commit") && !strings.Contains(out, "nothing to commit") {
-		for _, s := range Segments(cmd) {
-			if sub, _ := GitSub(s); sub == "commit" {
+	if m := reAdopted.FindStringSubmatch(out); m != nil && adopt != nil && onlyPlumbline && contains(adopt.Words[3:], m[1]) {
+		c.bind(m[1], false)
+	}
+	if c.task != nil {
+		for _, s := range segs {
+			if sub, _ := GitSub(s); sub == "commit" && !strings.Contains(out, "nothing to commit") {
 				c.task.Commits++
 				_ = SaveTask(c.task)
 				c.log("commit", "commit", "")
 				break
 			}
 		}
+		c.followBranch(segs)
 	}
-	// Changed-files check.
-	prev := loadSnap(in.SessionID)
+	return c.checkChanged(segs)
+}
+
+// bind binds a task to this session, under that task's lock. A new task
+// must not be bound to another session already.
+func (c *hookCtx) bind(id string, mustBeNew bool) {
+	if c.task == nil || c.task.ID != id {
+		c.close() // the lock held belongs to another task
+		c.unlock = LockTask(c.root, id)
+	}
+	t, err := LoadTask(c.root, id)
+	if err != nil || !t.Open() || mustBeNew && t.SessionID != "" {
+		return
+	}
+	t.SessionID = c.in.SessionID
+	_ = SaveTask(t)
+	_ = BindSession(c.in.SessionID, t)
+	c.task = t
+}
+
+// followBranch keeps the task on its branch after git checkout -b or switch,
+// so the plumbline commands (which find the task by branch) still find it.
+func (c *hookCtx) followBranch(segs []Segment) {
+	moved := false
+	for _, s := range segs {
+		sub, _ := GitSub(s)
+		if sub == "checkout" || sub == "switch" || sub == "branch" || s.Name() == "gh" {
+			moved = true
+		}
+	}
+	if !moved {
+		return
+	}
+	br := CurrentBranch(c.root)
+	if br == "" || br == "HEAD" || br == c.task.Branch {
+		return
+	}
+	c.task.Branch = br
+	_ = SaveTask(c.task)
+}
+
+// checkChanged is the changed-files check after a terminal command or an MCP
+// tool that may change files.
+func (c *hookCtx) checkChanged(segs []Segment) Output {
+	in := c.in
+	prev := loadSnap(in.SessionID, c.root)
 	now, err := DirtyFiles(c.root)
 	if err != nil {
 		return nil
 	}
-	saveSnap(in.SessionID, now)
+	saveSnap(in.SessionID, c.root, now)
 	if prev == nil || c.paused {
 		return nil
+	}
+	setupSaved := false
+	for _, s := range segs {
+		if isPlumblineBin(s.Name()) && s.Arg(1) == "setup" && s.Arg(2) == "save" {
+			setupSaved = true // asked for and allowed; not a change to stop for
+		}
 	}
 	var changed []string
 	for _, p := range Changed(prev, now) {
 		if c.setup != nil && MatchAny(c.setup.IgnoreChanges, p) {
+			continue
+		}
+		if setupSaved && p == RepoSetupFile {
 			continue
 		}
 		changed = append(changed, p)
@@ -191,33 +255,48 @@ func (c *hookCtx) afterBash() Output {
 		c.log("block", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
 		return StopAll(msg(fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))))
 	}
-	// During building the user is often away: record and tell Claude, don't stop.
-	var outside, theirs []string
+	// During building the user is often away: record and tell Claude; stop
+	// only when the plan looks wrong.
+	var outside, theirs, risky []string
+	held := func(p, why string) {
+		if c.task.Held == nil {
+			c.task.Held = map[string]string{}
+		}
+		c.task.Held[p] = why
+	}
 	for _, p := range changed {
-		if _, mine := c.task.Preexisting[p]; mine {
-			theirs = append(theirs, p)
-			if c.task.Held == nil {
-				c.task.Held = map[string]string{}
-			}
-			c.task.Held[p] = "a terminal command changed it, and it held the user's own unsaved work"
+		if c.task.InPlan(p) {
 			continue
 		}
-		if !c.task.InPlan(p) {
-			outside = append(outside, p)
-			c.task.NoteOutside(p, "changed by a terminal command")
+		if _, mine := c.task.Preexisting[p]; mine {
+			theirs = append(theirs, p)
+			held(p, "a terminal command changed it, and it held the user's own unsaved work")
+			continue
 		}
+		if RiskyPath(p, c.setup) {
+			risky = append(risky, p)
+			held(p, "a terminal command changed this risky file outside the plan")
+			continue
+		}
+		outside = append(outside, p)
+		c.task.NoteOutside(p, "changed by a terminal command")
 	}
-	if len(outside)+len(theirs) == 0 {
+	if len(outside)+len(theirs)+len(risky) == 0 {
 		return nil
 	}
 	_ = SaveTask(c.task)
-	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)))
+	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)+len(risky)))
 	var b strings.Builder
 	if len(theirs) > 0 {
 		fmt.Fprintf(&b, "that command changed files that held the user's own unsaved work: %s. Don't change them further; put them first under \"For you\" in the report. ", listFiles(theirs))
 	}
+	if len(risky) > 0 {
+		fmt.Fprintf(&b, "that command changed risky files outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))
+	}
 	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
-		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan was likely wrong: stop and ask the user (with your suggestion) whether to go back to the plan (plumbline task replan) or undo these.", listFiles(outside), OutsidePlanCap)
+		c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
+		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan was likely wrong. The work is stopped: the user decides whether to go back to the plan (plumbline task replan) or undo these.", listFiles(outside), OutsidePlanCap)
+		return StopAll(msg(b.String()))
 	} else if len(outside) > 0 {
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
 	}
@@ -370,6 +449,10 @@ func (c *hookCtx) afterQuestion() Output {
 			}
 			return Context("PostToolUse", msg(fmt.Sprintf("the checkpoint (%d) was not approved. Work on what the user asked, then ask again.", cp)))
 		}
+		if problems := c.checkpointProblems(cp); len(problems) > 0 {
+			c.log("block", fmt.Sprintf("checkpoint%d", cp), "approved but not ready")
+			return Context("PostToolUse", msg(fmt.Sprintf("the approval can't be recorded, because the checkpoint isn't ready any more: %s. Fix that and ask the checkpoint again.", strings.Join(problems, "; "))))
+		}
 		t := c.task
 		switch {
 		case cp == 1 && t.Phase == PhaseUnderstanding:
@@ -389,6 +472,8 @@ func (c *hookCtx) afterQuestion() Output {
 			t.PlanFiles = pc.Files
 			t.ProofKinds = pc.ProofKinds
 			t.ApprovedCmds = pc.Approved
+			t.CaseTests = pc.CaseTests
+			t.CasesStored = true
 			t.PlanHash = sha256Hex([]byte(text))
 		default:
 			continue

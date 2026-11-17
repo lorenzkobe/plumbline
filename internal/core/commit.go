@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 var secretPatterns = []struct {
@@ -154,60 +156,240 @@ func CheckCommitMessage(msg string, s *Setup) []string {
 	return out
 }
 
-// ParseCommitMessage pulls the message out of a git commit command.
-// ok is false when the message comes from an editor (no -m/-F).
-func ParseCommitMessage(cmd, cwd string) (msg string, ok bool) {
-	// heredoc form: -m "$(cat <<'EOF' ... EOF)"
-	if i := strings.Index(cmd, "<<"); i >= 0 {
-		rest := cmd[i+2:]
-		rest = strings.TrimLeft(rest, "-")
-		rest = strings.TrimSpace(rest)
-		tag := strings.Trim(strings.Fields(rest + " x")[0], `'"`)
-		if nl := strings.Index(rest, "\n"); nl >= 0 && tag != "" {
-			body := rest[nl+1:]
-			if end := strings.Index(body, "\n"+tag); end >= 0 {
-				return body[:end], true
-			}
-			if strings.HasPrefix(body, tag) {
-				return "", true
-			}
+// CommitInfo is what a git commit command does, as git reads its options.
+type CommitInfo struct {
+	Message  string   // -m, -F, --trailer text together
+	MsgFound bool     // a message was given (not the editor)
+	MsgBad   string   // the message can't be known before it runs, and why
+	NoVerify bool     // -n, --no-verify (or a unique prefix of it)
+	All      bool     // -a: every tracked change
+	Paths    []string // pathspecs: those files' working-tree changes are committed
+	Amend    bool
+}
+
+// git commit's long options, for git's unique-prefix rule (--no-verif is
+// --no-verify; --no-ver is ambiguous with --no-verbose and refused by git).
+var commitLong = strings.Fields(`all patch reuse-message reedit-message fixup squash reset-author short branch
+	porcelain long null file author date message template signoff no-signoff trailer no-verify verify allow-empty
+	allow-empty-message cleanup edit no-edit amend no-amend no-post-rewrite include only pathspec-from-file
+	pathspec-file-nul untracked-files verbose no-verbose quiet no-quiet dry-run status no-status gpg-sign
+	no-gpg-sign no-all no-patch no-include no-only`)
+
+var commitLongArg = map[string]bool{"reuse-message": true, "reedit-message": true, "fixup": true, "squash": true,
+	"file": true, "author": true, "date": true, "message": true, "template": true, "trailer": true, "cleanup": true,
+	"pathspec-from-file": true}
+
+// resolveLong maps an abbreviated long option to the full name ("" when
+// unknown or ambiguous).
+func resolveLong(name string) string {
+	var hits []string
+	for _, o := range commitLong {
+		if o == name {
+			return o
+		}
+		if strings.HasPrefix(o, name) {
+			hits = append(hits, o)
 		}
 	}
-	args := ShellWords(cmd)
+	if len(hits) == 1 {
+		return hits[0]
+	}
+	return ""
+}
+
+// ParseCommit reads a git commit segment. The message parts that can't be
+// read before it runs ($VAR, $(cmd)) make MsgBad, so AI markers can't hide.
+func ParseCommit(s Segment) CommitInfo {
+	var ci CommitInfo
+	_, sub := gitGlobals(s)
+	if sub < 0 {
+		return ci
+	}
 	var parts []string
-	found := false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "-m" || a == "--message":
-			if i+1 < len(args) {
-				parts = append(parts, args[i+1])
-				i++
-				found = true
+	value := func(i int) (string, bool) {
+		if i >= len(s.Words) {
+			return "", false
+		}
+		if !s.dyn(i) {
+			return s.Words[i], true
+		}
+		if i < len(s.src) {
+			if v, ok := catValue(s, i); ok {
+				return v, true
 			}
-		case strings.HasPrefix(a, "--message="):
-			parts = append(parts, strings.TrimPrefix(a, "--message="))
-			found = true
-		case strings.HasPrefix(a, "-m") && len(a) > 2 && !strings.HasPrefix(a, "--"):
-			parts = append(parts, a[2:])
-			found = true
-		case a == "-F" || a == "--file":
-			if i+1 < len(args) {
-				b, err := os.ReadFile(Abs(args[i+1], cwd))
-				if err == nil {
-					parts = append(parts, string(b))
-					found = true
+		}
+		ci.MsgBad = "the message " + s.Words[i] + " isn't known until it runs; write it out with -m \"...\""
+		return "", false
+	}
+	addMsg := func(i int) {
+		if v, ok := value(i); ok {
+			parts = append(parts, v)
+		}
+		ci.MsgFound = true
+	}
+	addFile := func(f string) {
+		ci.MsgFound = true
+		if f == "-" {
+			if s.Stdin != nil {
+				parts = append(parts, *s.Stdin)
+				return
+			}
+			ci.MsgBad = "the message comes from standard input; write it out with -m \"...\""
+			return
+		}
+		b, err := os.ReadFile(Abs(f, s.Dir))
+		if err != nil {
+			ci.MsgBad = "the message file " + f + " can't be read"
+			return
+		}
+		parts = append(parts, string(b))
+	}
+	words := s.Words
+	afterDash := false
+	for i := sub + 1; i < len(words); i++ {
+		a := words[i]
+		if !afterDash && s.dyn(i) {
+			// it could be --no-verify or -a
+			ci.MsgBad = "the option " + a + " isn't known until it runs; write the commit command out in full"
+			continue
+		}
+		if afterDash || !strings.HasPrefix(a, "-") || a == "-" {
+			if s.dyn(i) {
+				ci.All = true // an unknown path: scan every change
+				continue
+			}
+			ci.Paths = append(ci.Paths, a)
+			continue
+		}
+		if a == "--" {
+			afterDash = true
+			continue
+		}
+		if strings.HasPrefix(a, "--") {
+			name, val, hasVal := strings.Cut(a[2:], "=")
+			full := resolveLong(name)
+			if full == "" {
+				continue // git refuses it
+			}
+			if commitLongArg[full] && !hasVal {
+				i++
+				val = s.Arg(i)
+			}
+			switch full {
+			case "no-verify":
+				ci.NoVerify = true
+			case "all":
+				ci.All = true
+			case "amend":
+				ci.Amend = true
+			case "message":
+				if hasVal {
+					parts = append(parts, val)
+					ci.MsgFound = true
+				} else {
+					addMsg(i)
 				}
-				i++
+			case "file":
+				addFile(val)
+			case "trailer":
+				parts = append(parts, val)
+			case "pathspec-from-file":
+				ci.All = true // can't tell which files: scan everything
 			}
-		case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "m") && len(a) > 2:
-			// combined flags like -am "msg"
-			if strings.HasSuffix(a, "m") && i+1 < len(args) {
-				parts = append(parts, args[i+1])
-				i++
-				found = true
+			continue
+		}
+		f := a[1:]
+		for j := 0; j < len(f); j++ {
+			switch f[j] {
+			case 'n':
+				ci.NoVerify = true
+			case 'a':
+				ci.All = true
+			case 'm', 'F', 'C', 'c', 't':
+				attached := f[j+1:]
+				if attached == "" {
+					i++
+				}
+				switch f[j] {
+				case 'm':
+					if attached != "" {
+						parts = append(parts, attached)
+						ci.MsgFound = true
+					} else {
+						addMsg(i)
+					}
+				case 'F':
+					if attached == "" {
+						attached = s.Arg(i)
+					}
+					addFile(attached)
+				case 'C', 'c':
+					ci.MsgFound = true
+					ci.MsgBad = "the message is taken from another commit; write it out with -m \"...\""
+				}
+				j = len(f)
+			case 'u', 'S':
+				j = len(f) // optional value, attached only
 			}
 		}
 	}
-	return strings.Join(parts, "\n\n"), found
+	ci.Message = strings.Join(parts, "\n\n")
+	return ci
+}
+
+// catValue reads -m "$(cat <<'EOF' ... EOF)" and -m "$(cat file)".
+func catValue(s Segment, i int) (string, bool) {
+	w := s.src[i]
+	if w == nil || len(w.Parts) != 1 {
+		return "", false
+	}
+	part := w.Parts[0]
+	if dq, ok := part.(*syntax.DblQuoted); ok && len(dq.Parts) == 1 {
+		part = dq.Parts[0]
+	}
+	cs, ok := part.(*syntax.CmdSubst)
+	if !ok || len(cs.Stmts) != 1 {
+		return "", false
+	}
+	st := cs.Stmts[0]
+	ce, ok := st.Cmd.(*syntax.CallExpr)
+	if !ok || len(ce.Assigns) > 0 || len(ce.Args) == 0 || ce.Args[0].Lit() != "cat" {
+		return "", false
+	}
+	trim := func(v string) string { return strings.TrimRight(v, "\n") }
+	if len(ce.Args) == 1 {
+		for _, r := range st.Redirs {
+			if r.Op == syntax.Hdoc || r.Op == syntax.DashHdoc {
+				if body, ok := heredocBody(r); ok {
+					return trim(body), true
+				}
+			}
+		}
+		return "", false
+	}
+	if len(ce.Args) == 2 && len(st.Redirs) == 0 {
+		f, lit, glob := wordValue(ce.Args[1], s.Dir, nil)
+		if !lit || glob {
+			return "", false
+		}
+		b, err := os.ReadFile(Abs(f, s.Dir))
+		if err != nil {
+			return "", false
+		}
+		return trim(string(b)), true
+	}
+	return "", false
+}
+
+// ParseCommitMessage pulls the message out of a git commit command.
+// ok is false when the message comes from an editor (no -m/-F) or can't be
+// known before it runs.
+func ParseCommitMessage(cmd, cwd string) (msg string, ok bool) {
+	for _, s := range ParseShell(cmd, cwd) {
+		if sub, _ := GitSub(s); sub == "commit" {
+			ci := ParseCommit(s)
+			return ci.Message, ci.MsgFound && ci.MsgBad == ""
+		}
+	}
+	return "", false
 }

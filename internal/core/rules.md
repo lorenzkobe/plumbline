@@ -43,7 +43,8 @@ The user usually hands over the task and comes back later: research and plan wit
   - `plan.md` needs `## Files` (every file to change), `## Cases` (each `- [normal|edge|refused|boundary|repeat-safe|bug|performance] ... test: path` or `does not apply, because ...`), `## Real-world proof` (`- api: ...`, `- ui: ...`, `- schema: ...` or `does not apply, because ...`), `## Needs your OK` (packages to install and commands that reach outside the laptop, each in backticks; "none" if none), the checks, and the branch.
   - Real choice of approaches: recommend one, plan it in full, and list the others in a few lines each, so the user can pick another at the same stop.
 - "Checkpoint 1" (optional): the understanding alone, only when the task is so unclear that planning first would likely be wasted.
-- Never pre-answer a checkpoint. Edits are blocked until the plan is approved; before that, only reading and saved commands run.
+- Never pre-answer a checkpoint. Edits are blocked until the plan is approved; before that, only reading and saved commands run. MCP tools that change code (Serena's edit tools, a filesystem server) follow the same rules as edits, and ones that run commands follow the rules for terminal commands.
+- Write terminal commands out plainly. Plumbline refuses what it can't read: eval of text that isn't known, a command name in a variable, a shell reading commands from a pipe or from a heredoc with $ in it, a git alias made with -c. Only one checkpoint question per prompt.
 - While building, nothing waits on the user except real decisions:
   - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report. More than 3 means the plan was wrong: that's a real decision, so ask the user.
   - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".

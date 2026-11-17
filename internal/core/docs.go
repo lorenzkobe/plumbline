@@ -186,11 +186,9 @@ func CheckPlan(text string) PlanCheck {
 		if !ok {
 			b = l
 		}
-		lower := strings.ToLower(b)
-		for _, k := range []string{"ui", "api", "schema"} {
-			if strings.HasPrefix(lower, k+":") && !strings.Contains(lower, notApply) {
-				pc.ProofKinds = append(pc.ProofKinds, k)
-			}
+		lower := strings.ToLower(reMarkup.ReplaceAllString(b, ""))
+		if m := reProofKind.FindStringSubmatch(lower); m != nil && !strings.Contains(lower, notApply) && !contains(pc.ProofKinds, m[1]) {
+			pc.ProofKinds = append(pc.ProofKinds, m[1])
 		}
 	}
 	if !strings.Contains(strings.ToLower(text), "## needs your ok") {
@@ -207,6 +205,13 @@ func CheckPlan(text string) PlanCheck {
 }
 
 var reBacktick = regexp.MustCompile("`([^`]+)`")
+
+// A proof line names its kind first, however it's formatted: "api: ...",
+// "**API**: ...", "ui (Playwright): ...", "schema - ...".
+var (
+	reMarkup    = regexp.MustCompile("[*_`]")
+	reProofKind = regexp.MustCompile(`^\s*(ui|api|schema)\b\s*(\([^)]*\))?\s*[:\-–—]`)
+)
 
 func short(s string) string {
 	if len(s) > 60 {

@@ -424,6 +424,9 @@ func cmdRun(args []string) (int, error) {
 			q = append(q, shellQuote(x))
 		}
 		command, kind = strings.Join(q, " "), core.KindProof
+		if core.TrivialProof(command) {
+			return 0, errors.New("that command passes whatever the code does, so it proves nothing. Run something that uses the change: call the API (curl the endpoint), click it in the app (Playwright), or query the schema")
+		}
 	default:
 		return 0, fmt.Errorf("unknown run kind %q", kind)
 	}

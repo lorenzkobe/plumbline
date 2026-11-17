@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -137,13 +138,70 @@ func Abs(p, cwd string) string {
 	return p
 }
 
+// writeFileAtomic writes through a temp file with a name of its own, so two
+// writers never share one, then renames it into place.
 func writeFileAtomic(path string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	_, werr := f.Write(data)
+	cerr := f.Close()
+	if werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = os.Chmod(tmp, 0o600)
+	}
+	if werr == nil {
+		werr = os.Rename(tmp, path)
+	}
+	if werr != nil {
+		_ = os.Remove(tmp)
+	}
+	return werr
+}
+
+// realCase returns an existing path with the letter case it has on disk.
+// macOS disks ignore case, so SRC/B.go is src/b.go there; on a disk that
+// keeps case, a different case is a different file and nothing changes.
+func realCase(p string) string {
+	if p == "" || runtime.GOOS != "darwin" || !filepath.IsAbs(p) {
+		return p
+	}
+	parts := strings.Split(strings.TrimPrefix(filepath.Clean(p), "/"), "/")
+	cur := "/"
+	for i, part := range parts {
+		next := filepath.Join(cur, part)
+		if _, err := os.Lstat(next); err != nil {
+			return filepath.Join(append([]string{cur}, parts[i:]...)...)
+		}
+		entries, err := os.ReadDir(cur)
+		if err != nil {
+			return filepath.Join(append([]string{cur}, parts[i:]...)...)
+		}
+		name := part
+		exact := false
+		for _, e := range entries {
+			if e.Name() == part {
+				exact = true
+				break
+			}
+		}
+		if !exact {
+			for _, e := range entries {
+				if strings.EqualFold(e.Name(), part) {
+					name = e.Name()
+					break
+				}
+			}
+		}
+		cur = filepath.Join(cur, name)
+	}
+	return cur
 }

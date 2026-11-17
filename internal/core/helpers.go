@@ -184,15 +184,32 @@ func (c *hookCtx) gateHelper(kind string) Output {
 	case "AskUserQuestion":
 		return c.deny("helper-no-questions", fmt.Sprintf("the %s runs without the user. Put open questions in your findings file; the lead decides what to ask.", kind))
 	case "Bash":
-		for _, s := range Segments(in.Str("command")) {
-			if ReadOnly(s) {
-				continue
+		return c.helperBash(kind, in.Str("command"))
+	}
+	if strings.HasPrefix(in.ToolName, "mcp__") {
+		switch MCPKind(in.ToolName) {
+		case "shell":
+			if cmd, ok := in.Input()["command"].(string); ok && cmd != "" {
+				return c.helperBash(kind, cmd)
 			}
-			if plumblineReads(s) {
-				continue
-			}
-			return c.deny("helper-read-only", fmt.Sprintf("the %s only runs commands that read (git diff, git log, grep, cat ...). %q changes something or isn't known to be read-only. The lead runs tests and proof.", kind, s.Name()))
+			return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only, and %s runs code.", kind, in.ToolName))
+		case "write":
+			return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only. Put what should change in your findings file.", kind))
 		}
+	}
+	return nil
+}
+
+func (c *hookCtx) helperBash(kind, cmd string) Output {
+	for _, s := range ParseShell(cmd, c.in.Cwd) {
+		if ReadOnly(s) || plumblineReads(s) {
+			continue
+		}
+		what := s.Name()
+		if s.Opaque != "" {
+			what = s.Opaque
+		}
+		return c.deny("helper-read-only", fmt.Sprintf("the %s only runs commands that read (git diff, git log, grep, cat ...). %q changes something or isn't known to be read-only. The lead runs tests and proof.", kind, what))
 	}
 	return nil
 }

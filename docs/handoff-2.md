@@ -1,4 +1,4 @@
-# Handoff: phases 1a and 1b done, phase 2 next
+# Handoff: phases 1a, 1b and the 1a hardening done; smoke test, then phase 2
 
 Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true.
 
@@ -58,6 +58,33 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 - That `agent_type` in helper hooks is exactly `plumbline:challenger` / `plumbline:reviewer` (docs say plugin agents are scoped this way).
 - That helper tool hooks carry the lead's `session_id` (docs don't say; the branch fallback covers one open task per branch).
 - That `SubagentStop` `decision: block` sends the helper back as documented.
+
+## What the 1a hardening built (v0.3.1, on main)
+- `internal/core/shellparse.go`: commands are parsed with `mvdan.cc/sh/v3` v3.12.0 (the newest release that builds with Go 1.24; 3.13 needs Go 1.25). A walk finds every simple command (lists, pipelines, subshells, if/for/while/case, functions, `$(...)`, `<(...)`), tracks `cd`, and unwraps wrappers (`sh -c`, `eval`, `env`, `timeout`, `nice`, `sudo`, `xargs`, `find -exec`, `fd -x`, `trap`, `watch`, heredocs fed to a shell, git aliases from `-c` or the config, the command after `plumbline run proof --`). What can't be known is a segment with `Opaque` set; the Bash gate refuses it in every phase, paused included.
+- `internal/core/shell.go`: `ReadOnly` fails closed (pure readers take any arguments; other allowlisted commands need every argument known; git's read commands are the one exception, see limits). `WriteTargets` lists the files a segment writes by name; the Bash gate runs the data-folder, settings, `.git/`, secret-file and building-phase rules (user's work, risky outside the plan, the cap) on them. `buildFile` in pretool.go is that building rule, shared with Edit and MCP tools.
+- `ParseCommit` (commit.go) reads commit options the way git does: short bundles, unique long prefixes (with `--no-verbose` so `--no-ver` stays ambiguous), pathspecs, trailers, `-F`, and `-m "$(cat <<'EOF' ...)"` / `-m "$(cat file)"`.
+- State: `state.json` starts with a `plumbline-seal:` line, one rename per save; `writeFileAtomic` uses unique temp names. 0.3.0 tasks (separate `state.seal`) still load. The paused flag holds a seal.
+- MCP: PreToolUse matcher includes `mcp__.*`. `MCPKind` judges by tool name (shell / write / lookup; memory, code-search, docs, browser and claude.ai servers are lookups). Shell tools with a `command` go through the Bash gate, write tools naming a file through the edit gate, other write tools wait for approval (asked when there's no task). PostToolUse runs the changed-files check after them.
+- Tests: `hardening_test.go` (one test per finding; every one fails on the 0.3.0 code) and `shellparse_test.go` (parser, sed scripts, commit options, write targets, MCP kinds).
+
+## Decisions made in the hardening
+- Real parser, not a hardened splitter (the user's choice).
+- 1b was merged into main and the hardening was built on main (the user's choice).
+- Writes whose targets aren't known (`rm "$tmp"`) aren't refused up front; the after-the-command check still records what changed. Refusing them would block normal scripts.
+- Env prefixes: only locale, colour, `TERM`, `CI` and `PAGER=cat` keep a command read-only. A lowercase shell variable (`f=src/a.go`) is harmless because it isn't exported.
+- An MCP write tool with no task asks instead of refusing (Jira or GitHub posts the user asked for).
+- A fresh-eyes review of the first hardening pass found 10 more ways through (ANSI-C escapes, brace words, loose wrapper options, aliases made in the same line, only the first commit checked, arithmetic and zsh glob qualifiers running code, and others); all are fixed, with `TestReviewFindings*` in hardening_test.go.
+- Arguments that xargs or find add (file names from a listing) are taken as files, not flags, so `rg -l x | xargs sed -n 1p` reads. The gap: a file named like a flag.
+
+## Known limits after the hardening
+- Code run by interpreters isn't inspected (`python -c`, `node -e`, `awk 'BEGIN{system(...)}'` while building, a script file). They are not read-only, so they never run before approval.
+- git's read commands (`git diff $(git merge-base ...)`) accept arguments that aren't known yet; an expansion that produces `--output=` would slip through. Kept so research and the reviewer can use merge-base.
+- MCP tools are judged by name. A server whose write tools don't use a write verb (edit, replace, insert, write, create, delete, rename, ...) isn't gated.
+- zsh-only syntax that bash can't parse is refused (Claude Code runs commands in the user's shell, zsh on this laptop).
+- Still open from the gap review: M9 (worktrees as new projects), M13 (`runs.jsonl` unsealed), M14 (two sessions in one repo), L1 to L6.
+
+## Not verified yet (the smoke test covers these)
+- That PreToolUse fires for MCP tools with the `mcp__.*` matcher (smoke-test step 6b).
 
 ## Phase 2: second reviewer and specialists, builders, blind QA, Jira reading and drafts
 Read the plan doc's "Agents and speed" and "Git and Jira" sections. Reuse `HelperRun` and the SubagentStart/Stop records for the new helpers rather than adding a second mechanism; builders are the first helpers that edit, so the helper gates need a per-kind policy instead of "read-only".
