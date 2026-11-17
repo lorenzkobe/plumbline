@@ -298,6 +298,21 @@ func (t *Task) Approved(words []string) bool {
 	return false
 }
 
+// OutsidePlanCap: more files than this outside the plan is a plan change,
+// so it goes to the user instead of being Claude's call.
+const OutsidePlanCap = 3
+
+// OutsideCount counts files changed outside the plan that still exist.
+func (t *Task) OutsideCount() int {
+	n := 0
+	for p := range t.OutsidePlan {
+		if !gone(t.Root, p) {
+			n++
+		}
+	}
+	return n
+}
+
 func (t *Task) NoteOutside(rel, why string) {
 	if t.OutsidePlan == nil {
 		t.OutsidePlan = map[string]string{}

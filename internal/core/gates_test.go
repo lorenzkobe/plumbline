@@ -246,6 +246,19 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "package.json")}), "deny", "risky")
 	h.expect(h.bash("npm install left-pad"), "deny", "Needs your OK")
 	h.expect(h.bash("git checkout -b fix/a"), "", "")
+	// More than 3 files outside the plan is the user's decision.
+	tk2 := h.task()
+	for _, f := range []string{"src/c.go", "src/d.go", "src/e.go"} {
+		write(t, filepath.Join(h.repo, f), "package src\n")
+		tk2.NoteOutside(f, "edited")
+	}
+	must(t, SaveTask(tk2))
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "c.go")}), "", "")
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "f.go")}), "deny", "plan was likely wrong")
+	for _, f := range []string{"src/c.go", "src/d.go", "src/e.go"} {
+		must(t, os.Remove(filepath.Join(h.repo, f))) // created and removed again: no longer counted
+	}
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "f.go")}), "", "")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, map[string]any{})
 

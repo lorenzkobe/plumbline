@@ -45,7 +45,7 @@ The user usually hands over the task and comes back later: research and plan wit
 - "Checkpoint 1" (optional): the understanding alone, only when the task is so unclear that planning first would likely be wasted.
 - Never pre-answer a checkpoint. Edits are blocked until the plan is approved; before that, only reading and saved commands run.
 - While building, nothing waits on the user except real decisions:
-  - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report.
+  - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report. More than 3 means the plan was wrong: that's a real decision, so ask the user.
   - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".
   - Packages and outside-the-laptop commands run only if they are in the approved "Needs your OK" list. Anything else: don't, and put it under "For you".
 

@@ -214,6 +214,10 @@ func (c *hookCtx) gateEdit(path string) Output {
 		c.hold(rel, "risky file outside the plan")
 		return c.deny("risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel))
 	}
+	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount() >= OutsidePlanCap {
+		c.log("block", "outside-plan-cap", rel)
+		return c.deny("outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, OutsidePlanCap+1))
+	}
 	return nil // part of the same change: allowed, recorded, and must be listed in the report
 }
 

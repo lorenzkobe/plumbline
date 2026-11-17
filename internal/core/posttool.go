@@ -215,7 +215,9 @@ func (c *hookCtx) afterBash() Output {
 	if len(theirs) > 0 {
 		fmt.Fprintf(&b, "that command changed files that held the user's own unsaved work: %s. Don't change them further; put them first under \"For you\" in the report. ", listFiles(theirs))
 	}
-	if len(outside) > 0 {
+	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
+		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan was likely wrong: stop and ask the user (with your suggestion) whether to go back to the plan (plumbline task replan) or undo these.", listFiles(outside), OutsidePlanCap)
+	} else if len(outside) > 0 {
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
 	}
 	return Context("PostToolUse", msg(b.String()))
