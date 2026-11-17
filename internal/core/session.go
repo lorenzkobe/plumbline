@@ -176,7 +176,11 @@ func UserPromptExpansion(in *HookInput) Output {
 		t.Phase = PhaseCancelled
 		_ = SaveTask(t)
 		LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: c.projectKey()})
-		return say(fmt.Sprintf("task %s was closed by the user. Its changes stay in the working tree; nothing was undone.", t.ID))
+		note := ""
+		if left := LeftCopies(t); len(left) > 0 {
+			note = fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (remove one with git worktree remove --force <path>).", strings.Join(left, ", "))
+		}
+		return say(fmt.Sprintf("task %s was closed by the user. Its changes stay in the working tree; nothing was undone.%s", t.ID, note))
 	case "wrong":
 		e, err := MarkLastBlockWrong(in.CommandArgs)
 		if err != nil {

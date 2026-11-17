@@ -29,10 +29,13 @@ func newCtx(in *HookInput) *hookCtx {
 	if c.root != "" {
 		c.paused = IsPaused(c.root)
 		c.task, c.taskErr = ActiveTask(c.root, in.SessionID, "")
-		if c.task == nil && c.taskErr == nil && in.AgentID != "" && in.SessionID != "" {
+		if c.task == nil && c.taskErr == nil && in.AgentID != "" {
 			// Inside a helper whose hook input doesn't carry the lead's
-			// session: fall back to the one open task on this branch.
-			c.task, c.taskErr = ActiveTask(c.root, "", "")
+			// session: the task that recorded this helper's run, else the one
+			// open task on this branch.
+			if c.task = taskByAgent(c.root, in.AgentID); c.task == nil && in.SessionID != "" {
+				c.task, c.taskErr = ActiveTask(c.root, "", "")
+			}
 		}
 		if c.task != nil {
 			// Hold the task for the whole hook, and read it again under the
@@ -42,6 +45,15 @@ func newCtx(in *HookInput) *hookCtx {
 				c.task = t
 			} else {
 				c.task, c.taskErr = nil, err
+			}
+		}
+		// A builder works in its own copy of the repo: that copy is the
+		// working tree its edits, commands and checks are judged in.
+		if c.task != nil && helperKind(in.AgentType, false) == HelperBuilder {
+			if r := c.task.runByAgent(in.AgentID); r != nil && r.Worktree != "" && !r.Merged && !r.Dropped {
+				if fi, err := os.Stat(r.Worktree); err == nil && fi.IsDir() {
+					c.root = r.Worktree
+				}
 			}
 		}
 		c.setup, c.setupOK, c.setupErr = LoadSetup(c.root)
@@ -55,6 +67,26 @@ func (c *hookCtx) close() {
 		c.unlock()
 		c.unlock = nil
 	}
+}
+
+// othersCopy: abs is in a builder's copy of the repo that isn't this hook's
+// own working tree. Only that builder changes it; the lead merges it.
+func (c *hookCtx) othersCopy(abs string) bool {
+	if c.root == "" || !insideWorktrees(c.root, abs) {
+		return false
+	}
+	own := insideWorktrees(c.root, c.root) && IsInside(abs, c.root)
+	return !own
+}
+
+// rel is a path relative to the working tree this hook runs in: the main
+// checkout for the lead, its own copy for a builder.
+func (c *hookCtx) rel(abs string) string {
+	r, err := filepath.Rel(c.root, abs)
+	if err != nil {
+		return abs
+	}
+	return filepath.ToSlash(r)
 }
 
 func (c *hookCtx) projectKey() string {
@@ -119,10 +151,36 @@ func PreToolUse(in *HookInput) Output {
 		}
 	}
 	if kind := helperKind(in.AgentType, false); kind != "" && in.AgentID != "" {
+		c.touchRun(kind)
 		if o := c.gateHelper(kind); o != nil {
 			return o
 		}
+		if isWorker(kind) {
+			return c.noAsk(kind, c.gateTool())
+		}
 	}
+	return c.gateTool()
+}
+
+// noAsk: a worker runs without the user, so a question the gates would put
+// to the user is refused instead, to go to the lead.
+func (c *hookCtx) noAsk(kind string, o Output) Output {
+	if d, reason := decisionOf(o); d == "ask" {
+		return c.deny("helper-no-questions", fmt.Sprintf("the %s runs without the user, and this needs the user's OK: %s Put it in your notes for the lead.", kind, strings.TrimPrefix(reason, "Plumbline: ")))
+	}
+	return o
+}
+
+func decisionOf(o Output) (string, string) {
+	h, _ := o["hookSpecificOutput"].(map[string]any)
+	d, _ := h["permissionDecision"].(string)
+	r, _ := h["permissionDecisionReason"].(string)
+	return d, r
+}
+
+// gateTool is the gate for one tool call, after the helper rules.
+func (c *hookCtx) gateTool() Output {
+	in := c.in
 	switch in.ToolName {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit":
 		p := in.Str("file_path")
@@ -510,6 +568,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.paused {
 		return nil
 	}
+	if c.othersCopy(abs) {
+		return c.deny("builder-copy", "that file is in a builder's copy of the repo. Builders change their own copies; bring the work back with plumbline builder merge <n>, or drop it with plumbline builder drop <n>.")
+	}
 	inRepo := c.root != "" && IsInside(abs, c.root)
 	if !inRepo && (IsInside(abs, Abs(os.TempDir(), "/")) || (c.in.ScratchpadDir != "" && IsInside(abs, Abs(c.in.ScratchpadDir, "/")))) {
 		return nil // throwaway copies for exploring
@@ -523,7 +584,7 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.task.Phase != PhaseBuilding {
 		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at the checkpoint.", c.task.ID, c.task.Phase))
 	}
-	if rule, reason := c.buildFile(c.task.Rel(abs), 0); rule != "" {
+	if rule, reason := c.buildFile(c.rel(abs), 0); rule != "" {
 		return c.deny(rule, reason)
 	}
 	return nil // in the plan, or part of the same change: allowed, recorded, and must be listed in the report
@@ -643,6 +704,8 @@ func plumblineReads(s Segment) bool {
 		return s.Arg(2) == "show" || s.Arg(2) == "list" || s.Arg(2) == ""
 	case "setup":
 		return s.Arg(2) == "show" || s.Arg(2) == ""
+	case "builder":
+		return s.Arg(2) == "list" || s.Arg(2) == ""
 	}
 	return false
 }
@@ -715,6 +778,9 @@ func protectedBase(t string) bool {
 // outside-plan files in the same command. It returns the rule and the reason
 // when the file is refused.
 func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
+	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
+		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
+	}
 	if c.task.InPlan(rel) {
 		return "", ""
 	}
@@ -922,8 +988,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("git-internals", "git's config files can change what every git command does. Use git commands, or tell the user what to change.")
 			case abs != "" && c.root != "" && isInsideFold(abs, filepath.Join(c.root, ".git")):
 				v.d("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
+			case abs != "" && c.othersCopy(abs):
+				v.d("builder-copy", "that writes in a builder's copy of the repo. Bring a builder's work back with plumbline builder merge <n>, or drop it with plumbline builder drop <n>.")
 			case building && abs != "" && IsInside(abs, c.root):
-				rel := c.task.Rel(abs)
+				rel := c.rel(abs)
 				if rule, reason := c.buildFile(rel, len(pending)); rule != "" {
 					v.d(rule, reason)
 				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) {

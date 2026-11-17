@@ -71,19 +71,19 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer|tracer|builder|qa|tester)$",
         "hooks": [
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook subagent-start",
-            "timeout": 15
+            "timeout": 120
           }
         ]
       }
     ],
     "SubagentStop": [
       {
-        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer|tracer|builder|qa|tester)$",
         "hooks": [
           {
             "type": "command",

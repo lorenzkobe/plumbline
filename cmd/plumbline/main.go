@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +52,8 @@ func main() {
 		err = cmdSetup(args)
 	case "waive":
 		err = cmdWaive(args)
+	case "builder":
+		err = cmdBuilder(args)
 	case "pause", "resume":
 		root := mustRoot()
 		err = core.SetPaused(root, os.Args[1] == "pause")
@@ -84,7 +87,8 @@ func usage() {
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
   plumbline setup show|save|laptop|undo-laptop
-  plumbline waive proof:ui|proof:api|proof:schema|e2e --reason "..."
+  plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
+  plumbline waive proof:ui|proof:api|proof:schema|e2e|qa --reason "..."
   plumbline stats [--months N]
   plumbline pause|resume                (your terminal only)
 `)
@@ -527,6 +531,9 @@ func cmdStatus(args []string) error {
 		case !h.Finished.IsZero():
 			state = "finished, but the code changed while it ran"
 		}
+		if h.Kind == core.HelperBuilder {
+			state = h.BuilderState(ignoreOf(s))
+		}
 		fmt.Printf("Helper: %s %s, %s (%s)\n", h.Kind, h.Started.Local().Format("15:04"), state, h.Findings)
 	}
 	if t.Phase == core.PhaseBuilding && s != nil {
@@ -562,13 +569,13 @@ func cmdWaive(args []string) error {
 	f, pos, _ := flags(args)
 	root := mustRoot()
 	if len(pos) == 0 {
-		return errors.New("which check? proof:ui, proof:api, proof:schema or e2e")
+		return errors.New("which check? proof:ui, proof:api, proof:schema, e2e or qa")
 	}
 	check := pos[0]
 	switch check {
-	case "proof:ui", "proof:api", "proof:schema", "e2e":
+	case "proof:ui", "proof:api", "proof:schema", "e2e", "qa":
 	default:
-		return errors.New("only real-world proof (proof:ui, proof:api, proof:schema) or e2e can be waived. Never tests on changed code, reviews on risky changes, or safety rules")
+		return errors.New("only real-world proof (proof:ui, proof:api, proof:schema), e2e or blind QA (qa) can be waived. Never tests on changed code, reviews on risky changes, or safety rules")
 	}
 	if strings.TrimSpace(f["reason"]) == "" {
 		return errors.New(`say why it can't run: --reason "..."`)
@@ -590,6 +597,93 @@ func cmdWaive(args []string) error {
 	core.LogEvent(core.Event{Type: "waiver", Task: t.ID, Rule: check, Size: t.Size, Project: core.ProjectKey(root)})
 	fmt.Printf("Waived %s for task %s on the current code (lapses when the code changes). It will be listed in the report.\n", check, t.ID)
 	return core.SaveTask(t)
+}
+
+func ignoreOf(s *core.Setup) []string {
+	if s == nil {
+		return nil
+	}
+	return s.IgnoreChanges
+}
+
+// cmdBuilder lists, merges and drops the builders' copies of the repo.
+func cmdBuilder(args []string) error {
+	if len(args) == 0 {
+		args = []string{"list"}
+	}
+	f, pos, _ := flags(args[1:])
+	root := mustRoot()
+	s, _, _ := core.LoadSetup(root)
+	ignore := ignoreOf(s)
+	if args[0] == "list" {
+		t, err := activeTask(root, f)
+		if err != nil {
+			return err
+		}
+		n := 0
+		for _, h := range t.Helpers {
+			if h.Kind != core.HelperBuilder {
+				continue
+			}
+			n++
+			fmt.Printf("builder %d: %s. Copy: %s. Notes: %s\n", n, h.BuilderState(ignore), orNone(h.Worktree), h.Findings)
+		}
+		if n == 0 {
+			fmt.Println("No builders have run in this task.")
+		}
+		return nil
+	}
+	if args[0] != "merge" && args[0] != "drop" {
+		return fmt.Errorf("unknown builder command %q: list, merge <n> or drop <n>", args[0])
+	}
+	if len(pos) == 0 {
+		return fmt.Errorf("which builder? plumbline builder %s <n> (plumbline builder list shows them)", args[0])
+	}
+	n, err := strconv.Atoi(pos[0])
+	if err != nil || n < 1 {
+		return fmt.Errorf("builder number %q isn't a number from plumbline builder list", pos[0])
+	}
+	t, err := lockedTask(root, f)
+	if err != nil {
+		return err
+	}
+	if args[0] == "drop" {
+		if err := core.DropBuilder(t, n); err != nil {
+			return err
+		}
+		core.LogEvent(core.Event{Type: "helper", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "builder-drop"})
+		fmt.Printf("Dropped builder %d's copy; none of its changes are in the task's code.\n", n)
+		return core.SaveTask(t)
+	}
+	changed, conflicts, err := core.MergeBuilder(t, n, ignore)
+	if errors.Is(err, core.ErrConflict) {
+		core.LogEvent(core.Event{Type: "helper", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "builder-conflict", Detail: fmt.Sprintf("%d files", len(conflicts))})
+		r, _ := t.BuilderRun(n)
+		return fmt.Errorf("builder %d's changes overlap changes already in the task's code, in: %s. Nothing was written. Bring those parts over by hand from %s (then plumbline builder drop %d), or give the part to a builder again", n, strings.Join(conflicts, ", "), r.Worktree, n)
+	}
+	if err != nil {
+		if len(changed) > 0 {
+			return fmt.Errorf("the merge of builder %d stopped part way: %v. Already written in the task's code: %s. Check those files, then finish the rest by hand from its copy", n, err, strings.Join(changed, ", "))
+		}
+		return err
+	}
+	core.LogEvent(core.Event{Type: "helper", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "builder-merge", Detail: fmt.Sprintf("%d files", len(changed))})
+	if err := core.SaveTask(t); err != nil {
+		return err
+	}
+	if len(changed) == 0 {
+		fmt.Printf("Builder %d's changes were already in the task's code; its copy is removed.\n", n)
+		return nil
+	}
+	fmt.Printf("Merged builder %d into the task's code (%d files: %s). Its copy is removed. Run the related tests next.\n", n, len(changed), strings.Join(changed, ", "))
+	return nil
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }
 
 func cmdSetup(args []string) error {

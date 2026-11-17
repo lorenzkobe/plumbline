@@ -48,6 +48,11 @@ func Fingerprint(root string, ignore []string) (string, error) {
 	}
 	env := append(os.Environ(), "GIT_INDEX_FILE="+tmpName, "GIT_OPTIONAL_LOCKS=0")
 	args := []string{"add", "-A", "--", "."}
+	if worktreesUnignored(root) {
+		// Builders' copies sit inside the main checkout and are never its
+		// code. (Naming a path git already ignores is an error in git add.)
+		args = append(args, ":(exclude)"+WorktreesDir)
+	}
 	for _, g := range ignore {
 		args = append(args, ":(exclude,glob)"+g)
 	}
@@ -78,7 +83,7 @@ func ChangedSince(root, commit string) []string {
 	var out []string
 	add := func(s string) {
 		for _, p := range strings.Split(s, "\x00") {
-			if p != "" && !seen[p] {
+			if p != "" && !seen[p] && !inWorktreesDir(p) {
 				seen[p] = true
 				out = append(out, p)
 			}
@@ -111,6 +116,9 @@ func DirtyFiles(root string) (map[string]string, error) {
 		code, path := e[:2], e[3:]
 		if code[0] == 'R' || code[0] == 'C' {
 			i++ // the next entry is the old name
+		}
+		if inWorktreesDir(path) {
+			continue // a builder's copy, not a change to this checkout
 		}
 		res[path] = stamp(filepath.Join(root, path))
 	}
@@ -197,4 +205,14 @@ func HeadCommit(root string) string {
 		return ""
 	}
 	return strings.TrimSpace(out)
+}
+
+// worktreesUnignored: root holds the builders' copies folder and git doesn't
+// ignore it (Plumbline's exclude line, or the project's own .gitignore).
+func worktreesUnignored(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(WorktreesDir))); err != nil {
+		return false
+	}
+	_, err := gitOut(root, "check-ignore", "-q", WorktreesDir+"/")
+	return err != nil
 }

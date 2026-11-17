@@ -65,6 +65,7 @@ fix/TICKET-123 from develop (or: main, as the user chose)
 ## Team
 <small task: lead, code-reviewer; otherwise lead, challenger, plan-reviewer, code-reviewer>
 <plus security-reviewer (auth, permissions, payments, user data, secrets), data-reviewer (migrations, queries, models, money math), ux-reviewer (frontend), when the files call for them; the checkpoint is refused without them>
+<workers, if used: tracers before the checkpoint; builders with the part each builds and its model (session model for tricky or risky parts, sonnet for simple ones); qa (required for big tasks, runs first); tester>
 
 ## Challenge note
 - Questioned: <finding> -> changed: <what changed in the understanding or plan>
@@ -90,6 +91,8 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 
 ## Review
 - Reviews: <reviewer>: <n> runs (code-review-1.md, ...), the last one on the final code; the same for each reviewer
+- Builders (if used): <builder n>: <part>, merged / dropped, checked how
+- Blind QA (big tasks): <qa-1.md>: <its tests that failed before the code, and any problem they found>
 - <finding> -> fixed in <file> / pushed back: <evidence>
 - Not fixed, needs you: <or "none">
 

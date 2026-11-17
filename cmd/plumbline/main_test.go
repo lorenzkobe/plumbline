@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lorenzkobe/plumbline/internal/core"
 )
@@ -112,5 +113,56 @@ func TestTaskSize(t *testing.T) {
 	}
 	if out, code := plumbline(t, repo, home, "", "task", "size", "small", "--why", "tiny"); code == 0 || !strings.Contains(out, "fixed once the plan is approved") {
 		t.Fatalf("resize after approval should fail: %s", out)
+	}
+}
+
+// plumbline builder: list, merge and drop a builder's copy, as the lead runs
+// them from the terminal.
+func TestBuilderCommands(t *testing.T) {
+	home := t.TempDir()
+	repo := gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tk := &core.Task{ID: core.NewID(), Title: "fix A", Size: "small", Root: repo, Branch: core.CurrentBranch(repo), Phase: core.PhaseBuilding, Created: core.Now()}
+	if out, _ := plumbline(t, repo, home, "", "builder", "list"); !strings.Contains(out, "no open task") {
+		t.Fatalf("no task: %s", out)
+	}
+	wt := core.BuilderWorktree(repo, tk.ID, "b1")
+	base, tree, err := core.MakeWorktree(repo, nil, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Helpers = []core.HelperRun{{Kind: core.HelperBuilder, AgentID: "b1", Started: core.Now().Add(-time.Hour), Finished: core.Now(), Worktree: wt, BaseCommit: base, PrintBefore: tree, Findings: "build-1.md"}}
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wt, "a.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := plumbline(t, repo, home, "", "builder", "list"); code != 0 || !strings.Contains(out, "1 files changed, not merged yet") {
+		t.Fatalf("list: exit %d, %s", code, out)
+	}
+	if out, code := plumbline(t, repo, home, "", "builder", "merge"); code == 0 || !strings.Contains(out, "which builder") {
+		t.Fatalf("merge needs a number: %s", out)
+	}
+	if out, code := plumbline(t, repo, home, "", "builder", "merge", "2"); code == 0 || !strings.Contains(out, "no builder 2") {
+		t.Fatalf("an unknown builder: %s", out)
+	}
+	if out, code := plumbline(t, repo, home, "", "builder", "merge", "1"); code != 0 || !strings.Contains(out, "a.txt") {
+		t.Fatalf("merge: exit %d, %s", code, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(repo, "a.txt")); string(b) != "two\n" {
+		t.Fatalf("merged content = %q", b)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatal("the copy should be removed after the merge")
+	}
+	if out, code := plumbline(t, repo, home, "", "builder", "drop", "1"); code == 0 || !strings.Contains(out, "already merged") {
+		t.Fatalf("drop after merge: %s", out)
+	}
+	if out, _ := plumbline(t, repo, home, "", "builder", "list"); !strings.Contains(out, "builder 1: merged") {
+		t.Fatalf("list after merge: %s", out)
 	}
 }

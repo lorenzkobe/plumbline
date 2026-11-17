@@ -20,7 +20,8 @@ Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, s
 
 ## 3. Check the code
 - SocratiCode finds where to look and what depends on it. Serena finds every exact caller and definition. MemPalace answers "have we seen this before?" (never facts about the code).
-- Open the real files before quoting them. Every file:line you write must be a file you opened in this task.
+- Open the real files before quoting them. Every file:line you write must be a file you opened in this task; a helper's reads don't count for you.
+- Big or many-part code to trace: start tracers (`subagent_type: plumbline:tracer`, several at once, one part each, in the background). Give each the part and your own file:line findings to check. Their reports (`trace-N.md`) point you to the lines; open what you quote.
 - Check the ticket against the code. Note anything outside the ticket (a bigger problem, the same bug elsewhere).
 - For library questions, Context7 for the exact versions in the lockfile, then the web. Never send company code, ticket text or names.
 - Bugs: reproduce first with the saved commands (allowed before approval), e.g. `plumbline run test`. The first runs are recorded as the task's starting point, so failures that were already there won't block you later.
@@ -46,8 +47,10 @@ AskUserQuestion with header `Checkpoint`, options `Approve` and `Change somethin
 
 ## 8. Build and prove
 - Branch per [git.md](${CLAUDE_PLUGIN_ROOT}/skills/task/git.md). Uncommitted changes when switching branches: stop and ask.
+- Big tasks: blind QA first, before any code change. Start `subagent_type: plumbline:qa` right after the checkpoint; it writes tests from `## Cases` without seeing the new code (`qa-N.md`). While it runs, your own code edits in this checkout are refused: build through builders meanwhile, or wait. If the code already changed, the user decides whether to waive it (`plumbline waive qa`). In the report's `## Review`, say what QA's tests caught.
+- Independent parts of the plan can go to builders (`subagent_type: plumbline:builder`), one per part, at the same time. Each gets its own copy of the repo made from your code as it is now, so start them after anything they build on is in place. Give each its part, the plan's files and cases for it, and your file:line notes; pass `model: sonnet` for simple, clear parts (the plan says which), and leave the session's model for tricky or risky ones. When a builder stops, read its `build-N.md`, check its work, then `plumbline builder merge <n>` (refuses overlapping edits and writes nothing then: bring those parts over yourself, then `plumbline builder drop <n>`). The finish check needs every copy merged or dropped. Small tasks: build it yourself.
 - A failing test first (it fails because of the bug), then the fix, then a test for every case. Follow [playbooks.md](${CLAUDE_PLUGIN_ROOT}/skills/task/playbooks.md) for bugs, refactors and performance.
-- While building: `plumbline run related --files <changed files>`. Near the end: `plumbline run test`, `plumbline run lint`, `plumbline run build`. Full-stack: start the local database, backend and frontend, then `plumbline run e2e`.
+- While building: `plumbline run related --files <changed files>`. Near the end: `plumbline run test`, `plumbline run lint`, `plumbline run build`. Full-stack: start the local database, backend and frontend, then `plumbline run e2e`. A long suite can go to the tester (`subagent_type: plumbline:tester`) in the background while the reviewers work; its runs are recorded like yours.
 - Real-world proof for each kind in the plan, after the last edit: `plumbline run proof api -- curl -s -o /dev/null -w "%{http_code}\n" http://localhost:.../...`, `plumbline run proof ui -- npx playwright test ...`, `plumbline run proof schema -- psql "$LOCAL_DB" -c "..."`.
 - Build to the end without waiting on the user. Files outside the plan that belong to the same change are fine (list them in the report). Risky files outside the plan and the user's unsaved work are refused: keep going, and put them under "For you". Packages and outside-the-laptop commands only if listed in "Needs your OK".
 - A real decision (see step 7) is asked right away. Before any stop, finish what doesn't depend on the answer.

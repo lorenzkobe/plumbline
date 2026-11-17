@@ -25,8 +25,18 @@ func jsonUnmarshal(b []byte, v any) error {
 
 // The snapshot is per session and repo: a command run in another repo is
 // compared with that repo's own earlier state.
+// It's keyed by the working tree, not the project, so a builder's copy and
+// the main checkout keep separate snapshots; helpers keep their own too.
 func snapPath(sessionID, root string) string {
-	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+"."+ProjectKey(root)+".snap.json")
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+"."+treeKey(root)+".snap.json")
+}
+
+// snapID: the lead's snapshot is the session's; a helper's is its own.
+func (c *hookCtx) snapID() string {
+	if c.in.AgentID != "" {
+		return c.in.SessionID + "-" + c.in.AgentID
+	}
+	return c.in.SessionID
 }
 
 func loadSnap(sessionID, root string) map[string]string {
@@ -67,9 +77,14 @@ func PostToolUse(in *HookInput) Output {
 	if c.root == "" {
 		return nil
 	}
+	if in.AgentID == "" && in.ToolName != "Read" && in.ToolName != "AskUserQuestion" {
+		defer c.absorbIntoBuilders() // runs before close: still under the lock
+	}
 	switch {
 	case in.ToolName == "Read":
-		if c.task != nil {
+		// Only the lead's own reads count: every file:line in its notes must
+		// come from a file it opened, not from a helper's report.
+		if c.task != nil && in.AgentID == "" {
 			abs := Abs(in.Str("file_path"), in.Cwd)
 			if h := fileHash(abs); h != "" {
 				if c.task.Reads == nil {
@@ -85,31 +100,35 @@ func PostToolUse(in *HookInput) Output {
 			p = in.Str("notebook_path")
 		}
 		abs := Abs(p, in.Cwd)
-		if abs == filepath.Join(c.root, RepoSetupFile) {
+		if abs == filepath.Join(ProjectRoot(c.root), RepoSetupFile) && in.AgentID == "" {
 			_ = ConfirmSetup(c.root) // you allowed the change on the confirm prompt
 		}
 		if c.task != nil && IsInside(abs, c.root) {
-			if rel := c.task.Rel(abs); c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) {
+			rel := c.rel(abs)
+			if c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) {
 				c.task.NoteOutside(rel, "edited")
+			}
+			if run := c.task.runByAgent(in.AgentID); run != nil && run.Kind == HelperQA && !contains(run.Wrote, rel) {
+				run.Wrote = append(run.Wrote, rel)
 			}
 			c.task.LastCodeChange = Now()
 			c.task.Reported = false
-			if c.task.Reads != nil {
+			if c.task.Reads != nil && in.AgentID == "" {
 				if h := fileHash(abs); h != "" {
 					c.task.Reads[abs] = Read{Hash: h, At: Now()} // Claude just wrote it, so it knows it
 				}
 			}
 			_ = SaveTask(c.task)
 		}
-		RefreshSnapshot(in.SessionID, c.root)
+		RefreshSnapshot(c.snapID(), c.root)
 	case in.ToolName == "Bash":
-		return c.afterBash()
+		return c.withMainCheck(c.afterBash())
 	case in.ToolName == "AskUserQuestion":
 		return c.afterQuestion()
 	case strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
-		return c.checkChanged(nil)
+		return c.withMainCheck(c.checkChanged(nil))
 	case strings.HasPrefix(in.ToolName, "mcp__"):
-		if c.task != nil {
+		if c.task != nil && in.AgentID == "" { // a helper's searches aren't the lead's
 			if fam := lookupFamily(in.ToolName); fam != "" {
 				if c.task.Lookups == nil {
 					c.task.Lookups = map[string]Lookup{}
@@ -220,13 +239,12 @@ func (c *hookCtx) followBranch(segs []Segment) {
 // checkChanged is the changed-files check after a terminal command or an MCP
 // tool that may change files.
 func (c *hookCtx) checkChanged(segs []Segment) Output {
-	in := c.in
-	prev := loadSnap(in.SessionID, c.root)
+	prev := loadSnap(c.snapID(), c.root)
 	now, err := DirtyFiles(c.root)
 	if err != nil {
 		return nil
 	}
-	saveSnap(in.SessionID, c.root, now)
+	saveSnap(c.snapID(), c.root, now)
 	if prev == nil || c.paused {
 		return nil
 	}
@@ -479,12 +497,17 @@ func (c *hookCtx) afterQuestion() Output {
 			t.CasesStored = true
 			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
+			if t.ApprovalPrint == "" {
+				// The code at the first approval: blind QA may start only while
+				// nothing but tests has changed since (a replan keeps the first).
+				t.ApprovalPrint, _ = Fingerprint(t.Root, c.ignore())
+			}
 		default:
 			continue
 		}
 		_ = SaveTask(t)
 		c.log("phase", t.Phase, "")
-		RefreshSnapshot(c.in.SessionID, c.root)
+		RefreshSnapshot(c.snapID(), c.root)
 		next := "Make the plan next (plan.md), then the checkpoint."
 		if t.Phase == PhaseBuilding {
 			next = "Build and prove it to the end without stopping: a failing test first, then the fix, then the proof and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
@@ -492,4 +515,26 @@ func (c *hookCtx) afterQuestion() Output {
 		return Context("PostToolUse", msg(fmt.Sprintf("the user approved. Task %s is now at the %s step. %s", t.ID, t.Phase, next)))
 	}
 	return nil
+}
+
+// withMainCheck adds the builder's main-checkout check to a post-command
+// result.
+func (c *hookCtx) withMainCheck(o Output) Output {
+	if helperKind(c.in.AgentType, false) != HelperBuilder {
+		return o
+	}
+	note := c.builderReachedMain()
+	if note == "" {
+		return o
+	}
+	if o == nil {
+		return Context("PostToolUse", msg(note))
+	}
+	if h, ok := o["hookSpecificOutput"].(map[string]any); ok {
+		if prev, _ := h["additionalContext"].(string); prev != "" {
+			h["additionalContext"] = prev + " " + msg(note)
+			return o
+		}
+	}
+	return o
 }

@@ -82,8 +82,9 @@ func laptopSetupPath(root string) string {
 }
 
 // SetupPath returns where this project's setup lives (repo file wins).
+// A worktree uses its main checkout's setup.
 func SetupPath(root string) (string, bool) {
-	p := filepath.Join(root, RepoSetupFile)
+	p := filepath.Join(ProjectRoot(root), RepoSetupFile)
 	if _, err := os.Stat(p); err == nil {
 		return p, true
 	}
@@ -149,11 +150,11 @@ func SaveSetup(root string, s *Setup) (string, error) {
 	b = append(b, '\n')
 	var p string
 	if s.Kind == "personal" {
-		p = filepath.Join(root, RepoSetupFile)
+		p = filepath.Join(ProjectRoot(root), RepoSetupFile)
 		_ = os.Remove(laptopSetupPath(root))
 	} else {
 		p = laptopSetupPath(root)
-		_ = os.Remove(filepath.Join(root, RepoSetupFile))
+		_ = os.Remove(filepath.Join(ProjectRoot(root), RepoSetupFile))
 	}
 	if err := writeFileAtomic(p, b); err != nil {
 		return "", err

@@ -91,6 +91,9 @@ type Task struct {
 	Helpers []HelperRun `json:"helpers,omitempty"`
 	// Reviewers the approved plan's Team names, kept at approval.
 	Reviewers []string `json:"reviewers,omitempty"`
+	// The code's fingerprint at the first approval: blind QA starts only
+	// while nothing but tests changed since.
+	ApprovalPrint string `json:"approval_print,omitempty"`
 
 	LastCodeChange time.Time  `json:"last_code_change,omitempty"`
 	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
@@ -258,7 +261,7 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 	if sessionID != "" {
 		if b, err := os.ReadFile(sessionPath(sessionID)); err == nil {
 			var sb SessionBinding
-			if json.Unmarshal(b, &sb) == nil && sb.Root == root {
+			if json.Unmarshal(b, &sb) == nil && ProjectKey(sb.Root) == ProjectKey(root) {
 				t, err := LoadTask(root, sb.TaskID)
 				if err != nil {
 					return nil, err
@@ -339,7 +342,9 @@ func pausedPath(root string) string { return filepath.Join(ProjectDir(root), "pa
 
 // The paused flag is sealed: a flag file made any other way (a touch from
 // the terminal) doesn't pause anything.
-func pausedSeal(root, at string) string { return seal([]byte("paused\x00" + root + "\x00" + at)) }
+func pausedSeal(root, at string) string {
+	return seal([]byte("paused\x00" + ProjectRoot(root) + "\x00" + at))
+}
 
 func IsPaused(root string) bool {
 	if root == "" {

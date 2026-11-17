@@ -54,10 +54,54 @@ func RepoRoot(dir string) string {
 	return p
 }
 
-// ProjectKey is a short stable id for a repo path.
-func ProjectKey(root string) string {
+// ProjectKey is a short stable id for a project. Every worktree of a repo
+// shares the main checkout's key, so a worktree sees the same setup, tasks
+// and proof (gap-review M9). A plain checkout's key is what it always was.
+func ProjectKey(root string) string { return treeKey(ProjectRoot(root)) }
+
+// treeKey is the id of one working tree's path.
+func treeKey(root string) string {
 	s := sha256.Sum256([]byte(root))
 	return filepath.Base(root) + "-" + hex.EncodeToString(s[:])[:10]
+}
+
+// ProjectRoot is the main checkout of the repo whose working tree is root:
+// root itself, or for a linked worktree, the folder holding the repo's
+// shared .git (git rev-parse --git-common-dir). It reads git's own files
+// instead of running git, since every hook needs it.
+func ProjectRoot(root string) string {
+	if root == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(root, ".git"))
+	if err != nil {
+		return root // a .git folder (a plain checkout), or no repo here
+	}
+	line := strings.TrimSpace(string(b))
+	gitDir, ok := strings.CutPrefix(line, "gitdir:")
+	if !ok {
+		return root
+	}
+	gitDir = strings.TrimSpace(gitDir)
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(root, gitDir)
+	}
+	cd, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return root // a submodule: its own project
+	}
+	common := strings.TrimSpace(string(cd))
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(gitDir, common)
+	}
+	common = filepath.Clean(common)
+	if r, err := filepath.EvalSymlinks(common); err == nil {
+		common = r
+	}
+	if filepath.Base(common) == ".git" {
+		return filepath.Dir(common)
+	}
+	return common // a bare repo's worktree: the bare folder is the project
 }
 
 func ProjectDir(root string) string {
@@ -120,7 +164,13 @@ func IsInside(path, dir string) bool {
 	if err != nil {
 		return false
 	}
-	return rel == "." || (!strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel))
+	return rel == "." || (!climbsOut(rel) && !filepath.IsAbs(rel))
+}
+
+// climbsOut: a relative path leaves its folder. "..x" or "..." is a name
+// inside it, not a climb.
+func climbsOut(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func Abs(p, cwd string) string {

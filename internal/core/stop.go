@@ -51,6 +51,8 @@ func FinishMissing(t *Task, s *Setup) []string {
 		reportTime = fi.ModTime()
 	}
 	miss = append(miss, reviewMissing(t, s, fp, report, reportTime)...)
+	miss = append(miss, builderMissing(t)...)
+	miss = append(miss, qaMissing(t, s, report)...)
 	if s.JiraTicket(t.Ticket) {
 		name := JiraCommentName(t.Ticket)
 		p := filepath.Join(TaskDocsDir(t.Root, t.ID), name)

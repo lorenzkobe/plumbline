@@ -1724,3 +1724,20 @@ func unwrapGit(s Segment, depth int, pc *parseCtx) []Segment {
 	prefix := joinRest(Segment{Words: s.Words[:g.sub], Dyn: s.Dyn[:g.sub]}, 0)
 	return append(s.carrier("git alias"), parseShell(prefix+" "+alias+" "+rest, s.Dir, depth+1, "git alias "+sub, pc)...)
 }
+
+// HasBackground: the command sends something to the background (cmd &, a
+// coprocess), so it may still be writing after the command returns.
+func HasBackground(cmd string) bool {
+	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(cmd), "")
+	if err != nil {
+		return false // the Bash gate refuses what it can't parse
+	}
+	found := false
+	syntax.Walk(f, func(n syntax.Node) bool {
+		if st, ok := n.(*syntax.Stmt); ok && (st.Background || st.Coprocess) {
+			found = true
+		}
+		return !found
+	})
+	return found
+}

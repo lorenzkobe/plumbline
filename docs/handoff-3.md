@@ -1,6 +1,6 @@
-# Handoff: phases 1a, 1b, the 1a hardening, 2a and the 2a hardening done; 2b next
+# Handoff: phases 1a, 1b, the 1a hardening, 2a, the 2a hardening and 2b done; phase 3 next
 
-Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true.
+Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true. Every known limit is collected in docs/limits.md, to fix once the plugin is complete (the user's call).
 
 ## What 1a built
 - Go core in `internal/core`, CLI and hook runner in `cmd/plumbline`, prebuilt binaries in `dist/`, launcher `bin/plumbline` (also on Claude's PATH through the plugin's `bin/`).
@@ -82,7 +82,7 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 - git's read commands (`git diff $(git merge-base ...)`) accept arguments that aren't known yet; an expansion that produces `--output=` would slip through. Kept so research and the reviewer can use merge-base.
 - MCP tools are judged by name. A server whose write tools don't use a write verb (edit, replace, insert, write, create, delete, rename, ...) isn't gated.
 - zsh-only syntax that bash can't parse is refused (Claude Code runs commands in the user's shell, zsh on this laptop).
-- Still open from the gap review: M9 (worktrees as new projects), M14 (two sessions in one repo), L1 to L6. M13 was fixed in 0.4.1.
+- Still open from the gap review: M14 (two sessions in one repo), L1 to L6. M13 was fixed in 0.4.1, M9 in 0.5.0.
 
 ## Not verified yet (the smoke test covers these)
 - That PreToolUse fires for MCP tools with the `mcp__.*` matcher (smoke-test step 6b).
@@ -142,5 +142,44 @@ From a review of 14 suggestions against the code and done-gate's logs (the plan'
 - That Claude Code accepts the lookahead matchers as documented (JavaScript regex, unanchored), and that a search still runs when the binary is missing while an edit is blocked (smoke-test step 10).
 - That `last_assistant_message` holds the closing message as shown (docs say "the text content of Claude's final response").
 
-## Phase 2b: builders, blind QA, tracers and tester
-Read the plan doc's "Agents and speed" section. Fix gap-review M9 first (key projects by `git rev-parse --git-common-dir`), since builders work in worktrees. Reuse `HelperRun` and the SubagentStart/Stop records; builders are the first helpers that edit, so `gateHelper` needs a per-kind policy instead of "read-only".
+## What 2b built (v0.5.0, on main)
+- M9 (paths.go): `ProjectRoot(root)` reads `<root>/.git` and the worktree's `commondir` (no git call), and `ProjectKey` hashes the main checkout, so a worktree shares setup, tasks, runs, the pause seal and the session binding (`ActiveTask` compares project keys). A plain checkout's key is unchanged (`treeKey`). Snapshots (`snapPath`) are keyed by the working tree and by `snapID()` (session, plus agent id inside a helper).
+- Copies (worktree.go): `WorktreesDir` is `.claude/worktrees`, added to `.git/info/exclude`, filtered out of `DirtyFiles` and `ChangedSince`, and excluded from `Fingerprint` when git doesn't already ignore it (`worktreesUnignored`; git refuses an exclude pathspec naming an ignored path). `MakeWorktree` commits the lead's fingerprint tree on HEAD (`commit-tree`, Plumbline's own identity) and runs `git worktree add --detach` with the repo's hooks off. `MergeWorktree` snapshots both trees on the base, runs `git merge-tree --write-tree --name-only --no-messages` (git 2.38+), reads every blob first and only then writes, deletes, chmods or symlinks; on exit 1 it returns `ErrConflict` and writes nothing. It refuses paths in `.git/`, the copies' folder, secret files and `.plumbline.json`.
+- Workers (workers.go, helpers.go): kinds `tracer`, `builder`, `qa`, `tester` (`WorkerKinds`); findings `trace-N.md`, `build-N.md`, `qa-N.md`, `test-N.md`. `gateHelperStart`: tracer any time; builder and tester while building; qa via `qaStartProblem` (building, `parts.qa`, at most `MaxQARuns` 2, not while one runs, and `codeSinceApproval` empty: only test files changed since `ApprovalPrint`, recorded at the first approval). Every worker can be switched off by name in `parts`.
+- Builder: `SubagentStart` makes the copy outside the task lock (`makeBuilderCopy`, then re-lock and reload), named by agent id. `newCtx` makes the copy the builder's `c.root`, so `gateEdit`, `gateBash`, `buildFile` and `checkChanged` judge it there (`c.rel`). `gateBuilder`: edits only inside its copy, not `.plumbline.json`; commands must run in the copy (`s.Dir`), write nowhere in the project outside it, read-only git, plumbline only reads and `run test|related|lint|build`. `stopBuilder` removes a copy with no changes. The lead can't write in a copy (`othersCopy`). `plumbline builder list|merge|drop` (main.go); `builderMissing` holds the finish check while a copy is unmerged.
+- Blind QA: `qaEdit` (test files only, by name: `reTestFile`; not in copies); `reviewerNotes` and `helperBash` treat it as `independent`, and `qaBlind` refuses the copies' paths and, while a copy exists, searches and patterns from at or above the copies' folder; `helperMayRun` lets it run `plumbline run related|test`. While it runs, `buildFile` refuses the lead's non-test files and `MergeBuilder` refuses. `qaMissing` (big tasks, unless `plumbline waive qa`, which doesn't lapse) and the report's `## Review` must mention QA. `run.Wrote` lists its test files; the stop log has the count.
+- `noAsk`: a worker's "ask" becomes a refusal (`helper-no-questions`). The challenger and reviewers keep asking as before.
+- Helper reads and look-ups no longer count as the lead's (posttool.go, the user's choice).
+- hooks.json: SubagentStart/Stop matchers include the four workers; SubagentStart timeout 120 s.
+- Agents: `tracer.md`, `tester.md` (`model: sonnet`, the user's choice), `builder.md`, `qa.md` (`model: inherit`; the lead passes `model: sonnet` for simple builder parts).
+- Tests: `internal/core/workers_test.go`, `TestBuilderCommands` in cmd/plumbline/main_test.go.
+
+- A fresh-eyes review of the first 2b pass found 10 issues (builders reaching the main checkout through links, `-C`/`-o` and interpreters; QA globs and searches above the copies; Claude Code's worktrees taken for copies; merges ignoring filters, modes and folder-to-file changes; finish during a running builder; a too-broad test-file rule; the 30-minute QA hold; pre-0.5.0 big tasks) and a shared-helper bug (`IsInside` treated `./...` as outside); all are fixed, with tests at the end of workers_test.go and paths_test.go. A second review of the fixes found more ways out (symlinks to `/` or `~`, values stuck to flags, case, computed paths, background commands, `.git/hooks`; for QA, searches with no folder, `rg -uu`, computed `cd`, git's object store, the copies' folder named exactly) and two over-strict rules (the lead's edits put on a builder; a dead QA holding the lead for 3 hours); fixed, with `TestBuilderEscapesSecondPass`, `TestBlindQASecondPass`, `TestLeadChangesArentABuildersWrites`, `TestQAHoldFollowsActivity`.
+
+## Decisions made in 2b
+- Plumbline makes the copies itself (the user's choice): Claude Code's `isolation: worktree` starts from the default branch, and a WorktreeCreate hook would replace worktree creation for all of the user's worktrees, with no docs on whether a plugin's hook fires for subagents.
+- Blind QA is required on big tasks and enforced (the user's choice): it runs first, before any code, and the lead builds through builders meanwhile.
+- Tracers and the tester run on sonnet (the user's choice).
+- Only the lead's reads count as opened (the user's choice, after asking whether a helper's line can be trusted): a faster helper can misread a line, and the lead signs the plan.
+- Builders, tracers and the tester are the lead's choice; nothing requires them. Small tasks build without builders.
+- A builder's copy is detached (no branch), its base is the lead's code at start, and it never commits: the lead's normal commit rule covers the merged code.
+
+## Known limits after 2b
+- A copy holds only files git tracks or would track: `node_modules`, build output and other ignored files aren't there, so a builder's tests may not run in its copy. The lead runs them after merging.
+- A builder's new files outside the plan don't count toward the 3-file cap until merged (they don't exist in the main checkout yet); the merge's changed-files check then counts them and stops past the cap.
+- Builder confinement and QA blindness are guard rails against mistakes, not a sandbox: hooks see commands, not what code does. Code an interpreter runs (`python3 -c`, a test, a build script) can reach anywhere the user can. For builders the after-the-command check catches what lands in the main checkout's tracked, untracked or git files (not ignored files, and not other copies). For QA nothing catches it: its own tests, run with `plumbline run related`, could read the copies, so blindness holds while QA follows its instructions. Within the gates: QA can't name a path in the copies, search or glob from at or above their folder, use computed paths or folders, or read git's object store.
+- Writes whose targets aren't known (`rm "$x"`) and code an interpreter runs aren't refused up front for builders either. The changed-files check in the copy records them, and `builderReachedMain` holds anything that changed in the main checkout while a builder's command ran; the lead's own edit at the same moment is held too ("while").
+- While a builder's copy exists, blind QA can't run searches or globs from the repo root (only the Grep tool, which skips ignored folders); it searches below it (src/, tests/).
+- "Running" means a tool call in the last 30 minutes (builders and QA record each one; other helpers count from their start). A builder or QA that thinks for over 30 minutes without a tool call counts as finished.
+- The lead's change and a builder's command at the same moment: the lead's PostToolUse takes the change into the builders' baselines, so a builder write landing in that window is missed, and one landing before the lead's hook runs is put on the builder ("while").
+- Test files are known by name (`reTestFile`); Rust inline tests in `src/*.rs` and other unnamed conventions need QA to put the test in a test file.
+- `noAsk` applies to workers only; a reviewer reading `.env` still shows you the prompt (unchanged).
+
+## Not verified yet (add to the smoke test run)
+- That a builder's tool hooks carry the lead's `session_id` (if not, `taskByAgent` finds its task by agent id) and that its Bash cwd persists after `cd <copy>`.
+- That Claude Code lets a subagent edit files under `.claude/worktrees/` without its own prompt.
+- That `git merge-tree --write-tree` behaves the same on the Linux builds' git (needs 2.38+).
+- That `model: sonnet` in a plugin agent and the Agent tool's `model` override work as documented.
+
+## Phase 3: design workflow, devops rules, standup
+Read the plan doc's "Frontend and design", "Devops and production" and "Proposed commands" sections. The hotfix flow (user-only `/plumbline:hotfix`) is its own step and can come first if the user prefers. After phase 3, run docs/smoke-test.md (add the 2b items above) before the Kwenta trial.
