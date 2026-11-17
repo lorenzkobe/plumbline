@@ -224,7 +224,7 @@ func cmdTask(args []string) error {
 			return errors.New("the project setup changed since the user confirmed it; ask them to re-confirm with /plumbline:setup")
 		}
 		if !dockerOK() {
-			return errors.New("Docker isn't running. It's required (SocratiCode and the test database). Start it, then try again")
+			return errors.New("the Docker app isn't running. It's required (SocratiCode and the test database). Start it, then try again")
 		}
 		size := f["size"]
 		if size == "" {

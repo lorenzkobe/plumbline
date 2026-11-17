@@ -16,6 +16,7 @@
 - Arithmetic on a value holding `$(` or a backtick, extended globs and zsh glob qualifiers are refused (they can run code). `less +cmd` and `ag --pager` aren't read-only.
 - Git: setting an alias or include (`git config alias.x`, `-c include.path`) is refused, an unknown git option before the subcommand or an alias that can't be looked up is refused, and git's global config files are protected. Every commit in a line is checked, each in its own repo. `HUSKY` set to anything but 1 or true counts as skipping hooks.
 - Archives extracted into, or folders copied recursively into, `~/.claude`, the data folder or a folder holding `.git` are refused. A saved command with extra redirects or env no longer counts as saved. MCP shell tools are found under any command field, and the changed-files check keeps a snapshot per repo.
+- Release binaries are built with Go 1.27.4 (`toolchain` in go.mod); 1.24.7 no longer gets security fixes.
 - `plumbline setup save` no longer stops the work; the approved plan's case tests are kept at approval; proof kinds are read from formatted bullets (`- **api**: ...`); `plumbline run proof` refuses commands that prove nothing (`true`, `echo`).
 
 ## 0.3.0: phase 1b, the challenger and one reviewer

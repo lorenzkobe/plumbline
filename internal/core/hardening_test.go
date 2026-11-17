@@ -19,13 +19,6 @@ func buildingTask(t *testing.T) *harness {
 	return h
 }
 
-func (h *harness) expectNot(o Output, notWant string) {
-	h.t.Helper()
-	if d, r := decision(o); d == notWant {
-		h.t.Fatalf("decision = %q (%s), must not be %q", d, r, notWant)
-	}
-}
-
 // H1: a heredoc hid the rest of its tag line.
 func TestHeredocHidesNothing(t *testing.T) {
 	h := newHarness(t)
