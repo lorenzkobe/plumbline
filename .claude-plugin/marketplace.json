@@ -1,0 +1,12 @@
+{
+  "name": "plumbline",
+  "owner": { "name": "Lorenz Kobe Managbanag" },
+  "description": "Plumbline plugin marketplace (single plugin)",
+  "plugins": [
+    {
+      "name": "plumbline",
+      "source": "./",
+      "description": "A careful, enforced task workflow for Claude Code"
+    }
+  ]
+}

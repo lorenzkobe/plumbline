@@ -1,0 +1,213 @@
+package core
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+)
+
+// Task documents Claude writes into the task's docs folder.
+const (
+	DocUnderstanding = "understanding.md"
+	DocPlan          = "plan.md"
+	DocReport        = "report.md"
+)
+
+var reRef = regexp.MustCompile("(?:^|[\\s(\\[`'\"])((?:[\\w.@+-]+/)*[\\w@+-][\\w.@+-]*\\.[A-Za-z0-9]+):(\\d+)(?:-(\\d+))?")
+
+type Ref struct {
+	Path string
+	Line int
+}
+
+// Refs finds every file:line reference in a document.
+func Refs(text string) []Ref {
+	var out []Ref
+	seen := map[string]bool{}
+	for _, m := range reRef.FindAllStringSubmatch(text, -1) {
+		p := m[1]
+		if strings.Contains(p, "://") {
+			continue
+		}
+		k := p + ":" + m[2]
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, Ref{Path: p, Line: atoi(m[2])})
+	}
+	return out
+}
+
+// CheckRefs makes sure every file and line points to a file read during this
+// task (by the lead or a helper) that has not changed since it was read.
+func CheckRefs(t *Task, text string) []string {
+	var problems []string
+	refs := Refs(text)
+	for _, r := range refs {
+		abs := filepath.Join(t.Root, filepath.FromSlash(r.Path))
+		rd, ok := t.Reads[abs]
+		if !ok {
+			// allow a path written relative to a subfolder if it matches one read file
+			if hit := findReadBySuffix(t, r.Path); hit != "" {
+				abs, rd, ok = hit, t.Reads[hit], true
+			}
+		}
+		if !ok {
+			problems = append(problems, fmt.Sprintf("%s:%d: Claude didn't open this file during the task", r.Path, r.Line))
+			continue
+		}
+		if fileHash(abs) != rd.Hash {
+			problems = append(problems, fmt.Sprintf("%s:%d: the file changed after it was read; open it again", r.Path, r.Line))
+			continue
+		}
+		if n := lineCount(abs); r.Line > n {
+			problems = append(problems, fmt.Sprintf("%s:%d: the file has only %d lines", r.Path, r.Line, n))
+		}
+	}
+	return problems
+}
+
+func findReadBySuffix(t *Task, rel string) string {
+	hit := ""
+	for p := range t.Reads {
+		if strings.HasSuffix(filepath.ToSlash(p), "/"+rel) {
+			if hit != "" {
+				return "" // ambiguous
+			}
+			hit = p
+		}
+	}
+	return hit
+}
+
+func lineCount(p string) int {
+	f, err := os.Open(p)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	n := 0
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	for sc.Scan() {
+		n++
+	}
+	return n
+}
+
+// Section returns the lines under a "## <name>" heading (case-insensitive,
+// prefix match), up to the next heading of the same or higher level.
+func Section(text, name string) []string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "#") {
+			h := strings.ToLower(strings.TrimSpace(strings.TrimLeft(trim, "#")))
+			if in {
+				break
+			}
+			if strings.HasPrefix(h, strings.ToLower(name)) {
+				in = true
+			}
+			continue
+		}
+		if in && trim != "" {
+			out = append(out, trim)
+		}
+	}
+	return out
+}
+
+func bullet(line string) (string, bool) {
+	for _, p := range []string{"- ", "* ", "+ "} {
+		if strings.HasPrefix(line, p) {
+			return strings.TrimSpace(line[len(p):]), true
+		}
+	}
+	return "", false
+}
+
+var reCaseLabel = regexp.MustCompile(`^\[(normal|edge|refused|boundary|repeat-safe|bug|performance)\]`)
+var reTestLink = regexp.MustCompile("(?i)test:\\s*`?([^\\s`]+)`?")
+
+const notApply = "does not apply, because"
+
+// PlanCheck is what checkpoint 2 needs from plan.md.
+type PlanCheck struct {
+	Files      []string
+	Cases      int
+	CaseTests  []string // test files the cases link to
+	ProofKinds []string // ui, api, schema that must be proven
+	Problems   []string
+}
+
+func CheckPlan(text string) PlanCheck {
+	var pc PlanCheck
+	for _, l := range Section(text, "files") {
+		if b, ok := bullet(l); ok {
+			f := strings.Trim(strings.Fields(b)[0], "`")
+			pc.Files = append(pc.Files, filepath.ToSlash(f))
+		}
+	}
+	if len(pc.Files) == 0 {
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Files" list naming every file the plan changes`)
+	}
+	for _, l := range Section(text, "cases") {
+		b, ok := bullet(l)
+		if !ok {
+			continue
+		}
+		pc.Cases++
+		if !reCaseLabel.MatchString(b) {
+			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs a label: [normal] [edge] [refused] [boundary] [repeat-safe] [bug] [performance]", short(b)))
+		}
+		lower := strings.ToLower(b)
+		if m := reTestLink.FindStringSubmatch(b); m != nil {
+			pc.CaseTests = append(pc.CaseTests, strings.SplitN(m[1], "::", 2)[0])
+		} else if !strings.Contains(lower, notApply) {
+			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs \"test: <file>\" or \"does not apply, because ...\"", short(b)))
+		}
+	}
+	if pc.Cases == 0 {
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Cases" list (each case labelled and linked to a test)`)
+	}
+	proof := Section(text, "real-world proof")
+	if len(proof) == 0 {
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Real-world proof" section: ui / api / schema, or "does not apply, because ..."`)
+	}
+	for _, l := range proof {
+		b, ok := bullet(l)
+		if !ok {
+			b = l
+		}
+		lower := strings.ToLower(b)
+		for _, k := range []string{"ui", "api", "schema"} {
+			if strings.HasPrefix(lower, k+":") && !strings.Contains(lower, notApply) {
+				pc.ProofKinds = append(pc.ProofKinds, k)
+			}
+		}
+	}
+	return pc
+}
+
+func short(s string) string {
+	if len(s) > 60 {
+		return s[:57] + "..."
+	}
+	return s
+}
+
+func ReadDoc(t *Task, name string) (string, os.FileInfo, error) {
+	p := filepath.Join(TaskDocsDir(t.Root, t.ID), name)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", nil, err
+	}
+	fi, _ := os.Stat(p)
+	return string(b), fi, nil
+}

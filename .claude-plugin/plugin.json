@@ -1,0 +1,10 @@
+{
+  "name": "plumbline",
+  "displayName": "Plumbline",
+  "version": "0.1.0",
+  "description": "Runs every task the same careful way: two checkpoints with you, no code before approval, no commit or done without proof.",
+  "author": { "name": "Lorenz Kobe Managbanag" },
+  "repository": "https://github.com/lorenzkobe/plumbline",
+  "license": "UNLICENSED",
+  "keywords": ["workflow", "checkpoints", "proof", "hooks"]
+}

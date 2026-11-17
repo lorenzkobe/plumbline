@@ -1,0 +1,11 @@
+#!/bin/sh
+# Picks the prebuilt Plumbline binary for this laptop. No Go needed.
+d=${0%/*}/../dist
+case "$(uname -sm)" in
+  "Darwin arm64") exec "$d/plumbline-darwin-arm64" "$@" ;;
+  "Darwin x86_64") exec "$d/plumbline-darwin-amd64" "$@" ;;
+  "Linux x86_64") exec "$d/plumbline-linux-amd64" "$@" ;;
+  "Linux aarch64"|"Linux arm64") exec "$d/plumbline-linux-arm64" "$@" ;;
+esac
+echo "Plumbline: no binary for $(uname -sm)" >&2
+exit 2
