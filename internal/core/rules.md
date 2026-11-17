@@ -49,6 +49,12 @@ The user usually hands over the task and comes back later: research and plan wit
   - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".
   - Packages and outside-the-laptop commands run only if they are in the approved "Needs your OK" list. Anything else: don't, and put it under "For you".
 
+## Helpers (read-only, fresh eyes)
+- Challenger (`plumbline:challenger`): before the checkpoint, after understanding.md and plan.md are written. Skipped for small tasks. At most 2 rounds. Answer its findings in plan.md's `## Challenge note`; the checkpoint needs a finished challenger run and that note.
+- Reviewer (`plumbline:reviewer`): after the proof passes. The finish check needs a review of the code as it is now and a `## Review` section in report.md. At most 3 reviews (the first plus 2 fix rounds), then the user decides.
+- Check every finding against the code before acting on it. Push back with evidence when a finding is wrong.
+- Helpers write only their own findings file (challenge-N.md, review-N.md); nobody else edits those. They never ask the user and never start helpers.
+
 ## Finishing
 - Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end.
 - Report (`report.md`, then a short chat version, bad news first): what changed, proof (runs and counts), review, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user), and the question about committing.

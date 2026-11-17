@@ -232,7 +232,9 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	// Checkpoint 2 with an incomplete plan: refused.
 	h.docs(DocPlan, "# Plan\nChange A.\n")
 	h.expect(h.cp(2, "Approve"), "deny", "## Files")
-	h.docs(DocPlan, "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n## Needs your OK\n- none\n")
+	h.docs(DocPlan, "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n## Needs your OK\n- none\n## Challenge note\n- nothing changed\n")
+	h.expect(h.cp(2, "Approve"), "deny", "plumbline:challenger") // a normal task needs the challenger
+	h.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	h.cp(2, "Approve")
 	if h.task().Phase != PhaseBuilding {
 		t.Fatal("checkpoint 2 approval not recorded")
@@ -313,7 +315,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); !strings.Contains(fmtOut(o), "src/auth/login.go") {
 		t.Fatalf("report without outside-plan files should be sent back: %v", o)
 	}
-	h.docs(DocReport, "# Report\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
+	h.runHelper(HelperReviewer, "# Review 1\nnothing at 80 or more\n")
+	h.docs(DocReport, "# Report\n## Review\n- nothing at 80 or more\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); o != nil {
 		t.Fatalf("proven task should stop cleanly: %v", o)
 	}
@@ -380,6 +383,8 @@ func TestCombinedCheckpoint(t *testing.T) {
 	h2.post("mcp__serena__find_symbol", nil, nil)
 	h2.post("Read", map[string]any{"file_path": filepath.Join(h2.repo, "src", "a.go")}, nil)
 	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n")
+	h2.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n## Challenge note\n- nothing changed\n")
+	h2.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	h2.expect(h2.pre("AskUserQuestion", q), "", "")
 	h2.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Go?": "Approve"}})
 	if h2.task().Phase != PhaseBuilding {

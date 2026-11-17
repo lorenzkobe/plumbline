@@ -123,6 +123,10 @@ func runHook(args []string) (code int) {
 		out = core.PostToolUse(in)
 	case "stop":
 		out = core.Stop(in)
+	case "subagent-start":
+		out = core.SubagentStart(in)
+	case "subagent-stop":
+		out = core.SubagentStop(in)
 	case "session":
 		out = core.SessionStart(in)
 	case "prompt":
@@ -233,7 +237,7 @@ func cmdTask(args []string) error {
 		t := &core.Task{
 			ID: newTaskID(), Title: title, Ticket: f["ticket"], Size: size, SizeWhy: f["why"],
 			Root: root, Branch: core.CurrentBranch(root), Phase: core.PhaseUnderstanding,
-			Created: core.Now(), Preexisting: pre,
+			Created: core.Now(), Preexisting: pre, StartCommit: core.HeadCommit(root),
 		}
 		if err := os.MkdirAll(core.TaskDocsDir(root, t.ID), 0o700); err != nil {
 			return err
@@ -484,6 +488,16 @@ func cmdStatus(args []string) error {
 	fmt.Printf("Task %s \"%s\": %s step (%s).\nNotes: %s\n", t.ID, t.Title, t.Phase, t.Size, core.TaskDocsDir(root, t.ID))
 	for k, v := range t.ToolDown {
 		fmt.Printf("Not used: %s (%s)\n", k, v)
+	}
+	for _, h := range t.Helpers {
+		state := "running"
+		switch {
+		case !h.Finished.IsZero() && h.Complete():
+			state = "finished"
+		case !h.Finished.IsZero():
+			state = "finished, but the code changed while it ran"
+		}
+		fmt.Printf("Helper: %s %s, %s (%s)\n", h.Kind, h.Started.Local().Format("15:04"), state, h.Findings)
 	}
 	if t.Phase == core.PhaseBuilding && s != nil {
 		miss := core.FinishMissing(t, s)

@@ -78,6 +78,13 @@ type Task struct {
 	OutsidePlan map[string]string `json:"outside_plan,omitempty"`
 	Held        map[string]string `json:"held,omitempty"`
 
+	// Commit the task started from: the reviewer diffs against it, so slice
+	// commits made during the task are reviewed too.
+	StartCommit string `json:"start_commit,omitempty"`
+	// Challenger and reviewer runs, as recorded by the SubagentStart and
+	// SubagentStop hooks.
+	Helpers []HelperRun `json:"helpers,omitempty"`
+
 	LastCodeChange time.Time  `json:"last_code_change,omitempty"`
 	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
 	Waivers        []Waiver   `json:"waivers,omitempty"`

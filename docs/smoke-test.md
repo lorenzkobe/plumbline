@@ -41,4 +41,13 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 ## 7. Helpers
 - Ask Claude to use a helper that starts another helper. **Expected: the inner start is blocked.**
 
+## 8. Challenger and reviewer
+Use a normal-size task (small tasks skip the challenger).
+- After understanding.md and plan.md are written, Claude starts `plumbline:challenger`. **Expected: it writes `challenge-1.md` in the notes folder**, and `plumbline status` shows "Helper: challenger ... finished". If the write is refused with "no open task found", helpers don't get your session id and the branch fallback didn't find the task: note the message.
+- Ask Claude to have the challenger edit a code file or plan.md. **Expected: blocked** ("read-only").
+- Before plan.md has a `## Challenge note`, the checkpoint is **refused**, naming the note.
+- After building and the proof, say "done" before any review. **Expected: sent back**, naming `plumbline:reviewer`.
+- Have the reviewer run in the background. **Expected: Claude can wait for it without being sent back.**
+- After the review, change one line of code. **Expected: the finish check asks for another review.**
+
 When all of these pass, run one real task with only the core on, then everything on, end to end. Ten real Kwenta tasks with no gate bypassed and no gate bug come before Plumbline replaces done-gate anywhere.

@@ -28,6 +28,11 @@ func newCtx(in *HookInput) *hookCtx {
 	if c.root != "" {
 		c.paused = IsPaused(c.root)
 		c.task, c.taskErr = ActiveTask(c.root, in.SessionID, "")
+		if c.task == nil && c.taskErr == nil && in.AgentID != "" && in.SessionID != "" {
+			// Inside a helper whose hook input doesn't carry the lead's
+			// session: fall back to the one open task on this branch.
+			c.task, c.taskErr = ActiveTask(c.root, "", "")
+		}
 		if c.task != nil {
 			// Hold the task for the whole hook, and read it again under the
 			// lock so this hook sees every save made before it.
@@ -92,6 +97,11 @@ func PreToolUse(in *HookInput) Output {
 			return c.deny("tamper", "the task state was changed outside Plumbline, so its proof can't be trusted. Stop and tell the user; they can drop the task with /plumbline:cancel and start again.")
 		}
 	}
+	if kind := helperKind(in.AgentType, false); kind != "" && in.AgentID != "" {
+		if o := c.gateHelper(kind); o != nil {
+			return o
+		}
+	}
 	switch in.ToolName {
 	case "Edit", "Write", "MultiEdit", "NotebookEdit":
 		p := in.Str("file_path")
@@ -111,6 +121,9 @@ func PreToolUse(in *HookInput) Output {
 	case "Agent", "Task":
 		if in.AgentID != "" {
 			return c.deny("no-nested-helpers", "helpers can't start other helpers. Report back to the lead instead.")
+		}
+		if kind := helperKind(in.Str("subagent_type"), true); kind != "" {
+			return c.gateHelperStart(kind)
 		}
 	}
 	return nil
@@ -193,6 +206,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	abs := Abs(path, c.in.Cwd)
 	if IsInside(abs, Abs(DataDir(), "/")) {
 		if c.task != nil && IsInside(abs, Abs(TaskDocsDir(c.root, c.task.ID), "/")) && strings.HasSuffix(abs, ".md") {
+			if reFindings.MatchString(filepath.Base(abs)) {
+				return c.deny("helper-findings", "challenge-N.md and review-N.md are the helpers' own findings; only the helper that wrote one can change it. Answer the findings in plan.md (## Challenge note) or report.md (## Review).")
+			}
 			return allow("task notes")
 		}
 		return c.deny("own-files", "Plumbline's own files (task state, proof, logs) can't be edited. Task notes go in the task's docs folder (plumbline docs-dir).")
@@ -796,6 +812,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			pc := CheckPlan(text)
 			p = append(p, pc.Problems...)
 			p = append(p, CheckRefs(t, text)...)
+			p = append(p, c.challengeProblems(text)...)
 		}
 	}
 	return p

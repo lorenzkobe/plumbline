@@ -63,7 +63,12 @@ Related tests while building, then the full suite, lint and build. Suite takes a
 fix/TICKET-123 from develop (or: main, as the user chose)
 
 ## Team
-<lead only for small tasks; who else will run, roughly>
+<small task: lead + reviewer; otherwise lead, challenger, reviewer>
+
+## Challenge note
+- Questioned: <finding> -> changed: <what changed in the understanding or plan>
+- Questioned: <finding> -> kept, because <evidence>
+(Small tasks: "skipped, small task".)
 ```
 Approving the plan approves exactly the commands in "Needs your OK", nothing more.
 Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>` or `does not apply, because ...`.
@@ -83,7 +88,9 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 - Waivers: <or "none">
 
 ## Review
-<what was checked, findings and what was fixed>
+- Reviews: <n> (review-1.md, ...), the last one on the final code
+- <finding> -> fixed in <file> / pushed back: <evidence>
+- Not fixed, needs you: <or "none">
 
 ## Outside the plan
 - <file>: <what and why it belonged to this change>

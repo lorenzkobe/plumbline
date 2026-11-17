@@ -1,4 +1,4 @@
-# Handoff: phase 1a done, phase 1b next
+# Handoff: phases 1a and 1b done, phase 2 next
 
 Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true.
 
@@ -18,7 +18,7 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 - **MCP servers are not bundled in the plugin.** Setup checks them and, if missing, adds them at user scope after looking up current install steps (the plan said "settings ship with the plugin"; bundling guessed commands risked broken or duplicate servers). Revisit if the user prefers bundling.
 - **Data folder is `~/.plumbline`**, not `${CLAUDE_PLUGIN_DATA}`: the CLI run through Bash doesn't get that variable, and logs should survive a reinstall.
 - **Laptop settings** written by `plumbline setup laptop`: `autoMemoryEnabled: false`, `attribution: {"commit": "", "pr": ""}`, and a marked block in `~/.claude/CLAUDE.md`. `plumbline setup undo-laptop` restores the old values.
-- **Hotfix flow is not built yet.** It belongs in 1b (it's small: a user-only `/plumbline:hotfix` through UserPromptExpansion that creates a small task with one combined checkpoint and marks "full suite and review right after").
+- **Hotfix flow is not built yet.** Its own step after 1b (the user's choice): a user-only `/plumbline:hotfix` through UserPromptExpansion that creates a small task with one combined checkpoint and marks "full suite and review right after".
 
 ## Not verified yet (the smoke test covers these)
 - The AskUserQuestion `tool_response` shape. `findAnswer` handles several shapes; `PLUMBLINE_DEBUG=1` saves the real one to `~/.plumbline/debug/askuser-response.json`.
@@ -29,14 +29,35 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 
 ## Known limits
 - Hooks can't see token usage, so the logs don't record tokens yet.
-- Weakened-test detection is a report instruction only; the 1b reviewer should check the diff for skips, removed tests and loosened assertions.
+- Weakened-test detection is instructions only: the reviewer's checklist lists skipped, removed and loosened tests, but no gate checks the diff.
 - The seal key lives beside the data. It detects edits made outside Plumbline; it doesn't stop a determined one. The Bash gate blocks writes to the data folder.
 - Full-stack e2e: `plumbline run e2e` exists, but nothing yet requires it for full-stack tasks (the plan's "ui" proof covers clicks).
 
-## Phase 1b: the challenger and one reviewer
-1. Agents in `agents/`: `challenger.md` (read-only, fresh eyes, strongest model, no Agent tool) and `reviewer.md` (read-only, strongest model, no Agent tool). Same checklist: real cause? file:line claims true? what's missing (edge cases, unchecked callers, the same bug elsewhere)? would the tests really prove it? simpler way? "imagine this failed in production next week: why?"
-2. Wire the challenger before the checkpoint (skipped for small tasks), at most 2 rounds, with a challenge note in plan.md. It runs without the user, so it must not add a stop. Consider a gate: checkpoint refused without a `## Challenge note` section unless size is small.
-3. Wire the reviewer after building: findings scored, only 80+ reported, each checked by the lead against the code before fixing, at most 2 fix rounds. Finish check: require a `## Review` section in report.md written after the last change.
-4. Helpers save findings as they go into the task's docs folder; helper reads already count for open-before-quoting.
-5. Make each part switchable through `parts` in the setup file (`challenger`, `reviewer`).
-6. Add test cases for the new gates, then re-run everything.
+## What 1b built (v0.3.0)
+- Agents `agents/challenger.md` and `agents/reviewer.md`: `model: inherit` (the user's choice: same model as the session), `disallowedTools: Agent, Edit, MultiEdit, NotebookEdit, AskUserQuestion`. `tools` is left out on purpose so they keep the session's MCP tools (SocratiCode, Serena) whatever the servers are named. One shared checklist, findings scored, only 80+ listed; the reviewer also lists weakened tests.
+- Hooks `SubagentStart` / `SubagentStop` (matcher `^plumbline:(challenger|reviewer)$`) record each run in the task state (`Helpers`): agent id, start/stop time, code fingerprint at both ends, findings file, whether both docs existed at start. A helper that stops with no findings file is sent back once. Start context tells the helper its notes folder, round, diff base (`StartCommit`, recorded at `task start`) and the one file it may write.
+- Helper gates (PreToolUse with `agent_type` `plumbline:challenger|reviewer`): no edits, Write only to its own `challenge-N.md` / `review-N.md`, Bash only if every segment is read-only (or a read-only `plumbline` subcommand), no AskUserQuestion, no nested helpers. The lead can't write `challenge-*.md` / `review-*.md`.
+- Lead gates on the Agent tool (scoped or bare name): challenger only before building, only once understanding.md and plan.md exist, at most 2 runs; reviewer only while building, at most 3 runs (first + 2 fix rounds).
+- Checkpoint (normal and big tasks, `parts.challenger` on): a finished challenger run (code unchanged during it, both docs existed, findings file present) and a non-empty `## Challenge note` in plan.md.
+- Finish check (`parts.reviewer` on, all sizes): the latest finished review is on the current fingerprint, with findings; a non-empty `## Review` in report.md, written after that review. After 3 reviews and a later change, the check says to ask the user.
+- Stop hook: a helper started in the last 30 minutes with no stop recorded lets the lead stop (waiting on a background helper isn't "done").
+- Fallback: if a helper's hook input has a session id with no binding, the one open task on the branch is used.
+
+## Fixes to 1a found while building 1b
+- `plumbline docs-dir`, `status`, `task show|list`, `stats`, `setup show`, `version` were refused before approval during a task (the task skill needs `docs-dir` to write understanding.md). Now quiet.
+- `Fingerprint` copied the index to a temp file with a fresh mtime, which turns off git's racy-clean re-check. A same-size edit in the same second git last indexed the file was fingerprinted as the old content (reproduced 3/3 on Apple Git 2.39), so proof could count for changed code. The copy now keeps the index's mtime.
+- Lost updates: every hook does load, change, save on the task state; the lead's and a background helper's hooks overlap, so saves wiped each other out (36 lost records in 3 runs of the new test). Each hook now holds a per-task `flock` (`state.lock`, 10 s wait, then goes on without it) and re-reads the state under it; the CLI's `tool-down`, `replan`, `finish` and `waive` do the same.
+
+## Decisions made in 1b
+- Strict review freshness (the user's choice): any code change after the last review needs another review; the re-review checks only the fixes.
+- Hotfix flow moved out of 1b to its own step (the user's choice).
+- 1b was built before the day-one smoke test ran (the user's choice); smoke-test step 8 covers the helpers, including whether helper hooks carry the lead's session id.
+- Commits are not gated on the review; the finish check is. A final commit normally comes after the report, which already needs the review.
+
+## Not verified yet (beyond the 1a list above)
+- That `agent_type` in helper hooks is exactly `plumbline:challenger` / `plumbline:reviewer` (docs say plugin agents are scoped this way).
+- That helper tool hooks carry the lead's `session_id` (docs don't say; the branch fallback covers one open task per branch).
+- That `SubagentStop` `decision: block` sends the helper back as documented.
+
+## Phase 2: second reviewer and specialists, builders, blind QA, Jira reading and drafts
+Read the plan doc's "Agents and speed" and "Git and Jira" sections. Reuse `HelperRun` and the SubagentStart/Stop records for the new helpers rather than adding a second mechanism; builders are the first helpers that edit, so the helper gates need a per-kind policy instead of "read-only".

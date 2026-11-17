@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // FinishMissing lists what the task still needs before Claude may say it's
@@ -41,6 +42,11 @@ func FinishMissing(t *Task, s *Setup) []string {
 		}
 	}
 	report, fi, err := ReadDoc(t, DocReport)
+	var reportTime time.Time
+	if err == nil {
+		reportTime = fi.ModTime()
+	}
+	miss = append(miss, reviewMissing(t, s, fp, report, reportTime)...)
 	switch {
 	case err != nil:
 		miss = append(miss, "report: write it to "+filepath.Join(TaskDocsDir(t.Root, t.ID), DocReport))
@@ -103,6 +109,9 @@ func Stop(in *HookInput) Output {
 	}
 	if endsWithQuestion(in.LastMessage) {
 		return noteOnly(note)
+	}
+	if c.task.HelperRunning() {
+		return noteOnly(note) // waiting on a background helper is not "done"
 	}
 	t := c.task
 	var miss []string

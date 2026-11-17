@@ -158,3 +158,12 @@ func WorkingDiff(root, base string) string {
 	out, _ := gitOut(root, args...)
 	return out
 }
+
+// HeadCommit is the commit HEAD points to, or "" in a repo with no commits.
+func HeadCommit(root string) string {
+	out, err := gitOut(root, "rev-parse", "--verify", "-q", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}

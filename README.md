@@ -15,7 +15,9 @@ A plumb line is how builders check a wall is truly straight.
 | Approvals | Only your answer on Claude Code's question prompt moves a task forward. Pre-answered checkpoints are refused |
 | Building | Runs to the end without waiting on you. Files in the plan, and files clearly part of the same change, go ahead (the latter listed in the report; more than 3 of those means the plan was wrong, so Claude asks you). Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and your own unsaved work are refused and listed under "For you". Packages and outside commands run only if the approved plan lists them. Real decisions are asked right away |
 | Commit | Needs passing tests on the current code (related tests for a slice, the full suite for the last commit), lint and build, no new failures, no secrets, no AI markers, the right message format. Then asks you |
-| Finish | "Done" needs the proof plus a report written after the last change. Never sends Claude back twice for the same reason |
+| Before the checkpoint | A read-only challenger attacks the understanding and the plan (skipped for small tasks, at most 2 rounds). The checkpoint needs its finished run and a challenge note in the plan |
+| After building | A read-only reviewer checks the change against the plan and the code. Only findings scored 80 or more are reported; Claude checks each against the code before fixing. After fixes it reviews again, at most 3 times, then it comes to you |
+| Finish | "Done" needs the proof, a review of the code as it is now, and a report written after the last change and the last review. Never sends Claude back twice for the same reason |
 | Always | No `git push`, no `--no-verify`, no editing `.env` or key files, reading them asks you, production and cloud commands ask you, installs ask you, Claude Code settings and plugins are protected, helpers can't start helpers |
 
 Only you can pause (`/plumbline:pause`), resume, close a task (`/plumbline:cancel`) or mark a block as wrong (`/plumbline:wrong`). Even when paused, the safety rules stay on.
@@ -42,6 +44,10 @@ No Go needed: prebuilt binaries for Apple Silicon, Intel Mac and Linux ship in `
 | `/plumbline:pause`, `/plumbline:resume`, `/plumbline:cancel`, `/plumbline:wrong` | Yours only |
 
 Claude uses the `plumbline` command (on its PATH) to start tasks and record proof: `plumbline run test`, `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run proof api -- curl ...`. Only runs recorded this way count as proof, and results go stale the moment the code changes.
+
+## Helpers
+
+`agents/challenger.md` and `agents/reviewer.md` run on the same model as your session. They can read, search and run read-only commands, and write only their own findings file in the task's notes folder (`challenge-N.md`, `review-N.md`). Plumbline records when each starts and stops, with the code fingerprint at both ends, so a run counts only if it finished on code that didn't change under it. Switch one off per project with `"parts": {"challenger": false}` or `"reviewer": false` in the setup file.
 
 ## Where things live
 

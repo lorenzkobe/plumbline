@@ -59,6 +59,30 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "matcher": "^plumbline:(challenger|reviewer)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook subagent-start",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^plumbline:(challenger|reviewer)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook subagent-stop",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
