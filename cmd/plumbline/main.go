@@ -186,6 +186,17 @@ func activeTask(root string, f map[string]string) (*core.Task, error) {
 	return t, nil
 }
 
+// lockedTask is activeTask for commands that change the task: it holds the
+// task lock (released when the command exits) and reads the state under it.
+func lockedTask(root string, f map[string]string) (*core.Task, error) {
+	t, err := activeTask(root, f)
+	if err != nil {
+		return nil, err
+	}
+	_ = core.LockTask(root, t.ID) // held until the process exits
+	return core.LoadTask(root, t.ID)
+}
+
 func cmdTask(args []string) error {
 	if len(args) == 0 {
 		args = []string{"show"}
@@ -253,7 +264,7 @@ func cmdTask(args []string) error {
 		}
 		return nil
 	case "tool-down":
-		t, err := activeTask(root, f)
+		t, err := lockedTask(root, f)
 		if err != nil {
 			return err
 		}
@@ -277,7 +288,7 @@ func cmdTask(args []string) error {
 		fmt.Printf("Recorded: %s not used (%s). Name this in the checkpoint and the report.\n", tool, f["reason"])
 		return core.SaveTask(t)
 	case "replan":
-		t, err := activeTask(root, f)
+		t, err := lockedTask(root, f)
 		if err != nil {
 			return err
 		}
@@ -290,7 +301,7 @@ func cmdTask(args []string) error {
 		fmt.Println("Back to planning. Update plan.md with what changes and why, then ask the checkpoint again. Edits are blocked until the user approves.")
 		return core.SaveTask(t)
 	case "finish":
-		t, err := activeTask(root, f)
+		t, err := lockedTask(root, f)
 		if err != nil {
 			return err
 		}
@@ -515,7 +526,7 @@ func cmdWaive(args []string) error {
 	if strings.TrimSpace(f["reason"]) == "" {
 		return errors.New(`say why it can't run: --reason "..."`)
 	}
-	t, err := activeTask(root, f)
+	t, err := lockedTask(root, f)
 	if err != nil {
 		return err
 	}

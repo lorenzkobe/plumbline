@@ -19,6 +19,7 @@ type hookCtx struct {
 	setup    *Setup
 	setupOK  bool
 	setupErr error
+	unlock   func()
 }
 
 func newCtx(in *HookInput) *hookCtx {
@@ -27,9 +28,27 @@ func newCtx(in *HookInput) *hookCtx {
 	if c.root != "" {
 		c.paused = IsPaused(c.root)
 		c.task, c.taskErr = ActiveTask(c.root, in.SessionID, "")
+		if c.task != nil {
+			// Hold the task for the whole hook, and read it again under the
+			// lock so this hook sees every save made before it.
+			c.unlock = LockTask(c.root, c.task.ID)
+			if t, err := LoadTask(c.root, c.task.ID); err == nil {
+				c.task = t
+			} else {
+				c.task, c.taskErr = nil, err
+			}
+		}
 		c.setup, c.setupOK, c.setupErr = LoadSetup(c.root)
 	}
 	return c
+}
+
+// close releases the task lock; every hook defers it.
+func (c *hookCtx) close() {
+	if c.unlock != nil {
+		c.unlock()
+		c.unlock = nil
+	}
 }
 
 func (c *hookCtx) projectKey() string {
@@ -66,6 +85,7 @@ func allow(reason string) Output {
 // checkpoint questions and helpers.
 func PreToolUse(in *HookInput) Output {
 	c := newCtx(in)
+	defer c.close()
 	if errors.Is(c.taskErr, ErrTampered) {
 		switch in.ToolName {
 		case "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "AskUserQuestion":
@@ -295,6 +315,22 @@ func isPlumblineBin(name string) bool {
 	return name == "plumbline" || strings.HasPrefix(name, "plumbline-darwin") || strings.HasPrefix(name, "plumbline-linux")
 }
 
+// plumblineReads: plumbline subcommands that only show things.
+func plumblineReads(s Segment) bool {
+	if !isPlumblineBin(s.Name()) {
+		return false
+	}
+	switch s.Arg(1) {
+	case "status", "docs-dir", "version", "--version", "-v", "stats", "help", "--help", "-h":
+		return true
+	case "task":
+		return s.Arg(2) == "show" || s.Arg(2) == "list"
+	case "setup":
+		return s.Arg(2) == "show" || s.Arg(2) == ""
+	}
+	return false
+}
+
 type verdicts struct {
 	deny, ask []string
 	denyRule  string
@@ -366,7 +402,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 					quiet = true // runs a saved command
 				}
 			}
-			if s.Arg(1) == "task" && s.Arg(2) == "start" || s.Arg(1) == "task" && s.Arg(2) == "tool-down" || s.Arg(1) == "task" && s.Arg(2) == "finish" {
+			if s.Arg(1) == "task" && s.Arg(2) == "start" || s.Arg(1) == "task" && s.Arg(2) == "tool-down" || s.Arg(1) == "task" && s.Arg(2) == "finish" || plumblineReads(s) {
 				quiet = true
 			}
 		case name == "git":

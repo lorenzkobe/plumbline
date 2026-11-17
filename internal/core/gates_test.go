@@ -426,3 +426,15 @@ func TestUserOnlyCommands(t *testing.T) {
 		t.Errorf("stats: %s", Stats(1))
 	}
 }
+
+func TestPlumblineReadCommandsBeforeApproval(t *testing.T) {
+	// The task skill needs these before the checkpoint (where to write the
+	// notes, what's missing); they only read.
+	h := newHarness(t)
+	h.setup()
+	h.startTask("normal")
+	for _, c := range []string{"plumbline docs-dir", "plumbline status", "plumbline version", "plumbline task show", "plumbline task list", "plumbline stats", "plumbline setup show"} {
+		h.expect(h.bash(c), "allow", "")
+	}
+	h.expect(h.bash("plumbline task replan"), "deny", "saved commands")
+}

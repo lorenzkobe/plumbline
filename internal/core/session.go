@@ -30,6 +30,7 @@ func taskLine(t *Task) string {
 func SessionStart(in *HookInput) Output {
 	Cleanup()
 	c := newCtx(in)
+	defer c.close()
 	var b strings.Builder
 	b.WriteString(coreRules)
 	b.WriteString("\n## Right now\n")
@@ -85,6 +86,7 @@ func orDash(s string) string {
 // UserPromptSubmit adds a one-line reminder to every message you send.
 func UserPromptSubmit(in *HookInput) Output {
 	c := newCtx(in)
+	defer c.close()
 	if c.task != nil && len(c.task.Sendbacks) > 0 {
 		c.task.Sendbacks = nil // a new message from you resets the send-back count
 		_ = SaveTask(c.task)
@@ -116,6 +118,7 @@ func UserPromptExpansion(in *HookInput) Output {
 		return nil
 	}
 	c := newCtx(in)
+	defer c.close()
 	say := func(s string) Output { return Context("UserPromptExpansion", msg(s)) }
 	switch name {
 	case "pause", "resume":

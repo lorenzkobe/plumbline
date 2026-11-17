@@ -96,6 +96,7 @@ func endsWithQuestion(m string) bool {
 // user what's missing.
 func Stop(in *HookInput) Output {
 	c := newCtx(in)
+	defer c.close()
 	note := longConversationNote(in)
 	if c.root == "" || c.paused || c.task == nil || c.task.Phase != PhaseBuilding {
 		return noteOnly(note)

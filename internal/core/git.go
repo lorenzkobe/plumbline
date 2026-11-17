@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Fingerprint is the git tree hash of the working tree as it is now,
@@ -21,6 +22,7 @@ func Fingerprint(root string, ignore []string) (string, error) {
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
+	var indexTime time.Time
 	// Start from the real index so git can reuse its file stat cache.
 	gitDir, err := gitOut(root, "rev-parse", "--git-dir")
 	if err == nil {
@@ -30,10 +32,20 @@ func Fingerprint(root string, ignore []string) (string, error) {
 		}
 		if src, err := os.Open(filepath.Join(gd, "index")); err == nil {
 			_, _ = io.Copy(tmp, src)
+			if fi, err := src.Stat(); err == nil {
+				indexTime = fi.ModTime()
+			}
 			src.Close()
 		}
 	}
 	tmp.Close()
+	// Keep the real index's time on the copy. Git re-reads files changed in
+	// the same second the index was written ("racy clean"); a copy with a
+	// newer time hides a quick same-size edit, and proof would be recorded
+	// against the old code.
+	if !indexTime.IsZero() {
+		_ = os.Chtimes(tmpName, indexTime, indexTime)
+	}
 	env := append(os.Environ(), "GIT_INDEX_FILE="+tmpName, "GIT_OPTIONAL_LOCKS=0")
 	args := []string{"add", "-A", "--", "."}
 	for _, g := range ignore {

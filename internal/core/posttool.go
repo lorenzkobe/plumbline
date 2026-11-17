@@ -61,6 +61,7 @@ var reTaskStarted = regexp.MustCompile(`plumbline-task-id: ([0-9a-f-]+)`)
 // checkpoint answers, and files changed by terminal commands.
 func PostToolUse(in *HookInput) Output {
 	c := newCtx(in)
+	defer c.close()
 	if c.root == "" {
 		return nil
 	}
