@@ -1,6 +1,6 @@
 # Plumbline
 
-A Claude Code plugin that runs every task the same careful way, on every project and laptop. Claude digs into the task, traces the real code, stops at two checkpoints with you, writes no code before you approve the plan, and can't commit or say "done" without proof.
+A Claude Code plugin that runs every task the same careful way, on every project and laptop. You hand over a task and come back later: Claude digs into it, traces the real code, and stops once with the understanding and the plan. After you approve, it builds and proves to the end, stopping only for real decisions. It writes no code before you approve, and can't commit or say "done" without proof.
 
 A plumb line is how builders check a wall is truly straight.
 
@@ -10,11 +10,10 @@ A plumb line is how builders check a wall is truly straight.
 |---|---|
 | Every session | Loads the core rules (again after compaction), checks Docker, lists tasks left open from earlier sessions |
 | Every message | A one-line reminder of the mode and the task's step |
-| Before approval | Edits are blocked. Terminal commands: reading and the project's saved commands run; anything else asks you |
-| Checkpoint 1 | Refused until SocratiCode and MemPalace (and Serena when existing code changes) were used, and every file:line points to a file opened during the task |
-| Checkpoint 2 | Refused until the plan lists its files, a labelled case list linked to tests, and the real-world proof |
+| Before approval | Edits are blocked. Terminal commands: reading and the project's saved commands run; anything else is refused during a task (so nothing waits on you) and asks you outside one |
+| The checkpoint | One stop with the understanding and the plan. Refused until SocratiCode and MemPalace (and Serena when existing code changes) were used, every file:line points to a file opened during the task, and the plan lists its files, a labelled case list linked to tests, the real-world proof, and what needs your OK (packages, outside-the-laptop commands) |
 | Approvals | Only your answer on Claude Code's question prompt moves a task forward. Pre-answered checkpoints are refused |
-| Building | Files in the plan edit freely; any other file asks you. A terminal command that changes files outside the plan stops the work |
+| Building | Runs to the end without waiting on you. Files in the plan, and files clearly part of the same change, go ahead (the latter listed in the report). Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and your own unsaved work are refused and listed under "For you". Packages and outside commands run only if the approved plan lists them. Real decisions are asked right away |
 | Commit | Needs passing tests on the current code (related tests for a slice, the full suite for the last commit), lint and build, no new failures, no secrets, no AI markers, the right message format. Then asks you |
 | Finish | "Done" needs the proof plus a report written after the last change. Never sends Claude back twice for the same reason |
 | Always | No `git push`, no `--no-verify`, no editing `.env` or key files, reading them asks you, production and cloud commands ask you, installs ask you, Claude Code settings and plugins are protected, helpers can't start helpers |

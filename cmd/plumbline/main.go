@@ -242,7 +242,7 @@ func cmdTask(args []string) error {
 		if len(pre) > 0 {
 			fmt.Printf("Your own unsaved changes before the task (not counted as the task's): %s\n", strings.Join(keys(pre), ", "))
 		}
-		fmt.Println("Next: read the task, check the tools, trace the code (SocratiCode, Serena, MemPalace), write understanding.md, then checkpoint 1.")
+		fmt.Println("Next: read the task, check the tools, trace the code (SocratiCode, Serena, MemPalace), write understanding.md and plan.md, then the checkpoint.")
 		return nil
 	case "show", "list":
 		for _, t := range core.ListTasks(root) {
@@ -287,7 +287,7 @@ func cmdTask(args []string) error {
 		t.Phase = core.PhasePlanning
 		t.Checkpoint2At = time.Time{}
 		core.LogEvent(core.Event{Type: "phase", Task: t.ID, Rule: "replan", Size: t.Size, Project: core.ProjectKey(root)})
-		fmt.Println("Back to planning. Update plan.md with what changes and why, then ask checkpoint 2 again. Edits are blocked until the user approves.")
+		fmt.Println("Back to planning. Update plan.md with what changes and why, then ask the checkpoint again. Edits are blocked until the user approves.")
 		return core.SaveTask(t)
 	case "finish":
 		t, err := activeTask(root, f)

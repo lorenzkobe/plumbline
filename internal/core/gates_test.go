@@ -187,7 +187,9 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.setup()
 	h.expect(h.bash("./test.sh"), "allow", "") // saved command runs before approval
 	tk := h.startTask("normal")
-	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "checkpoint 2")
+	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "approves the plan")
+	// Before approval, an unsaved command is refused (no prompt to wait on).
+	h.expect(h.bash("node scripts/try.js"), "deny", "saved commands")
 	stateFile := filepath.Join(TaskDir(h.repo, tk.ID), "state.json")
 	h.expect(h.pre("Write", map[string]any{"file_path": stateFile}), "deny", "own files")
 	h.expect(h.bash("rm "+stateFile), "deny", "own files")
@@ -230,15 +232,20 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	// Checkpoint 2 with an incomplete plan: refused.
 	h.docs(DocPlan, "# Plan\nChange A.\n")
 	h.expect(h.cp(2, "Approve"), "deny", "## Files")
-	h.docs(DocPlan, "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n")
+	h.docs(DocPlan, "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n## Needs your OK\n- none\n")
 	h.cp(2, "Approve")
 	if h.task().Phase != PhaseBuilding {
 		t.Fatal("checkpoint 2 approval not recorded")
 	}
 
-	// Building: plan file is fine, other files ask.
+	// Building runs without prompts: plan files and same-change files go
+	// ahead; risky files outside the plan are refused and must be reported.
 	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "", "")
-	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "b.go")}), "ask", "plan")
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "b.go")}), "", "")
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "auth", "login.go")}), "deny", "For you")
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "package.json")}), "deny", "risky")
+	h.expect(h.bash("npm install left-pad"), "deny", "Needs your OK")
+	h.expect(h.bash("git checkout -b fix/a"), "", "")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, map[string]any{})
 
@@ -246,8 +253,8 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot
 	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 3 }\n")
 	o = h.post("Bash", map[string]any{"command": "gofmt -w src"}, map[string]any{})
-	if o["continue"] != false {
-		t.Fatalf("outside-plan change didn't stop the work: %v", o)
+	if o["continue"] == false || !strings.Contains(fmtOut(o), "src/b.go") {
+		t.Fatalf("outside-plan change should be reported to Claude, not stop the work: %v", o)
 	}
 	run(t, h.repo, "git", "checkout", "src/b.go")
 	h.post("Bash", map[string]any{"command": "git checkout src/b.go"}, map[string]any{})
@@ -288,8 +295,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	must(t, err)
 	h.expect(h.bash(`git commit -am "fix: A returns 2"`), "ask", "full suite passed")
 
-	// Report, then the finish check passes.
+	// The report must list what happened outside the plan.
 	h.docs(DocReport, "# Report\nDone.\n")
+	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); !strings.Contains(fmtOut(o), "src/auth/login.go") {
+		t.Fatalf("report without outside-plan files should be sent back: %v", o)
+	}
+	h.docs(DocReport, "# Report\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); o != nil {
 		t.Fatalf("proven task should stop cleanly: %v", o)
 	}
@@ -306,6 +317,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	must(t, os.WriteFile(sp, []byte(strings.Replace(string(b), `"building"`, `"building" `, 1)), 0o600))
 	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "outside Plumbline")
 }
+
+func fmtOut(o Output) string { b, _ := json.Marshal(o); return string(b) }
 
 func TestChangedBeforeApprovalStops(t *testing.T) {
 	h := newHarness(t)
@@ -324,7 +337,7 @@ func TestChangedBeforeApprovalStops(t *testing.T) {
 	}
 }
 
-func TestSmallTaskCombinedCheckpoint(t *testing.T) {
+func TestCombinedCheckpoint(t *testing.T) {
 	h := newHarness(t)
 	h.setup()
 	h.startTask("small")
@@ -335,20 +348,32 @@ func TestSmallTaskCombinedCheckpoint(t *testing.T) {
 	must(t, SaveTask(tk))
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	h.docs(DocUnderstanding, "# U\nsrc/a.go:1\n")
-	h.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n")
+	h.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\nnone\n")
 	h.cp(2, "Approve")
 	if h.task().Phase != PhaseBuilding {
 		t.Fatal("combined checkpoint should approve a small task")
 	}
-	// A normal task can't skip checkpoint 1.
+	// The one combined checkpoint (header "Checkpoint") also works for a
+	// normal task, and still needs the grounding and the understanding.
 	h2 := newHarness(t)
 	h2.setup()
 	h2.startTask("normal")
+	h2.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n")
+	q := map[string]any{"questions": []any{map[string]any{"question": "Go?", "header": "Checkpoint",
+		"options": []any{map[string]any{"label": "Approve"}, map[string]any{"label": "Change something"}}}}}
+	h2.expect(h2.pre("AskUserQuestion", q), "deny", "SocratiCode")
 	h2.post("mcp__socraticode__search", nil, nil)
 	h2.post("mcp__mempalace__search", nil, nil)
 	h2.post("mcp__serena__find_symbol", nil, nil)
-	h2.docs(DocPlan, "## Files\n- src/a.go\n")
-	h2.expect(h2.cp(2, "Approve"), "deny", "checkpoint 1")
+	h2.post("Read", map[string]any{"file_path": filepath.Join(h2.repo, "src", "a.go")}, nil)
+	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n")
+	h2.expect(h2.pre("AskUserQuestion", q), "", "")
+	h2.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Go?": "Approve"}})
+	if h2.task().Phase != PhaseBuilding {
+		t.Fatal("combined checkpoint should approve a normal task")
+	}
+	// A package named in the approved plan installs without a prompt.
+	h2.expect(h2.bash("npm install zod"), "", "")
 }
 
 func TestPausedKeepsSafetyRules(t *testing.T) {

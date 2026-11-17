@@ -52,6 +52,10 @@ If no existing code is involved (a brand-new project), say "No existing code is 
 - ui: does not apply, because there is no UI change
 - schema: does not apply, because no schema change
 
+## Needs your OK
+- `npm install zod` (why: schema validation for the refund body; well maintained, MIT; nothing in the project does this)
+- none
+
 ## Checks
 Related tests while building, then the full suite, lint and build. Suite takes about <N> min.
 
@@ -61,6 +65,7 @@ fix/TICKET-123 from develop (or: main, as the user chose)
 ## Team
 <lead only for small tasks; who else will run, roughly>
 ```
+Approving the plan approves exactly the commands in "Needs your OK", nothing more.
 Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>` or `does not apply, because ...`.
 
 ## report.md
@@ -80,10 +85,15 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 ## Review
 <what was checked, findings and what was fixed>
 
+## Outside the plan
+- <file>: <what and why it belonged to this change>
+
 ## Outside the ticket
 - <reported, not fixed>
 
 ## For you
+- <files Claude was refused (risky or your unsaved work), with what it would change and why>
+- <packages or commands that weren't in the approved list>
 - <decisions or actions only the user can take>
 - Commit? <proposed message(s)>. You push.
 ```

@@ -86,6 +86,9 @@ func PostToolUse(in *HookInput) Output {
 			_ = ConfirmSetup(c.root) // you allowed the change on the confirm prompt
 		}
 		if c.task != nil && IsInside(abs, c.root) {
+			if rel := c.task.Rel(abs); c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) {
+				c.task.NoteOutside(rel, "edited")
+			}
 			c.task.LastCodeChange = Now()
 			c.task.Reported = false
 			if c.task.Reads != nil {
@@ -187,21 +190,35 @@ func (c *hookCtx) afterBash() Output {
 		c.log("block", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
 		return StopAll(msg(fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))))
 	}
-	var outside []string
+	// During building the user is often away: record and tell Claude, don't stop.
+	var outside, theirs []string
 	for _, p := range changed {
 		if _, mine := c.task.Preexisting[p]; mine {
-			outside = append(outside, p+" (your own unsaved work)")
+			theirs = append(theirs, p)
+			if c.task.Held == nil {
+				c.task.Held = map[string]string{}
+			}
+			c.task.Held[p] = "a terminal command changed it, and it held the user's own unsaved work"
 			continue
 		}
 		if !c.task.InPlan(p) {
 			outside = append(outside, p)
+			c.task.NoteOutside(p, "changed by a terminal command")
 		}
 	}
-	if len(outside) > 0 {
-		c.log("block", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)))
-		return StopAll(msg(fmt.Sprintf("a terminal command changed files outside the approved plan: %s. The work is stopped so you can decide: keep them as part of this task, undo them, or say if you changed them yourself. If they are generated files (coverage, caches), add them to ignore_changes in the project setup.", listFiles(outside))))
+	if len(outside)+len(theirs) == 0 {
+		return nil
 	}
-	return nil
+	_ = SaveTask(c.task)
+	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)))
+	var b strings.Builder
+	if len(theirs) > 0 {
+		fmt.Fprintf(&b, "that command changed files that held the user's own unsaved work: %s. Don't change them further; put them first under \"For you\" in the report. ", listFiles(theirs))
+	}
+	if len(outside) > 0 {
+		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
+	}
+	return Context("PostToolUse", msg(b.String()))
 }
 
 var reAdopted = regexp.MustCompile(`plumbline-adopt-id: ([0-9a-f-]+)`)
@@ -346,16 +363,16 @@ func (c *hookCtx) afterQuestion() Output {
 		if !isApproval(ans, q) {
 			c.log("checkpoint", fmt.Sprintf("checkpoint%d-not-approved", cp), "")
 			if ans == "" {
-				return Context("PostToolUse", msg(fmt.Sprintf("couldn't read an approval for checkpoint %d, so the task stays at the %s step. If the user did approve, tell them Plumbline didn't see it (run with PLUMBLINE_DEBUG=1 to capture the answer shape).", cp, c.task.Phase)))
+				return Context("PostToolUse", msg(fmt.Sprintf("couldn't read an approval at the checkpoint (%d), so the task stays at the %s step. If the user did approve, tell them Plumbline didn't see it (run with PLUMBLINE_DEBUG=1 to capture the answer shape).", cp, c.task.Phase)))
 			}
-			return Context("PostToolUse", msg(fmt.Sprintf("checkpoint %d was not approved. Work on what the user asked, then ask again.", cp)))
+			return Context("PostToolUse", msg(fmt.Sprintf("the checkpoint (%d) was not approved. Work on what the user asked, then ask again.", cp)))
 		}
 		t := c.task
 		switch {
 		case cp == 1 && t.Phase == PhaseUnderstanding:
 			t.Phase = PhasePlanning
 			t.Checkpoint1At = Now()
-		case cp == 2 && (t.Phase == PhasePlanning || (t.Phase == PhaseUnderstanding && t.Size == "small")):
+		case cp == 2 && (t.Phase == PhasePlanning || t.Phase == PhaseUnderstanding):
 			text, _, err := ReadDoc(t, DocPlan)
 			if err != nil {
 				return Context("PostToolUse", msg("plan.md is missing, so the approval can't be recorded."))
@@ -368,6 +385,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.Checkpoint2At = Now()
 			t.PlanFiles = pc.Files
 			t.ProofKinds = pc.ProofKinds
+			t.ApprovedCmds = pc.Approved
 			t.PlanHash = sha256Hex([]byte(text))
 		default:
 			continue
@@ -375,11 +393,11 @@ func (c *hookCtx) afterQuestion() Output {
 		_ = SaveTask(t)
 		c.log("phase", t.Phase, "")
 		RefreshSnapshot(c.in.SessionID, c.root)
-		next := "Make the plan next (plan.md), then checkpoint 2."
+		next := "Make the plan next (plan.md), then the checkpoint."
 		if t.Phase == PhaseBuilding {
-			next = "Build per the plan: a failing test first, then the fix, then prove it. Files outside the plan's list need the user's OK."
+			next = "Build and prove it to the end without stopping: a failing test first, then the fix, then the proof and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
 		}
-		return Context("PostToolUse", msg(fmt.Sprintf("checkpoint %d approved by the user. Task %s is now at the %s step. %s", cp, t.ID, t.Phase, next)))
+		return Context("PostToolUse", msg(fmt.Sprintf("the user approved. Task %s is now at the %s step. %s", t.ID, t.Phase, next)))
 	}
 	return nil
 }

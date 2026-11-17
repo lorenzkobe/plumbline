@@ -9,7 +9,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 4. Ask when it's vague. Ask all questions in one go, each with your suggestion.
 5. Stay in scope. Change only what the task needs. Report problems outside it; the user decides.
 6. No "done" without proof. Tests and checks show it works and nothing else broke.
-7. Trade-offs go to the user. "Fixing this changes that" means stop and ask, with a recommendation.
+7. Decisions go to the user; common sense doesn't. A real decision (a trade-off, a choice between approaches, anything that changes behaviour the plan didn't cover) is asked right away with options and your recommendation. Obvious calls (a test helper in the same module, formatting a file you touched, a generated file) go ahead and are listed in the report.
 8. Plain words. A high school student should follow it. No hype, no filler, no em dashes.
 9. "Small" means low impact, not few lines. Check callers, data and blast radius before calling a task small, and say why.
 10. Look outside too: official docs for the exact versions in the lockfile (Context7, then the web), proven patterns, security guidance. Never send company code, file contents, ticket text or names to online searches.
@@ -37,16 +37,24 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Pause, resume, cancel and "this block was wrong" are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong.
 
 ## Checkpoints (Claude Code's question prompt, answered by the user)
-- Checkpoint 1, understanding: write `understanding.md` in the notes folder, then ask with AskUserQuestion, header "Checkpoint 1", options "Approve" and "Change something". Needs SocratiCode + MemPalace lookups (+ Serena when existing code changes) and file:line refs to files you opened during this task.
-- Checkpoint 2, the plan: write `plan.md` with `## Files` (every file to change), `## Cases` (each `- [normal|edge|refused|boundary|repeat-safe|bug|performance] ... test: path` or `does not apply, because ...`), `## Real-world proof` (`- api: ...`, `- ui: ...`, `- schema: ...` or `does not apply, because ...`), the tests and checks to run, and the branch. Ask with header "Checkpoint 2", options starting "Approve" plus "Change something". Show a short version in chat with the file path.
-- Small, low-impact tasks may use one combined checkpoint 2 (start with --size small and show the understanding on the same screen).
-- Never pre-answer a checkpoint. Edits are blocked until checkpoint 2 is approved.
+The user usually hands over the task and comes back later: research and plan without stopping, stop once at the checkpoint, then build and prove to the end without stopping (except for real decisions).
+- The checkpoint (default): write `understanding.md` and `plan.md` in the notes folder, then ask once with AskUserQuestion, header "Checkpoint", options "Approve" and "Change something". Show a short version of both in chat with the file paths.
+  - Needs SocratiCode + MemPalace lookups (+ Serena when existing code changes) and file:line refs to files opened during this task.
+  - `plan.md` needs `## Files` (every file to change), `## Cases` (each `- [normal|edge|refused|boundary|repeat-safe|bug|performance] ... test: path` or `does not apply, because ...`), `## Real-world proof` (`- api: ...`, `- ui: ...`, `- schema: ...` or `does not apply, because ...`), `## Needs your OK` (packages to install and commands that reach outside the laptop, each in backticks; "none" if none), the checks, and the branch.
+  - Real choice of approaches: recommend one, plan it in full, and list the others in a few lines each, so the user can pick another at the same stop.
+- "Checkpoint 1" (optional): the understanding alone, only when the task is so unclear that planning first would likely be wasted.
+- Never pre-answer a checkpoint. Edits are blocked until the plan is approved; before that, only reading and saved commands run.
+- While building, nothing waits on the user except real decisions:
+  - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report.
+  - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".
+  - Packages and outside-the-laptop commands run only if they are in the approved "Needs your OK" list. Anything else: don't, and put it under "For you".
 
 ## Finishing
 - Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end.
 - Report (`report.md`, then a short chat version, bad news first): what changed, proof (runs and counts), review, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user), and the question about committing.
 - Commits: only after the user says so. Company: `TICKET-123: What changed`. Personal: `feat:`/`fix:`/`chore:`. Short, plain, no AI markers. The user pushes.
 - 3 strikes: after 3 failed fix attempts, stop and give options. The same block twice means stop and tell the user.
+- Before stopping for the user, finish everything that doesn't depend on them, so they get one message with everything.
 
 ## Common excuses, and the answer
 - "It's a tiny change." Size is impact. Check callers first.

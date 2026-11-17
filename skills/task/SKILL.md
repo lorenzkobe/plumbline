@@ -1,6 +1,6 @@
 ---
 name: task
-description: Plumbline's full task workflow for any change to code. Read the task, trace the real code, checkpoint 1 (understanding), plan, checkpoint 2, build and prove, report. Use when the user types /plumbline:task, or after they say yes to starting the task workflow. Argument is a Jira ticket id or a description.
+description: Plumbline's full task workflow for any change to code. Read the task, trace the real code, plan, one checkpoint with the user, build and prove, report. Use when the user types /plumbline:task, or after they say yes to starting the task workflow. Argument is a Jira ticket id or a description.
 argument-hint: "TICKET-123 or a description"
 ---
 # Task workflow
@@ -25,23 +25,26 @@ Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, s
 - For library questions, Context7 for the exact versions in the lockfile, then the web. Never send company code, ticket text or names.
 - Bugs: reproduce first with the saved commands (allowed before approval), e.g. `plumbline run test`. The first runs are recorded as the task's starting point, so failures that were already there won't block you later.
 
-## 4. Checkpoint 1: understanding
-Write `understanding.md` in the notes folder (`plumbline docs-dir`), using the format in [checkpoints.md](${CLAUDE_PLUGIN_ROOT}/skills/task/checkpoints.md). Then ask with AskUserQuestion: header `Checkpoint 1`, the question summarizing the understanding in a few plain lines, options `Approve` and `Change something`. Show the short version in chat first, with the file path.
-Small, low-impact tasks: you may offer one combined checkpoint instead (skip to step 6 with the understanding on the same screen).
+## 4. Make the plan (no stop yet)
+The user usually hands over the task and comes back later, so research and plan in one go.
+Write `understanding.md` and `plan.md` in the notes folder (`plumbline docs-dir`), using [checkpoints.md](${CLAUDE_PLUGIN_ROOT}/skills/task/checkpoints.md): what changes and where, `## Files`, `## Cases` linked to tests, `## Real-world proof`, `## Needs your OK` (packages, outside-the-laptop commands), the checks, the branch, and which helpers will run. Real choice on a big task: recommend one approach and plan it in full, with the others in a few lines each so the user can pick at the same stop.
+If the task is so unclear that planning would likely be wasted, ask your questions first (one message, each with a suggestion), or use the optional `Checkpoint 1` for the understanding alone.
 
-## 5. Make the plan
-Write `plan.md` (format in checkpoints.md): what changes and where, `## Files`, `## Cases` linked to tests, `## Real-world proof`, the checks that will run, the branch, and which helpers will run. Real choice on a big task: outline 2 to 3 approaches in a few lines each with a recommendation, and plan only the one the user picks.
+## 5. The checkpoint
+AskUserQuestion with header `Checkpoint`, options `Approve` and `Change something`. First show a short version of the understanding and the plan in chat, with both file paths. Never pre-answer it.
 
-## 6. Checkpoint 2: the plan
-AskUserQuestion with header `Checkpoint 2`, options starting `Approve` (for example `Approve`) and `Change something`. Show the short plan in chat with the file path. After approval, edits open up for the files in `## Files`; anything else asks the user.
+## 6. Decisions vs common sense
+- A real decision is asked right away, with options and your recommendation: a trade-off ("fixing this changes that"), a choice between approaches, anything that changes behaviour the plan didn't cover.
+- Common-sense calls go ahead and are listed in the report: a test helper in the same module, formatting a file you touched, a generated file.
 
 ## 7. Build and prove
 - Branch per [git.md](${CLAUDE_PLUGIN_ROOT}/skills/task/git.md). Uncommitted changes when switching branches: stop and ask.
 - A failing test first (it fails because of the bug), then the fix, then a test for every case. Follow [playbooks.md](${CLAUDE_PLUGIN_ROOT}/skills/task/playbooks.md) for bugs, refactors and performance.
 - While building: `plumbline run related --files <changed files>`. Near the end: `plumbline run test`, `plumbline run lint`, `plumbline run build`. Full-stack: start the local database, backend and frontend, then `plumbline run e2e`.
 - Real-world proof for each kind in the plan, after the last edit: `plumbline run proof api -- curl -s -o /dev/null -w "%{http_code}\n" http://localhost:.../...`, `plumbline run proof ui -- npx playwright test ...`, `plumbline run proof schema -- psql "$LOCAL_DB" -c "..."`.
-- A trade-off ("fixing this changes that") stops the work: lay out the options with a recommendation.
-- Requirements change mid-task: `plumbline task replan`, update plan.md, ask checkpoint 2 again. Unrelated: suggest a separate task.
+- Build to the end without waiting on the user. Files outside the plan that belong to the same change are fine (list them in the report). Risky files outside the plan and the user's unsaved work are refused: keep going, and put them under "For you". Packages and outside-the-laptop commands only if listed in "Needs your OK".
+- A real decision (see step 6) is asked right away. Before any stop, finish what doesn't depend on the answer.
+- Requirements change mid-task: `plumbline task replan`, update plan.md, ask the checkpoint again. Unrelated: suggest a separate task.
 - 3 failed fix attempts: stop, say what you tried and learned, and give options.
 
 ## 8. Report, then the user decides

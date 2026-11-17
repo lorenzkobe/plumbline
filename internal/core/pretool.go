@@ -96,6 +96,43 @@ func PreToolUse(in *HookInput) Output {
 	return nil
 }
 
+// hold records a file Claude was refused, so the report must list it.
+func (c *hookCtx) hold(rel, why string) {
+	if c.task == nil {
+		return
+	}
+	if c.task.Held == nil {
+		c.task.Held = map[string]string{}
+	}
+	c.task.Held[rel] = why
+	_ = SaveTask(c.task)
+}
+
+var reRisky = regexp.MustCompile(`(?i)(^|/)(auth|authn|authz|oauth|login|sessions?|permissions?|acl|rbac|roles?|payments?|billing|stripe|invoices?|checkout|migrations?|migrate|infra|infrastructure|terraform|deploy|deployment|k8s|helm|\.github)(/|\.|_|-|$)`)
+
+var riskyNames = map[string]bool{
+	"dockerfile": true, "docker-compose.yml": true, "docker-compose.yaml": true, "compose.yml": true, "compose.yaml": true,
+	"serverless.yml": true, "serverless.yaml": true, "serverless.ts": true, "vercel.json": true, "netlify.toml": true,
+	"fly.toml": true, ".gitlab-ci.yml": true, "jenkinsfile": true, "package.json": true, "package-lock.json": true,
+	"yarn.lock": true, "pnpm-lock.yaml": true, "bun.lockb": true, "go.mod": true, "go.sum": true, "pyproject.toml": true,
+	"poetry.lock": true, "requirements.txt": true, "pipfile": true, "pipfile.lock": true, "gemfile": true,
+	"gemfile.lock": true, "composer.json": true, "composer.lock": true, "cargo.toml": true, "cargo.lock": true,
+	"supabase.toml": true, "config.toml": true,
+}
+
+// RiskyPath: kinds of files where a change outside the approved plan could
+// spread far. Setup can add more with risky_paths.
+func RiskyPath(rel string, s *Setup) bool {
+	low := strings.ToLower(filepath.ToSlash(rel))
+	if riskyNames[filepath.Base(low)] || strings.HasSuffix(low, ".tf") || strings.HasSuffix(low, ".sql") {
+		return true
+	}
+	if reRisky.MatchString(low) {
+		return true
+	}
+	return s != nil && MatchAny(s.RiskyPaths, rel)
+}
+
 func claudeHome() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
 		return d
@@ -163,16 +200,21 @@ func (c *hookCtx) gateEdit(path string) Output {
 		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, ask in one line whether to start the task workflow, then run: plumbline task start --title \"...\". To try something out, use a throwaway copy in the scratchpad instead.")
 	}
 	if c.task.Phase != PhaseBuilding {
-		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at checkpoint 2.", c.task.ID, c.task.Phase))
+		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at the checkpoint.", c.task.ID, c.task.Phase))
 	}
 	rel := c.task.Rel(abs)
+	if c.task.InPlan(rel) {
+		return nil
+	}
 	if _, ok := c.task.Preexisting[rel]; ok {
-		return c.ask("user-work", fmt.Sprintf("%s had your own unsaved changes before this task started. Allow only if Claude may change it.", rel))
+		c.hold(rel, "your own unsaved changes were in it before the task")
+		return c.deny("user-work", fmt.Sprintf("%s had the user's own unsaved changes before this task started, so Claude doesn't touch it. Keep going with the rest, and list it under \"For you\" in the report.", rel))
 	}
-	if !c.task.InPlan(rel) {
-		return c.ask("outside-plan", fmt.Sprintf("%s isn't in the approved plan's file list. Allow if it belongs to this task; otherwise say no and Claude will report it instead.", rel))
+	if RiskyPath(rel, c.setup) {
+		c.hold(rel, "risky file outside the plan")
+		return c.deny("risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel))
 	}
-	return nil
+	return nil // part of the same change: allowed, recorded, and must be listed in the report
 }
 
 var (
@@ -355,6 +397,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				}
 				if discard {
 					v.a("destructive-git", "this throws away uncommitted changes in those files.")
+				} else if contains(args, "-b") || contains(args, "-B") || contains(args, "-c") || contains(args, "--create") {
+					// a new branch carries the changes along; nothing is lost
 				} else if c.root != "" {
 					if d, _ := DirtyFiles(c.root); len(d) > 0 {
 						v.a("dirty-switch", "there are uncommitted changes. Switching branches carries them along or fails; check what should happen to them first.")
@@ -396,10 +440,17 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
 		}
 		joined := strings.Join(s.Words, " ")
-		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) {
-			v.a("new-package", "this installs a package. Say why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
+		approved := c.task != nil && c.task.Phase == PhaseBuilding && c.task.Approved(s.Words)
+		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !approved {
+			if c.task != nil {
+				v.d("new-package", "this installs a package that isn't in the approved plan's \"Needs your OK\" list. Don't install it. Keep going with what you can, and put it under \"For you\" in the report: why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
+			} else {
+				v.a("new-package", "this installs a package. Say why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
+			}
 		}
-		if cloudCmds[name] {
+		if approved {
+			// in the plan you approved: runs as listed
+		} else if cloudCmds[name] {
 			v.a("outside-laptop", fmt.Sprintf("%s reaches systems outside your laptop. Production is never changed without the user's explicit OK; reads are asked each time.", name))
 		}
 		if name == "supabase" && s.Arg(1) != "start" && s.Arg(1) != "stop" && s.Arg(1) != "status" {
@@ -434,11 +485,12 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		return c.deny(v.denyRule, strings.Join(uniq(v.deny), " "))
 	}
 	if !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) && !allQuiet && !hasCommit {
-		where := "no task is active"
 		if c.task != nil {
-			where = "the plan isn't approved yet"
+			// The user is often away while Claude researches, so refuse
+			// instead of waiting on a prompt.
+			return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list.")
 		}
-		v.a("before-approval", fmt.Sprintf("%s, so only reading and the project's saved commands run without asking. Allow this if it's fine to run now.", where))
+		v.a("before-approval", "no task is active, so only reading and the project's saved commands run without asking. Allow this if it's fine to run now.")
 	}
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
@@ -595,7 +647,7 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 	return miss
 }
 
-var reCheckpoint = regexp.MustCompile(`(?i)checkpoint\s*([12])`)
+var reCheckpoint = regexp.MustCompile(`(?i)checkpoint\s*([12])?`)
 
 type question struct {
 	Question string `json:"question"`
@@ -614,12 +666,21 @@ func (c *hookCtx) questions() ([]question, map[string]any) {
 	return q.Questions, q.Answers
 }
 
+// checkpointOf: header "Checkpoint" (the usual one: understanding and plan
+// together) counts as checkpoint 2. "Checkpoint 1" is the optional early
+// check of the understanding alone.
 func checkpointOf(q question) int {
-	if m := reCheckpoint.FindStringSubmatch(q.Header); m != nil {
-		return atoi(m[1])
-	}
-	if m := reCheckpoint.FindStringSubmatch(q.Question); m != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(q.Question)), "checkpoint") {
-		return atoi(m[1])
+	for _, s := range []string{q.Header, q.Question} {
+		t := strings.TrimSpace(s)
+		if !strings.HasPrefix(strings.ToLower(t), "checkpoint") {
+			continue
+		}
+		if m := reCheckpoint.FindStringSubmatch(t); m != nil {
+			if m[1] == "1" {
+				return 1
+			}
+			return 2
+		}
 	}
 	return 0
 }
@@ -653,7 +714,11 @@ func (c *hookCtx) gateQuestion() Output {
 	}
 	problems := c.checkpointProblems(cp)
 	if len(problems) > 0 {
-		return c.deny(fmt.Sprintf("checkpoint%d", cp), fmt.Sprintf("checkpoint %d isn't ready: %s.", cp, strings.Join(problems, "; ")))
+		name := "the checkpoint"
+		if cp == 1 {
+			name = "checkpoint 1"
+		}
+		return c.deny(fmt.Sprintf("checkpoint%d", cp), fmt.Sprintf("%s isn't ready: %s.", name, strings.Join(problems, "; ")))
 	}
 	return nil
 }
@@ -661,14 +726,12 @@ func (c *hookCtx) gateQuestion() Output {
 func (c *hookCtx) checkpointProblems(cp int) []string {
 	t := c.task
 	var p []string
-	combined := cp == 2 && t.Phase == PhaseUnderstanding && t.Size == "small"
+	combined := cp == 2 && t.Phase == PhaseUnderstanding
 	switch {
 	case cp == 1 && t.Phase != PhaseUnderstanding:
 		return []string{fmt.Sprintf("the task is at the %s step, past checkpoint 1", t.Phase)}
-	case cp == 2 && t.Phase == PhaseUnderstanding && !combined:
-		return []string{"checkpoint 1 (understanding) comes first; only small, low-impact tasks get the combined checkpoint"}
 	case cp == 2 && t.Phase == PhaseBuilding:
-		return []string{"the plan is already approved. If the plan has to change, run plumbline task replan, update plan.md, and ask checkpoint 2 again"}
+		return []string{"the plan is already approved. If the plan has to change, run plumbline task replan, update plan.md, and ask the checkpoint again"}
 	}
 	if cp == 1 || combined {
 		p = append(p, c.groundingProblems()...)

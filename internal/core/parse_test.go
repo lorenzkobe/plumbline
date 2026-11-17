@@ -161,7 +161,7 @@ func TestDocs(t *testing.T) {
 	if len(pc.ProofKinds) != 1 || pc.ProofKinds[0] != "api" {
 		t.Errorf("proof kinds: %v", pc.ProofKinds)
 	}
-	if len(pc.Problems) != 1 {
+	if len(pc.Problems) != 2 { // the unlabelled case, and no "Needs your OK"
 		t.Errorf("problems: %v", pc.Problems)
 	}
 }

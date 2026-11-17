@@ -137,12 +137,13 @@ var reTestLink = regexp.MustCompile("(?i)test:\\s*`?([^\\s`]+)`?")
 
 const notApply = "does not apply, because"
 
-// PlanCheck is what checkpoint 2 needs from plan.md.
+// PlanCheck is what the checkpoint needs from plan.md.
 type PlanCheck struct {
 	Files      []string
 	Cases      int
 	CaseTests  []string // test files the cases link to
 	ProofKinds []string // ui, api, schema that must be proven
+	Approved   []string // commands in "Needs your OK" (packages, outside-laptop commands)
 	Problems   []string
 }
 
@@ -192,8 +193,20 @@ func CheckPlan(text string) PlanCheck {
 			}
 		}
 	}
+	if !strings.Contains(strings.ToLower(text), "## needs your ok") {
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Needs your OK" section: packages to install and commands that reach outside the laptop, each in backticks, or "none"`)
+	}
+	for _, l := range Section(text, "needs your ok") {
+		if m := reBacktick.FindAllStringSubmatch(l, -1); m != nil {
+			for _, x := range m {
+				pc.Approved = append(pc.Approved, strings.TrimSpace(x[1]))
+			}
+		}
+	}
 	return pc
 }
+
+var reBacktick = regexp.MustCompile("`([^`]+)`")
 
 func short(s string) string {
 	if len(s) > 60 {

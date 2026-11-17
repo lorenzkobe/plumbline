@@ -18,8 +18,8 @@ import (
 // understanding and planning.
 const (
 	PhaseUnderstanding = "understanding" // reading the task and the code
-	PhasePlanning      = "planning"      // checkpoint 1 approved
-	PhaseBuilding      = "building"      // checkpoint 2 approved
+	PhasePlanning      = "planning"      // optional checkpoint 1 approved
+	PhaseBuilding      = "building"      // the plan was approved at the checkpoint
 	PhaseDone          = "done"
 	PhaseCancelled     = "cancelled"
 )
@@ -71,6 +71,12 @@ type Task struct {
 	PlanHash      string    `json:"plan_hash,omitempty"`
 	PlanFiles     []string  `json:"plan_files,omitempty"` // repo-relative
 	ProofKinds    []string  `json:"proof_kinds,omitempty"`
+	ApprovedCmds  []string  `json:"approved_cmds,omitempty"` // "Needs your OK" list in the approved plan
+
+	// Files touched outside the plan (allowed, must be in the report) and
+	// files Claude was refused (must be under "For you" in the report).
+	OutsidePlan map[string]string `json:"outside_plan,omitempty"`
+	Held        map[string]string `json:"held,omitempty"`
 
 	LastCodeChange time.Time  `json:"last_code_change,omitempty"`
 	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
@@ -278,6 +284,27 @@ func (t *Task) Rel(abs string) string {
 		return abs
 	}
 	return filepath.ToSlash(r)
+}
+
+// Approved reports whether a command is in the approved plan's list.
+func (t *Task) Approved(words []string) bool {
+	for _, a := range t.ApprovedCmds {
+		for _, s := range Segments(a) {
+			if wordsEqual(s.Words, words) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (t *Task) NoteOutside(rel, why string) {
+	if t.OutsidePlan == nil {
+		t.OutsidePlan = map[string]string{}
+	}
+	if _, ok := t.OutsidePlan[rel]; !ok {
+		t.OutsidePlan[rel] = why
+	}
 }
 
 func (t *Task) InPlan(rel string) bool {

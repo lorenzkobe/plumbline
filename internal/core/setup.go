@@ -35,6 +35,7 @@ type Setup struct {
 
 	TestsRanPattern string   `json:"tests_ran_pattern,omitempty"` // regex with a (?P<ran>\d+) group
 	IgnoreChanges   []string `json:"ignore_changes,omitempty"`    // globs that the changed-files check skips
+	RiskyPaths      []string `json:"risky_paths,omitempty"`       // extra globs never touched outside the plan
 	SuiteSeconds    int      `json:"suite_seconds,omitempty"`
 
 	FrontendRepo   string   `json:"frontend_repo,omitempty"`

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -39,14 +40,39 @@ func FinishMissing(t *Task, s *Setup) []string {
 			miss = append(miss, fmt.Sprintf("real-world proof (%s): %s; %s, with: plumbline run proof %s -- <command>", k, v.Reason, how, k))
 		}
 	}
-	_, fi, err := ReadDoc(t, DocReport)
+	report, fi, err := ReadDoc(t, DocReport)
 	switch {
 	case err != nil:
 		miss = append(miss, "report: write it to "+filepath.Join(TaskDocsDir(t.Root, t.ID), DocReport))
 	case fi.ModTime().Before(t.LastCodeChange):
 		miss = append(miss, "report: the code changed after report.md was written; update it")
+	default:
+		var notListed []string
+		for p := range t.OutsidePlan {
+			if !gone(t.Root, p) && !strings.Contains(report, p) { // skip files created and removed again
+				notListed = append(notListed, p)
+			}
+		}
+		for p := range t.Held { // refused files are always reported
+			if !strings.Contains(report, p) {
+				notListed = append(notListed, p)
+			}
+		}
+		if len(notListed) > 0 {
+			sort.Strings(notListed)
+			miss = append(miss, "report: list these under \"Outside the plan\" or \"For you\": "+strings.Join(notListed, ", "))
+		}
 	}
 	return miss
+}
+
+// gone: the file doesn't exist now and isn't in the last commit.
+func gone(root, rel string) bool {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
+		return false
+	}
+	_, err := gitOut(root, "cat-file", "-e", "HEAD:"+rel)
+	return err != nil
 }
 
 func waived(t *Task, check, fp string) bool {
