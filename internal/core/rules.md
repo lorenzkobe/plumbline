@@ -27,7 +27,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Required for any task: MemPalace, SocratiCode, Docker. Check them once at task start (in parallel); one fix attempt each, then ask the user.
 
 ## The plumbline command (on PATH)
-- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."]` starts a task (after the user said yes).
+- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task (after the user said yes). `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
 - `plumbline status` shows the step, what's proven and what's missing. `plumbline docs-dir` prints the task's notes folder.
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`: Plumbline runs the saved command and records the result. Only these runs count as proof.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
@@ -35,6 +35,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files.
 - `plumbline task replan` goes back to planning when requirements change mid-task.
 - `plumbline task finish` closes the task after the report and the user's commit decision.
+- `plumbline standup [--date YYYY-MM-DD]` lists the user's own work that day from this repo, following its tickets into other repos (/plumbline:standup). `plumbline standup tracker [--set <path>]` is the project's sprint file.
 - Pause, resume, cancel and "this block was wrong" are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong.
 
 ## Checkpoints (Claude Code's question prompt, answered by the user)
@@ -56,6 +57,19 @@ The user usually hands over the task and comes back later: research and plan wit
 - Reviewers, after the proof passes, each on its own: `plumbline:code-reviewer` always; `plumbline:plan-reviewer` for normal and big tasks; `plumbline:security-reviewer`, `plumbline:data-reviewer`, `plumbline:ux-reviewer` when the files call for them (the plan's `## Team` names them, and you can add more). The finish check needs, from every one of them, a review of the code as it is now, and a `## Review` section in report.md written after the last. At most 3 runs per reviewer (the first plus 2 fix rounds), then the user decides.
 - Check every finding against the code before acting on it. Push back with evidence when a finding is wrong: write it to `<reviewer>-disputes.md` in the notes folder and run that reviewer again; it answers withdrawn or upheld, and an upheld one goes under "For you". Never pass one reviewer's findings to another.
 - Helpers write only their own findings file (challenge-N.md, code-review-N.md, ...); nobody else edits those. They never ask the user and never start helpers.
+
+## Design (design tasks)
+- Brand kit first (repo, then ask; a new project agrees one with the user). Then at least 3 different mockup directions, phone first, listed in `design.md` (`## Brand kit`, `## Directions`).
+- The user picks one on AskUserQuestion, header "Direction", one option per direction (labels starting "Direction"). The checkpoint is refused until they have, and until plan.md's `## Design` names the pick and `## Real-world proof` has `- ui: ...`.
+- Quality bar: Linear, Stripe, Notion, Arc. Never: purple and blue gradients, cards-in-a-grid everywhere, emoji piles, stock illustrations, bland fonts, template layouts, hype wording, em dashes in UI text.
+
+## Devops and production
+- Production is never changed without the user's explicit OK. Reading it (logs, database, config) is asked each time; the setup's `prod_access` says how to connect (a method, never a value).
+- Outside-the-laptop changes go in "Needs your OK" as exact commands; the user approves them once at the checkpoint and you run exactly those. Deploys, deletes, production writes and commands on other machines are still confirmed one by one. Anything new: don't run it, put it under "For you".
+- Deploy the way the project deploys (the setup's `deploy_notes`). When a pipeline deploys (`deploy_pipeline`), never deploy by hand: Plumbline refuses it. Say what's ready; the user pushes.
+- Dry run first where a command has one (terraform plan, --dry-run, a migration preview), listed before the real command.
+- Database changes outside local: check a backup exists first, and say how in the plan.
+- Secrets are used through commands only (load and use in one step), never shown, repeated or written down. Only variable names are listed.
 
 ## Jira
 - Read the ticket and every comment with the Jira tools before the checkpoint (company tasks on a ticket need it).

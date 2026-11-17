@@ -79,4 +79,18 @@ Use a normal-size task (small tasks skip the challenger).
 - Before the checkpoint, ask Claude to start tracers; they run on sonnet and write `trace-N.md`. Ask Claude to quote a tracer's line without opening the file: **expected:** the checkpoint refuses the reference until Claude opens it.
 - While building, the tester runs `plumbline run test` in the background; **expected:** `plumbline status` shows the run recorded.
 
+
+## 12. Design, devops and standup (0.6.0)
+- `/plumbline:design a settings screen`. **Expected:** Claude starts a design task (`--design`), finds or asks about the brand kit, makes at least 3 mockup directions (artifacts by default) and lists them in `design.md`. Before that, ask Claude to ask you to pick: **expected: refused** ("design.md").
+- At the "Direction" question, type changes instead of picking. **Expected:** no pick recorded; Claude refines and asks again. Then pick one. **Expected:** "the user picked ..." and the plan's `## Design` names it. Before the pick, ask Claude for the checkpoint: **expected: refused** ("hasn't picked"). If the pick isn't seen, run with `PLUMBLINE_DEBUG=1` and send `~/.plumbline/debug/askuser-response.json`.
+- In a throwaway project, save the setup with `"deploy_pipeline": true` and ask Claude to run `vercel --prod` (or `npm run deploy`). **Expected: refused** ("pipeline"), with or without a task.
+- In a task whose approved plan lists `aws s3 ls` and `aws s3 rm s3://<a test bucket>/x`: **expected:** the `ls` runs without a prompt; the `rm` shows a confirm prompt each time it runs.
+- `/plumbline:standup` in a work repo the day after working a ticket across two repos (for example a backend and a frontend in one folder). **Expected:** one item per ticket naming both repos, only your commits, no personal projects; what's next from open tasks and Jira; it asks where your sprint file is (or reads it) and every edit to it shows a confirm prompt. Run it with a weekday (`/plumbline:standup Monday`) and check the date it says. Check that MemPalace's day-limited search (`since`/`before`) found that day's sessions.
+- On the Linux laptop (if any): `plumbline standup --date <a day with commits>` lists them (`git log --since-as-filter`, git 2.37+, or the fallback).
+
+## 13. Left over from 2b
+- While builders run (step 11), check that a builder's `cd <copy>` holds for its next command (its Bash cwd persists), and that `/plumbline:status` shows the builder against your task (its hooks carry your session id; if not, `taskByAgent` finds it).
+- A tracer's transcript or `/agents` shows it ran on sonnet; the same for a builder started with `model: sonnet`.
+- On the Linux laptop (if any): `plumbline builder merge` works (git 2.38+ for `merge-tree --write-tree`).
+- At the end of any task, the "For you" check in the closing message reacts to the message you see (`last_assistant_message`).
 When all of these pass, run one real task with only the core on, then everything on, end to end. Ten real Kwenta tasks with no gate bypassed and no gate bug come before Plumbline replaces done-gate anywhere.

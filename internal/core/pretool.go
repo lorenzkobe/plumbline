@@ -565,6 +565,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.root != "" && abs == filepath.Join(c.root, RepoSetupFile) {
 		return c.ask("setup-change", "this changes Plumbline's saved project setup, including the commands Claude may run before approval. Check the change before allowing it.")
 	}
+	if tp := TrackerPath(c.root); tp != "" && abs == realCase(tp) {
+		return c.ask("tracker", fmt.Sprintf("this updates your sprint file (%s). Check the change before allowing it.", filepath.Base(tp)))
+	}
 	if c.paused {
 		return nil
 	}
@@ -601,10 +604,6 @@ var (
 	}
 	dbClients = map[string]bool{"psql": true, "mysql": true, "mongosh": true, "mongo": true, "redis-cli": true, "pg_dump": true, "pg_restore": true, "mysqldump": true}
 )
-
-func isLocalHost(s string) bool {
-	return strings.Contains(s, "localhost") || strings.Contains(s, "127.0.0.1") || strings.Contains(s, "::1") || strings.Contains(s, "host.docker.internal")
-}
 
 func wordsEqual(a, b []string) bool {
 	if len(a) != len(b) {
@@ -706,6 +705,21 @@ func plumblineReads(s Segment) bool {
 		return s.Arg(2) == "show" || s.Arg(2) == ""
 	case "builder":
 		return s.Arg(2) == "list" || s.Arg(2) == ""
+	case "standup":
+		return !standupSetsTracker(s)
+	}
+	return false
+}
+
+// standupSetsTracker: plumbline standup tracker --set <path>.
+func standupSetsTracker(s Segment) bool {
+	if s.Arg(1) != "standup" {
+		return false
+	}
+	for _, w := range s.Words[2:] {
+		if w == "--set" || strings.HasPrefix(w, "--set=") {
+			return true
+		}
 	}
 	return false
 }
@@ -860,6 +874,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				}
 			case "waive":
 				v.a("waiver", "a waiver skips one check for this task. Only allow it if that check truly can't run.")
+			case "standup":
+				if standupSetsTracker(s) {
+					v.a("tracker-set", "this remembers your sprint file for this project. Claude may then suggest edits to it, and each edit asks you first.")
+				}
 			case "task":
 				if s.Arg(2) == "adopt" {
 					v.a("adopt", "this continues an earlier task in this session.")
@@ -982,6 +1000,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("own-files", "Plumbline's own files can't be changed from the terminal, and this writes in a folder Plumbline can't work out.")
 			case abs != "" && isInsideFold(abs, DataDir()):
 				v.d("own-files", "Plumbline's own files can't be changed from the terminal. Use the plumbline command.")
+			case abs != "" && c.root != "" && foldPath(abs) == foldPath(filepath.Join(ProjectRoot(c.root), RepoSetupFile)):
+				v.a("setup-change", "this changes Plumbline's saved project setup from the terminal. Until the user confirms it again with /plumbline:setup, its saved commands don't run and nothing in it switches a rule off.")
+			case abs != "" && c.root != "" && TrackerPath(c.root) != "" && foldPath(abs) == foldPath(TrackerPath(c.root)):
+				v.a("tracker", fmt.Sprintf("this updates your sprint file (%s). Check the change before allowing it.", filepath.Base(abs)))
 			case abs != "" && isProtectedConfig(abs):
 				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
 			case abs != "" && isGitConfig(abs):
@@ -1007,6 +1029,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		joined := strings.Join(s.Words, " ")
 		approved := c.task != nil && c.task.Phase == PhaseBuilding && c.task.Approved(s.Words)
+		c.devopsVerdict(s, approved, v)
 		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !approved {
 			if c.task != nil {
 				v.d("new-package", "this installs a package that isn't in the approved plan's \"Needs your OK\" list. Don't install it. Keep going with what you can, and put it under \"For you\" in the report: why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
@@ -1022,21 +1045,14 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if name == "supabase" && s.Arg(1) != "start" && s.Arg(1) != "stop" && s.Arg(1) != "status" {
 			v.a("outside-laptop", "supabase commands can reach the hosted project.")
 		}
-		if dbClients[name] && !isLocalHost(joined) {
+		if dbClients[name] && !dbLocal(s) {
 			v.a("outside-laptop", fmt.Sprintf("%s without a local host may connect to a shared or production database.", name))
 		}
-		if name == "docker" && (s.Arg(1) == "push" || s.Arg(1) == "login") {
+		if name == "docker" && (dockerPushes(s) || s.Arg(1) == "login") {
 			v.a("outside-laptop", "this reaches a registry outside your laptop.")
 		}
-		if name == "curl" || name == "wget" || name == "http" {
-			if !isLocalHost(joined) {
-				for _, w := range s.Words {
-					if w == "-X" || w == "--request" || strings.HasPrefix(w, "-d") || strings.HasPrefix(w, "--data") || strings.HasPrefix(w, "-F") || strings.HasPrefix(w, "--form") || strings.HasPrefix(w, "-T") || strings.HasPrefix(w, "--upload-file") || strings.HasPrefix(w, "--post-") || strings.HasPrefix(w, "--body-") || strings.HasPrefix(w, "--method") {
-						v.a("outside-laptop", "this sends data to a server outside your laptop.")
-						break
-					}
-				}
-			}
+		if (name == "curl" || name == "wget" || name == "http" || name == "https") && httpSends(s) {
+			v.a("outside-laptop", "this sends data to a server outside your laptop.")
 		}
 		if !quiet && !c.isSaved(cmd, &s) {
 			allQuiet = false
@@ -1293,21 +1309,27 @@ func checkpointOf(q question) int {
 
 func (c *hookCtx) gateQuestion() Output {
 	qs, answers := c.questions()
-	cp, found := 0, 0
-	var cq question
+	cp, found, dirs := 0, 0, 0
+	var cq, dq question
 	for _, q := range qs {
 		if n := checkpointOf(q); n > 0 {
 			cp, cq = n, q
 			found++
+		} else if c.designTask() && isPick(q) {
+			dq = q
+			dirs++
 		}
 	}
-	if found > 1 {
-		return c.deny("checkpoint-format", "ask one checkpoint question per prompt, on its own, so the answer the user gives is the one that's recorded.")
+	if found > 1 || (dirs > 0 && len(qs) > 1) {
+		return c.deny("checkpoint-format", "ask one checkpoint or direction question per prompt, on its own, so the answer the user gives is the one that's recorded.")
 	}
 	if len(answers) > 0 && cp > 0 {
 		return c.deny("self-approval", "checkpoint questions can't come pre-answered. Only the user answers them.")
 	}
 	if cp == 0 {
+		if dirs > 0 {
+			return c.gateDirection(dq, answers)
+		}
 		return nil
 	}
 	hasApprove := false
@@ -1369,6 +1391,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, c.challengeProblems(text)...)
 			p = append(p, c.teamProblems(text, pc.Files)...)
 			p = append(p, c.sizeProblems(pc.Files)...)
+			p = append(p, c.designProblems(text, pc)...)
 		}
 	}
 	return p

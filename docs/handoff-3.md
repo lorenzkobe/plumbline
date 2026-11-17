@@ -1,4 +1,4 @@
-# Handoff: phases 1a, 1b, the 1a hardening, 2a, the 2a hardening and 2b done; phase 3 next
+# Handoff: every phase is built (1a to 3); the smoke test and the limits pass are next
 
 Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true. Every known limit is collected in docs/limits.md, to fix once the plugin is complete (the user's call).
 
@@ -181,5 +181,36 @@ From a review of 14 suggestions against the code and done-gate's logs (the plan'
 - That `git merge-tree --write-tree` behaves the same on the Linux builds' git (needs 2.38+).
 - That `model: sonnet` in a plugin agent and the Agent tool's `model` override work as documented.
 
-## Phase 3: design workflow, devops rules, standup
-Read the plan doc's "Frontend and design", "Devops and production" and "Proposed commands" sections. The hotfix flow (user-only `/plumbline:hotfix`) is its own step and can come first if the user prefers. After phase 3, run docs/smoke-test.md (add the 2b items above) before the Kwenta trial.
+## What phase 3 built (v0.6.0, on main)
+- Design (design.go): `Task.Kind` "design" (`plumbline task start --design`, refused when `parts.design` is false), `Direction`, `DirectionAt`. A question whose header or text starts with "Direction" is the pick: `gateDirection` needs a design task before approval, at least 2 options labelled "Direction...", `design.md` with `## Brand kit` and at least `MinDirections` (3) bullets under `## Directions`, and no pre-answer; one checkpoint or direction question per prompt in a design task. `recordDirection` (PostToolUse) stores only an answer that is exactly one of those options; the latest wins until building. `designProblems` (in `checkpointProblems`, so also re-checked when the approval is recorded): the doc, a pick, `## Design` naming `directionKey(pick)` ("Direction B" from "Direction B: calm"), and `ui` among the plan's proof kinds. A normal task's "Direction" question is an ordinary question.
+- Setup: `LoadSetup` returns a stricter copy while the setup is unconfirmed (`Parts` nil, `DeployPipeline` true), so a terminal edit can't switch a part off; `gateBash` asks on terminal writes to `.plumbline.json` and to the sprint file.
+- Devops (devops.go): `runnerTarget` looks through package runners; `args(seg, valueFlags)` skips flag values; `httpSends`/`httpTargets`/`hostOf` and `dbHost`/`dbLocal` judge the real target host (the 1a curl and database checks in `gateBash` use them too; `isLocalHost` is gone); `dockerPushes`; `ghAPIKind`. `OpsKind(seg)` = deploy | destroy | write | remote | "" from the command name and its words: a table per CLI (vercel, netlify, sls, cdk, sam, fly, firebase, heroku, railway, wrangler, eb, render, amplify, kubectl, helm, terraform/tofu, pulumi, doctl, gcloud, az, supabase, gh, glab), with a look word right after the verb (`gh release list`, `kubectl rollout status`) or a dry run or help anywhere making it a read; `awsKind` scans every word (global options can come first; a value that looks like an operation only makes it ask); `dbKind` for psql/mysql/mongosh/redis-cli/pg_restore away from localhost (a read-only `-c`/`-e` query is a read; a write, a script file, stdin or an interactive session is a write); curl/wget sending data; ssh/scp/sftp and rsync to a host; `scriptDeploys` (npm/yarn/pnpm/bun run deploy|publish|ship, npm publish, make/just/task targets, `./deploy.sh`, `bash deploy.sh`, cargo publish, twine/gem upload). `devopsVerdict` in `gateBash`: with `parts.devops` on, a deploy in a project with `deploy_pipeline` is refused (any phase, no task needed, approved or not); otherwise a risky kind the approved plan lists asks each time ("risky-ops"). Production database reads already asked each time (1a), approved or not.
+- Standup (standup.go): `AllTasks` walks every project's tasks (seal checked, a moved project skipped). `Standup(anchor, day)`: the anchor repo's tasks active that day (`activeOn`: created, checkpoints, code change, direction pick, reads, helper runs, logged events) and the user's commits there (`myCommits`: `--all --no-merges --fixed-strings --author=<git email>`, exact email, author date in the day, `--since-as-filter` with a 2000-commit fallback for git before 2.37); tickets from those tasks and, for company projects, the commit subjects. Other repos (Plumbline's projects, sibling git folders, the setup's `frontend_repo`) count only through those tickets (`mentionsTicket`, whole word). Reads outside a task's repo show as "read in <repo>". Open tasks in the anchor and on those tickets are "what's next". `plumbline standup [--date]` prints it (default yesterday).
+- Sprint file: `plumbline standup tracker [--set <path>]` stores the path in the project's data folder (`SetTracker`: not a folder, not a secret file, git-ignored when inside a repo). `--set` asks ("tracker-set"); `plumbline standup` otherwise is a read. `gateEdit` asks on the tracker ("tracker") before the task checks; PostToolUse doesn't count it as the task's change.
+- Skills: `skills/design`, `skills/standup`; the task skill's devops and UI lines; checkpoints.md's `## Design` and design.md formats; setup asks `deploy_pipeline` and lists `design`/`devops` parts; rules.md has Design and Devops sections and the new commands.
+- Tests: design_test.go, devops_test.go (a table of 100+ commands, approved risky commands, pipeline refusals with and without a task and through wrappers, a builder's ask turned into a refusal, the part off), standup_test.go (a backend, a frontend and an unrelated service in one folder plus a personal project elsewhere: tickets across repos, your commits only, no other days, no look-alike tickets, a tampered task skipped, the sprint file's rules).
+
+## Decisions made in phase 3
+- The design pick is enforced, through the checkpoint (the user's choice): no real screen is built before a pick, since nothing is built before the checkpoint. Only design tasks are gated; a normal task touching UI files works as before.
+- Devops (the user's choice): risky approved commands ask each time, and pipeline projects refuse deploys by hand. Dry runs and backup checks are rules, not gates.
+- Standup (the user's choice): the user's own work only (git email; tasks are theirs), anchored on the repo they're in, following its tickets into other repos it touched or read; unrelated projects stay out. Personal projects have no tickets, so their standup is that repo's work. What's next: open tasks plus Jira (assigned tickets, comments waiting on them), read only. The sprint file is local: read it, suggest updates, every edit asks.
+
+## Known limits after phase 3
+- The design gate holds only design tasks; a normal task can change screens without mockups (by choice).
+- The pick is read from the question's answer, so it shares the AskUserQuestion answer-shape assumption (V1).
+- `## Design` is found by heading prefix and the pick by its short name in that section's text; "not Direction B" would count.
+- `OpsKind` knows the CLIs above and scripts named for deploying (deploy, publish, ship). A deploy through anything else (`go-live.sh`, a `release` make target, an unlisted tool) isn't seen as one: in a pipeline project it isn't refused, and while building it runs like any other command (before approval it's refused like every unsaved command). Docker pointed at another machine (`--context`, `-H ssh://`) isn't seen as remote.
+- A database client that names no host counts as remote and asks. Command names are matched as written (`VERCEL` on macOS isn't recognised; true of every name-based rule).
+- An unconfirmed setup ignores its parts and treats deploy_pipeline as on (0.6.0, for every part), but its `risky_paths` and `ignore_changes` are still used (limits G10).
+- Standup reads: a task keeps only when each file was last opened, so a file opened on Monday and again on Tuesday counts only for Tuesday. Sessions started in a parent folder record no reads (from 1a).
+- Standup's other repos are Plumbline's projects, the anchor's sibling folders and its `frontend_repo`; a repo elsewhere with commits on the ticket and no Plumbline task isn't found.
+- A personal project's standup can't follow work into another repo (no tickets to follow).
+- The sprint file is protected for the Edit and Write tools; a terminal command that writes it isn't asked about specially (it follows the usual terminal rules).
+
+## Not verified yet (smoke-test step 12)
+- That the Direction answer reaches PostToolUse in the same shape as the checkpoint's.
+- That `git log --since-as-filter` behaves on the Linux builds' git, and the fallback on git before 2.37.
+- That the standup skill's MemPalace `since`/`before` search returns the day's sessions.
+
+## Next
+Run docs/smoke-test.md (steps 1 to 13) on your laptop, then work through docs/limits.md (the user's call: every known limit after the plugin is complete), then the Kwenta trial.

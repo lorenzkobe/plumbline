@@ -72,7 +72,29 @@ fix/TICKET-123 from develop (or: main, as the user chose)
 - Questioned: <finding> -> kept, because <evidence>
 (Small tasks: "skipped, small task".)
 ```
-Approving the plan approves exactly the commands in "Needs your OK", nothing more.
+Approving the plan approves exactly the commands in "Needs your OK", nothing more. Deploys, deletes, production writes and commands on other machines are still confirmed one by one when they run.
+
+Design tasks (/plumbline:design) add, in plan.md:
+```
+## Design
+Direction B (https://claude.ai/artifact/...): calm and editorial. Screens: order list, order detail.
+Sizes: phone 360px first, tablet 768px, desktop 1280px. States: loading, empty, error, long names.
+```
+and `- ui: screenshots of the real screens at phone, tablet and desktop sizes against the mockup` under "Real-world proof". The direction named here must be the one the user picked.
+
+## design.md (design tasks)
+```
+# Design: <title>
+
+## Brand kit
+<where it is (docs/brand.md, src/theme.ts), or the kit agreed with the user for a new project>
+
+## Directions
+- Direction A: dense and fast, <link>, best for power users; less breathing room
+- Direction B: calm and editorial, <link>, easiest to scan; fewer items per screen
+- Direction C: card-free list, <link>, ...
+```
+Bullets straight under "## Directions", at least 3.
 Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>`, better `test: <file>::<test name>` (in backticks when the name has spaces), or `does not apply, because ...`. Naming the test lets the reviewers see when one test is the proof for several cases.
 
 ## report.md

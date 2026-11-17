@@ -25,10 +25,10 @@ Run these checks in parallel. One fix attempt per tool, then ask the user.
    - base branch: run `git fetch` and `git branch -r`, suggest develop or dev (company) or main (personal), ask to confirm
    - Docker database: look for a compose setup; none, or it can't be committed: ask
    - frontend repo for full-stack tickets: ask which folder
-   - how deploys happen (pipeline, manual command, which branch deploys where); unclear: ask
+   - how deploys happen (pipeline, manual command, which branch deploys where); unclear: ask. If a pipeline deploys, save `"deploy_pipeline": true`: Plumbline then refuses deploys by hand
    - how production is reached (tunnel or credentials): ask. Save the method only, never a value
    - frontend checks that apply (responsive layouts, and so on): ask
-   - brand kit location: repo first, then ask. Where mockups go: Claude artifacts unless the project differs
+   - brand kit location: repo first, then ask. Where mockups go: Claude artifacts unless the project differs (a company that doesn't allow them: local HTML)
    - generated files the changed-files check should skip (coverage, snapshots, caches) as globs
    - whether to keep a glossary and decision records
 3. Review CLAUDE.md, WORKFLOW.md and similar files against the real code. List what's outdated, repeated, or in conflict with Plumbline, and propose changes. Change nothing until the user approves.
@@ -38,10 +38,10 @@ Run these checks in parallel. One fix attempt per tool, then ask the user.
    {"kind": "personal", "base_branch": "main",
     "commands": {"test": "...", "test_related": "... {files}", "lint": "...", "build": "...", "app": "...", "db_up": "...", "e2e": "..."},
     "ignore_changes": ["coverage/**"], "frontend_repo": "", "deploy_notes": "", "prod_access": "tunnel",
-    "frontend_checks": [], "brand_kit": "", "mockups": "artifacts", "glossary": false}
+    "deploy_pipeline": true, "frontend_checks": [], "brand_kit": "", "mockups": "artifacts", "glossary": false}
    JSON
    ```
-   Only include commands that exist. The challenger, the reviewers and the Jira checks are on by default; to switch one off for this project, add it to `"parts"`: `"challenger": false`, `"reviewer": false` (all reviews), one reviewer by name (`"security-reviewer"`, `"data-reviewer"`, `"ux-reviewer"`, `"plan-reviewer"`), or `"jira": false` (the ticket read and the drafted comment), and say what that gives up. `tests_ran_pattern` (a regex with a `(?P<ran>\d+)` group) is only needed if `plumbline run test` says it couldn't tell how many tests ran.
+   Only include commands that exist. The challenger, the reviewers and the Jira checks are on by default; to switch one off for this project, add it to `"parts"`: `"challenger": false`, `"reviewer": false` (all reviews), one reviewer by name (`"security-reviewer"`, `"data-reviewer"`, `"ux-reviewer"`, `"plan-reviewer"`), `"jira": false` (the ticket read and the drafted comment), `"design": false` (the design workflow's direction pick) or `"devops": false` (the per-command confirm for deploys, deletes and production writes in the approved plan, and the refusal of deploys by hand; the basic prompt for outside-the-laptop commands stays on), and say what that gives up. `tests_ran_pattern` (a regex with a `(?P<ran>\d+)` group) is only needed if `plumbline run test` says it couldn't tell how many tests ran.
 5. Confirm by running: `plumbline run test` (and lint, build). Note how long the full suite took and save it as `suite_seconds` (save again the same way). If a command fails, re-check the repo and propose the fix; don't guess.
 6. First time in this project: index it in SocratiCode to 100% and turn on its file watcher, and do one Serena lookup to confirm it works for the project's languages. If a language server needs installing, ask first.
 

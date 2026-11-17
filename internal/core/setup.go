@@ -39,8 +39,11 @@ type Setup struct {
 	RiskyPaths      []string `json:"risky_paths,omitempty"`       // extra globs never touched outside the plan
 	SuiteSeconds    int      `json:"suite_seconds,omitempty"`
 
-	FrontendRepo   string   `json:"frontend_repo,omitempty"`
-	DeployNotes    string   `json:"deploy_notes,omitempty"`
+	FrontendRepo string `json:"frontend_repo,omitempty"`
+	DeployNotes  string `json:"deploy_notes,omitempty"`
+	// DeployPipeline: a pipeline deploys this project, so Claude never
+	// deploys by hand (vercel --prod, sls deploy, kubectl apply, ...).
+	DeployPipeline bool     `json:"deploy_pipeline,omitempty"`
 	ProdAccess     string   `json:"prod_access,omitempty"` // method only, never values
 	FrontendChecks []string `json:"frontend_checks,omitempty"`
 	BrandKit       string   `json:"brand_kit,omitempty"`
@@ -124,7 +127,15 @@ func LoadSetup(root string) (*Setup, bool, error) {
 		return nil, false, err
 	}
 	conf, _ := os.ReadFile(confirmedPath(root))
-	return &s, strings.TrimSpace(string(conf)) == fileHash(p), nil
+	ok = strings.TrimSpace(string(conf)) == fileHash(p)
+	if !ok {
+		// Changed since the user confirmed it (for example by a terminal
+		// command): nothing in it may relax a rule until they confirm it
+		// again. Every part counts as on, and deploys by hand are refused.
+		s.Parts = nil
+		s.DeployPipeline = true
+	}
+	return &s, ok, nil
 }
 
 // ConfirmSetup records the current setup content as approved by you.

@@ -48,17 +48,22 @@ type Waiver struct {
 }
 
 type Task struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Ticket    string    `json:"ticket,omitempty"`
-	Size      string    `json:"size"` // small | normal | big
-	SizeWhy   string    `json:"size_why,omitempty"`
-	Root      string    `json:"root"`
-	Branch    string    `json:"branch"`
-	SessionID string    `json:"session_id"`
-	Phase     string    `json:"phase"`
-	Created   time.Time `json:"created"`
-	Updated   time.Time `json:"updated"`
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Ticket  string `json:"ticket,omitempty"`
+	Size    string `json:"size"` // small | normal | big
+	SizeWhy string `json:"size_why,omitempty"`
+	// Kind is "design" for a design task (mockups and the user's pick of a
+	// direction before the plan), "" for the usual task.
+	Kind        string    `json:"kind,omitempty"`
+	Direction   string    `json:"direction,omitempty"` // the direction the user picked
+	DirectionAt time.Time `json:"direction_at,omitempty"`
+	Root        string    `json:"root"`
+	Branch      string    `json:"branch"`
+	SessionID   string    `json:"session_id"`
+	Phase       string    `json:"phase"`
+	Created     time.Time `json:"created"`
+	Updated     time.Time `json:"updated"`
 
 	// Your own unsaved work at task start: never counted as the task's.
 	Preexisting map[string]string `json:"preexisting,omitempty"`

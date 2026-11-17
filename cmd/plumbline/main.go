@@ -54,6 +54,8 @@ func main() {
 		err = cmdWaive(args)
 	case "builder":
 		err = cmdBuilder(args)
+	case "standup":
+		err = cmdStandup(args)
 	case "pause", "resume":
 		root := mustRoot()
 		err = core.SetPaused(root, os.Args[1] == "pause")
@@ -90,6 +92,8 @@ func usage() {
   plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
   plumbline waive proof:ui|proof:api|proof:schema|e2e|qa --reason "..."
   plumbline stats [--months N]
+  plumbline standup [--date YYYY-MM-DD]  your work that day, from this repo (default: yesterday)
+  plumbline standup tracker [--set <path>]   this project's sprint file
   plumbline pause|resume                (your terminal only)
 `)
 }
@@ -246,9 +250,19 @@ func cmdTask(args []string) error {
 		if size != "small" && size != "normal" && size != "big" {
 			return errors.New("--size is small, normal or big")
 		}
+		kind := ""
+		if v, ok := f["design"]; ok {
+			if v != "true" {
+				return errors.New("--design takes no value")
+			}
+			if !s.PartOn("design") {
+				return errors.New(`the design part is switched off for this project ("parts": {"design": false}); start a normal task instead`)
+			}
+			kind = core.KindDesign
+		}
 		pre, _ := core.DirtyFiles(root)
 		t := &core.Task{
-			ID: newTaskID(), Title: title, Ticket: f["ticket"], Size: size, SizeWhy: f["why"],
+			ID: newTaskID(), Title: title, Ticket: f["ticket"], Size: size, SizeWhy: f["why"], Kind: kind,
 			Root: root, Branch: core.CurrentBranch(root), Phase: core.PhaseUnderstanding,
 			Created: core.Now(), Preexisting: pre, StartCommit: core.HeadCommit(root),
 		}
@@ -269,6 +283,10 @@ func cmdTask(args []string) error {
 		fmt.Printf("Notes folder: %s\n", core.TaskDocsDir(root, t.ID))
 		if len(pre) > 0 {
 			fmt.Printf("Your own unsaved changes before the task (not counted as the task's): %s\n", strings.Join(keys(pre), ", "))
+		}
+		if kind == core.KindDesign {
+			fmt.Println("Next (design task): read the task, check the tools, trace the code, find the brand kit, make at least 3 mockup directions and list them in design.md, ask the user to pick one (header \"Direction\"), then write understanding.md and plan.md (with ## Design) and ask the checkpoint.")
+			return nil
 		}
 		fmt.Println("Next: read the task, check the tools, trace the code (SocratiCode, Serena, MemPalace), write understanding.md and plan.md, then the checkpoint.")
 		return nil
@@ -520,6 +538,9 @@ func cmdStatus(args []string) error {
 		return nil
 	}
 	fmt.Printf("Task %s \"%s\": %s step (%s).\nNotes: %s\n", t.ID, t.Title, t.Phase, t.Size, core.TaskDocsDir(root, t.ID))
+	if t.Kind == core.KindDesign {
+		fmt.Printf("Design task. Direction picked: %s\n", orNone(t.Direction))
+	}
 	for k, v := range t.ToolDown {
 		fmt.Printf("Not used: %s (%s)\n", k, v)
 	}
@@ -551,6 +572,44 @@ func cmdStatus(args []string) error {
 		}
 		fmt.Printf("Plan files: %s\n", strings.Join(t.PlanFiles, ", "))
 	}
+	return nil
+}
+
+func cmdStandup(args []string) error {
+	f, pos, _ := flags(args)
+	root := mustRoot()
+	if len(pos) > 0 && pos[0] == "tracker" {
+		if p, ok := f["set"]; ok {
+			abs, err := core.SetTracker(root, p)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("Sprint file for this project: %s\nEdits to it always ask you first.\n", abs)
+			return nil
+		}
+		if p := core.TrackerPath(root); p != "" {
+			fmt.Println(p)
+			return nil
+		}
+		fmt.Println("none")
+		return nil
+	}
+	if len(pos) > 0 {
+		return fmt.Errorf("unknown standup command %q", pos[0])
+	}
+	day := time.Now().AddDate(0, 0, -1)
+	if d := f["date"]; d != "" {
+		t, err := time.ParseInLocation("2006-01-02", d, time.Local)
+		if err != nil {
+			return errors.New("--date is YYYY-MM-DD, for example 2026-11-17")
+		}
+		day = t
+	}
+	r, err := core.Standup(root, day)
+	if err != nil {
+		return err
+	}
+	fmt.Print(r.String())
 	return nil
 }
 

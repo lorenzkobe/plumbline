@@ -103,7 +103,7 @@ func PostToolUse(in *HookInput) Output {
 		if abs == filepath.Join(ProjectRoot(c.root), RepoSetupFile) && in.AgentID == "" {
 			_ = ConfirmSetup(c.root) // you allowed the change on the confirm prompt
 		}
-		if c.task != nil && IsInside(abs, c.root) {
+		if c.task != nil && IsInside(abs, c.root) && abs != TrackerPath(c.root) {
 			rel := c.rel(abs)
 			if c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) {
 				c.task.NoteOutside(rel, "edited")
@@ -457,6 +457,11 @@ func (c *hookCtx) afterQuestion() Output {
 	for _, q := range qs {
 		cp := checkpointOf(q)
 		if cp == 0 {
+			if isDirectionQ(q) {
+				if o := c.recordDirection(q); o != nil {
+					return o
+				}
+			}
 			continue
 		}
 		ans := findAnswer(c.in.ToolResponse, q.Question)
