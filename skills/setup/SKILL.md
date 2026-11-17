@@ -41,7 +41,7 @@ Run these checks in parallel. One fix attempt per tool, then ask the user.
     "frontend_checks": [], "brand_kit": "", "mockups": "artifacts", "glossary": false}
    JSON
    ```
-   Only include commands that exist. The challenger and reviewer are on by default; to switch one off for this project, add `"parts": {"challenger": false}` (or `"reviewer": false`) and say what that gives up. `tests_ran_pattern` (a regex with a `(?P<ran>\d+)` group) is only needed if `plumbline run test` says it couldn't tell how many tests ran.
+   Only include commands that exist. The challenger, the reviewers and the Jira checks are on by default; to switch one off for this project, add it to `"parts"`: `"challenger": false`, `"reviewer": false` (all reviews), one reviewer by name (`"security-reviewer"`, `"data-reviewer"`, `"ux-reviewer"`, `"plan-reviewer"`), or `"jira": false` (the ticket read and the drafted comment), and say what that gives up. `tests_ran_pattern` (a regex with a `(?P<ran>\d+)` group) is only needed if `plumbline run test` says it couldn't tell how many tests ran.
 5. Confirm by running: `plumbline run test` (and lint, build). Note how long the full suite took and save it as `suite_seconds` (save again the same way). If a command fails, re-check the repo and propose the fix; don't guess.
 6. First time in this project: index it in SocratiCode to 100% and turn on its file watcher, and do one Serena lookup to confirm it works for the project's languages. If a language server needs installing, ask first.
 

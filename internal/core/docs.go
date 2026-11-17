@@ -16,6 +16,32 @@ const (
 	DocReport        = "report.md"
 )
 
+// JiraCommentName: the draft comment for a Jira ticket, named for the
+// ticket so it's easy to find and copy (TICKET-123-jira-comment.md).
+func JiraCommentName(ticket string) string {
+	t := strings.TrimSpace(ticket)
+	if t == "" {
+		return "jira-comment.md"
+	}
+	return safeName(t) + "-jira-comment.md"
+}
+
+// JiraCommentProblems: the draft is only the comment, in plain words, with
+// nothing that marks it as written by AI.
+func JiraCommentProblems(text string) []string {
+	var p []string
+	if strings.TrimSpace(text) == "" {
+		p = append(p, "it is empty")
+	}
+	if m := AIMarkers(text); len(m) > 0 {
+		p = append(p, "remove AI markers ("+strings.Join(m, "; ")+")")
+	}
+	if strings.Contains(text, "—") {
+		p = append(p, "no em dashes (use a comma, a colon or a full stop)")
+	}
+	return p
+}
+
 var reRef = regexp.MustCompile("(?:^|[\\s(\\[`'\"])((?:[\\w.@+-]+/)*[\\w@+-][\\w.@+-]*\\.[A-Za-z0-9]+):(\\d+)(?:-(\\d+))?")
 
 type Ref struct {

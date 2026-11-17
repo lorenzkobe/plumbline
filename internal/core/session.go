@@ -85,6 +85,7 @@ func orDash(s string) string {
 
 // UserPromptSubmit adds a one-line reminder to every message you send.
 func UserPromptSubmit(in *HookInput) Output {
+	_ = SetJiraAsked(in.SessionID, UserAsksJira(in.Prompt))
 	c := newCtx(in)
 	defer c.close()
 	if c.task != nil && len(c.task.Sendbacks) > 0 {

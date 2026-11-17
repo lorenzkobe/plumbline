@@ -52,9 +52,14 @@ The user usually hands over the task and comes back later: research and plan wit
 
 ## Helpers (read-only, fresh eyes)
 - Challenger (`plumbline:challenger`): before the checkpoint, after understanding.md and plan.md are written. Skipped for small tasks. At most 2 rounds. Answer its findings in plan.md's `## Challenge note`; the checkpoint needs a finished challenger run and that note.
-- Reviewer (`plumbline:reviewer`): after the proof passes. The finish check needs a review of the code as it is now and a `## Review` section in report.md. At most 3 reviews (the first plus 2 fix rounds), then the user decides.
-- Check every finding against the code before acting on it. Push back with evidence when a finding is wrong.
-- Helpers write only their own findings file (challenge-N.md, review-N.md); nobody else edits those. They never ask the user and never start helpers.
+- Reviewers, after the proof passes, each on its own: `plumbline:code-reviewer` always; `plumbline:plan-reviewer` for normal and big tasks; `plumbline:security-reviewer`, `plumbline:data-reviewer`, `plumbline:ux-reviewer` when the files call for them (the plan's `## Team` names them, and you can add more). The finish check needs, from every one of them, a review of the code as it is now, and a `## Review` section in report.md written after the last. At most 3 runs per reviewer (the first plus 2 fix rounds), then the user decides.
+- Check every finding against the code before acting on it. Push back with evidence when a finding is wrong. Never pass one reviewer's findings to another.
+- Helpers write only their own findings file (challenge-N.md, code-review-N.md, ...); nobody else edits those. They never ask the user and never start helpers.
+
+## Jira
+- Read the ticket and every comment with the Jira tools before the checkpoint (company tasks on a ticket need it).
+- Jira is draft-only: Plumbline refuses posts, comments, status changes and edits, unless the user's own latest message asks you to post. Then they confirm the exact text.
+- Draft the comment in `<TICKET>-jira-comment.md` in the notes folder: only the comment, a few plain lines a teammate reads in seconds, no AI markers, no em dashes. The suggested status goes in the report under "For you".
 
 ## Finishing
 - Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end.

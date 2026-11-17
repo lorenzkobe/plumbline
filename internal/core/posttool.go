@@ -126,6 +126,9 @@ func PostToolUse(in *HookInput) Output {
 }
 
 func lookupFamily(tool string) string {
+	if jira, read := JiraTool(tool); jira && read {
+		return "jira"
+	}
 	low := strings.ToLower(tool)
 	for _, f := range []string{"socraticode", "mempalace", "serena", "context7"} {
 		if strings.Contains(low, f) {
@@ -474,6 +477,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.ApprovedCmds = pc.Approved
 			t.CaseTests = pc.CaseTests
 			t.CasesStored = true
+			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
 		default:
 			continue

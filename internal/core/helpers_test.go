@@ -91,7 +91,7 @@ func TestChallengerBeforeCheckpoint(t *testing.T) {
 	// The challenger attacks both documents, so it needs both.
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:challenger"}), "deny", "plan.md")
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "challenger"}), "deny", "plan.md") // bare name too
-	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:reviewer"}), "deny", "challenger")
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer"}), "deny", "challenger")
 	h.docs(DocPlan, goodPlan)
 
 	// No challenger yet: the checkpoint is refused.
@@ -206,16 +206,16 @@ func TestReviewerAfterBuilding(t *testing.T) {
 	report := "# Report\n## Review\n- review-1: nothing at 80 or more\n"
 
 	h.docs(DocReport, "# Report\nDone.\n")
-	if m := h.finishMissing(); !strings.Contains(m, "run the reviewer") || !strings.Contains(m, `"## Review"`) {
+	if m := h.finishMissing(); !strings.Contains(m, "plumbline:code-reviewer") || strings.Contains(m, "plan-reviewer") || !strings.Contains(m, `"## Review"`) {
 		t.Fatalf("finish should need a review and a Review section: %s", m)
 	}
 	o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo})
-	if !strings.Contains(fmtOut(o), "plumbline:reviewer") {
+	if !strings.Contains(fmtOut(o), "plumbline:code-reviewer") {
 		t.Fatalf("stop should send back for the review: %v", o)
 	}
 
-	id, so := h.startHelper(HelperReviewer)
-	if !strings.Contains(fmtOut(so), "git diff HEAD") || !strings.Contains(fmtOut(so), "review-1.md") {
+	id, so := h.startHelper(HelperCodeReviewer)
+	if !strings.Contains(fmtOut(so), "git diff HEAD") || !strings.Contains(fmtOut(so), "code-review-1.md") || !strings.Contains(fmtOut(so), "review-checklist.md") {
 		t.Fatalf("reviewer context: %v", so)
 	}
 	// Waiting on the background reviewer is not "done".
@@ -225,9 +225,9 @@ func TestReviewerAfterBuilding(t *testing.T) {
 	if m := h.finishMissing(); !strings.Contains(m, "still running") {
 		t.Fatalf("finish while running: %s", m)
 	}
-	h.expect(PreToolUse(h.helperIn(id, HelperReviewer, "Edit", map[string]any{"file_path": a})), "deny", "read-only")
+	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "Edit", map[string]any{"file_path": a})), "deny", "read-only")
 	write(t, h.findingsPath(id), "# Review 1\n- [90] A should return 3 (src/a.go:3)\n")
-	h.stopHelper(id, HelperReviewer)
+	h.stopHelper(id, HelperCodeReviewer)
 
 	// The report is older than the review: update it.
 	h.docs(DocReport, report)
@@ -247,18 +247,18 @@ func TestReviewerAfterBuilding(t *testing.T) {
 	_, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
 	must(t, err)
 	h.docs(DocReport, report)
-	if m := h.finishMissing(); !strings.Contains(m, "run the reviewer again") {
+	if m := h.finishMissing(); !strings.Contains(m, "run these again to check the fixes: plumbline:code-reviewer") {
 		t.Fatalf("stale review should need another: %s", m)
 	}
-	h.runHelper(HelperReviewer, "# Review 2\nfixed\n")
+	h.runHelper(HelperCodeReviewer, "# Review 2\nfixed\n")
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("re-reviewed task should be done: %s", m)
 	}
 
 	// Three reviews at most; after that, the user decides.
-	h.runHelper(HelperReviewer, "# Review 3\nfine\n")
-	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:reviewer"}), "deny", "bring what's left to the user")
+	h.runHelper(HelperCodeReviewer, "# Review 3\nfine\n")
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer"}), "deny", "bring what's left to the user")
 	write(t, a, "package src\n\nfunc A() int { return 4 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
 	if m := h.finishMissing(); !strings.Contains(m, "ask the user") {
@@ -282,7 +282,7 @@ func TestReviewerSwitchedOff(t *testing.T) {
 
 func TestDeadHelperDoesNotHoldTheStop(t *testing.T) {
 	h := provenTask(t)
-	h.startHelper(HelperReviewer)
+	h.startHelper(HelperCodeReviewer)
 	real := Now
 	defer func() { Now = real }()
 	Now = func() time.Time { return real().Add(helperAlive + time.Minute) }

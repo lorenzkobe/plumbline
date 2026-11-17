@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -88,6 +89,8 @@ type Task struct {
 	// Challenger and reviewer runs, as recorded by the SubagentStart and
 	// SubagentStop hooks.
 	Helpers []HelperRun `json:"helpers,omitempty"`
+	// Reviewers the approved plan's Team names, kept at approval.
+	Reviewers []string `json:"reviewers,omitempty"`
 
 	LastCodeChange time.Time  `json:"last_code_change,omitempty"`
 	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
@@ -159,6 +162,11 @@ func LoadTask(root, id string) (*Task, error) {
 	var t Task
 	if err := json.Unmarshal(b, &t); err != nil {
 		return nil, err
+	}
+	for i := range t.Helpers {
+		if t.Helpers[i].Kind == legacyReviewer {
+			t.Helpers[i].Kind = HelperCodeReviewer
+		}
 	}
 	return &t, nil
 }
@@ -283,6 +291,47 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 		return nil, fmt.Errorf("several open tasks on %s (%s): pass --task <id>", branch, strings.Join(ids, ", "))
 	}
 	return nil, nil
+}
+
+// The Jira flag: the user's latest message asked for something to go to
+// Jira. Only the prompt hook writes it, from the user's own words; it's
+// sealed like the paused flag, and the next message replaces it.
+func jiraAskedPath(sessionID string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".jira")
+}
+
+func jiraSeal(sessionID, at string) string { return seal([]byte("jira\x00" + sessionID + "\x00" + at)) }
+
+var reJiraAsk = regexp.MustCompile(`(?i)\b(jira|ticket|tickets|comment|comments|status|transition|post|posting)\b`)
+
+// UserAsksJira: the user's own message talks about writing to Jira.
+func UserAsksJira(prompt string) bool { return reJiraAsk.MatchString(prompt) }
+
+func SetJiraAsked(sessionID string, on bool) error {
+	if sessionID == "" {
+		return nil
+	}
+	if on {
+		at := Now().Format(time.RFC3339Nano)
+		return writeFileAtomic(jiraAskedPath(sessionID), []byte(at+" "+jiraSeal(sessionID, at)+"\n"))
+	}
+	err := os.Remove(jiraAskedPath(sessionID))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
+func JiraAsked(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	b, err := os.ReadFile(jiraAskedPath(sessionID))
+	if err != nil {
+		return false
+	}
+	at, s, ok := strings.Cut(strings.TrimSpace(string(b)), " ")
+	return ok && s == jiraSeal(sessionID, at)
 }
 
 // Project-level flags.

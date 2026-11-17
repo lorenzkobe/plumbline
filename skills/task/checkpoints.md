@@ -63,7 +63,8 @@ Related tests while building, then the full suite, lint and build. Suite takes a
 fix/TICKET-123 from develop (or: main, as the user chose)
 
 ## Team
-<small task: lead + reviewer; otherwise lead, challenger, reviewer>
+<small task: lead, code-reviewer; otherwise lead, challenger, plan-reviewer, code-reviewer>
+<plus security-reviewer (auth, permissions, payments, user data, secrets), data-reviewer (migrations, queries, models, money math), ux-reviewer (frontend), when the files call for them; the checkpoint is refused without them>
 
 ## Challenge note
 - Questioned: <finding> -> changed: <what changed in the understanding or plan>
@@ -88,7 +89,7 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 - Waivers: <or "none">
 
 ## Review
-- Reviews: <n> (review-1.md, ...), the last one on the final code
+- Reviews: <reviewer>: <n> runs (code-review-1.md, ...), the last one on the final code; the same for each reviewer
 - <finding> -> fixed in <file> / pushed back: <evidence>
 - Not fixed, needs you: <or "none">
 
@@ -102,5 +103,13 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 - <files Claude was refused (risky or your unsaved work), with what it would change and why>
 - <packages or commands that weren't in the approved list>
 - <decisions or actions only the user can take>
+- Jira (ticket tasks): suggested status <status>; the comment is in <TICKET>-jira-comment.md
 - Commit? <proposed message(s)>. You push.
+```
+
+## <TICKET>-jira-comment.md (Jira tickets)
+Only the comment, nothing around it, so the user can copy it as it is:
+```
+Fixed: a refunded order could be refunded again. The refund now checks the order's state first.
+Tests: added cases for repeat refunds and zero amounts. Full suite passes.
 ```

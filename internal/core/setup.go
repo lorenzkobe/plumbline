@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -48,6 +49,24 @@ type Setup struct {
 
 	// Parts after the core can be switched off one by one.
 	Parts map[string]bool `json:"parts,omitempty"`
+}
+
+// TicketPattern is the company's ticket id pattern.
+func (s *Setup) TicketPattern() string {
+	if s == nil || s.TicketRegex == "" {
+		return `[A-Z][A-Z0-9]+-\d+`
+	}
+	return s.TicketRegex
+}
+
+// JiraTicket: a company task whose ticket looks like a Jira ticket, with
+// the Jira part on.
+func (s *Setup) JiraTicket(ticket string) bool {
+	if s == nil || s.Kind != "company" || strings.TrimSpace(ticket) == "" || !s.PartOn("jira") {
+		return false
+	}
+	ok, err := regexp.MatchString(`^(`+s.TicketPattern()+`)$`, strings.TrimSpace(ticket))
+	return err == nil && ok
 }
 
 func (s *Setup) PartOn(name string) bool {

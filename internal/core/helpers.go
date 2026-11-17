@@ -9,17 +9,24 @@ import (
 	"time"
 )
 
-// The two helpers: the challenger attacks the understanding and the plan
-// before the checkpoint, the reviewer checks the change after building. Both
-// are read-only plugin agents. Plumbline records when each run starts and
-// stops, with the code fingerprint at both ends, so a run only counts when it
-// finished on code that didn't change under it.
+// The helpers: the challenger attacks the understanding and the plan before
+// the checkpoint; the reviewers check the change after building, each on its
+// own (plan match, code quality, and the specialists that risk signals call
+// for). All are read-only plugin agents. Plumbline records when each run
+// starts and stops, with the code fingerprint at both ends, so a run only
+// counts when it finished on code that didn't change under it.
 const (
-	HelperChallenger = "challenger"
-	HelperReviewer   = "reviewer"
+	HelperChallenger   = "challenger"
+	HelperPlanReviewer = "plan-reviewer"
+	HelperCodeReviewer = "code-reviewer"
+	HelperSecurity     = "security-reviewer"
+	HelperData         = "data-reviewer"
+	HelperUX           = "ux-reviewer"
+	// 0.3.x had one reviewer; its runs count as the code reviewer's.
+	legacyReviewer = "reviewer"
 
 	MaxChallengeRounds = 2
-	MaxReviews         = 3 // the first review plus 2 fix rounds
+	MaxReviews         = 3 // per reviewer: the first review plus 2 fix rounds
 
 	// A run with no stop recorded after this long is treated as dead.
 	helperAlive = 30 * time.Minute
@@ -41,29 +48,109 @@ func (r HelperRun) Complete() bool {
 	return !r.Finished.IsZero() && r.PrintAfter != "" && r.PrintAfter == r.PrintBefore
 }
 
+// ReviewerKinds in the order they are listed.
+var ReviewerKinds = []string{HelperPlanReviewer, HelperCodeReviewer, HelperSecurity, HelperData, HelperUX}
+
+func isReviewer(kind string) bool { return contains(ReviewerKinds, kind) }
+
 // helperKind maps an agent type to a Plumbline helper. Hook input carries the
 // plugin-scoped name; the lead may pass the bare name to the Agent tool.
 func helperKind(agentType string, allowBare bool) string {
-	switch agentType {
-	case "plumbline:" + HelperChallenger:
-		return HelperChallenger
-	case "plumbline:" + HelperReviewer:
-		return HelperReviewer
+	k, scoped := strings.CutPrefix(agentType, "plumbline:")
+	if !scoped && !allowBare {
+		return ""
 	}
-	if allowBare && (agentType == HelperChallenger || agentType == HelperReviewer) {
-		return agentType
+	if k == HelperChallenger || isReviewer(k) {
+		return k
 	}
 	return ""
 }
 
-var reFindings = regexp.MustCompile(`^(challenge|review)-[0-9]+\.md$`)
+// Findings files: challenge-N.md, code-review-N.md, ... (review-N.md from 0.3.x).
+var reFindings = regexp.MustCompile(`^(challenge|((plan|code|security|data|ux)-)?review)-[0-9]+\.md$`)
 
 func findingsName(kind string, n int) string {
-	prefix := "challenge"
-	if kind == HelperReviewer {
-		prefix = "review"
+	if kind == HelperChallenger {
+		return fmt.Sprintf("challenge-%d.md", n)
 	}
-	return fmt.Sprintf("%s-%d.md", prefix, n)
+	return fmt.Sprintf("%s-%d.md", strings.TrimSuffix(kind, "er"), n)
+}
+
+// Risk signals in a file's path call for a specialist reviewer. They are
+// judged by path only; the lead can always name more in the plan's Team.
+var (
+	// A word counts between path, dot, dash or underscore boundaries; file
+	// names are split at camelCase first (AuthService -> Auth_Service).
+	reSecuritySignal = regexp.MustCompile(`(?i)(^|[/._-])(auth|authn|authz|oauth|sso|saml|jwt|login|logout|signup|sessions?|permissions?|acl|rbac|roles?|policy|policies|guards?|payments?|billing|stripe|invoices?|checkout|secrets?|token|crypto|passwords?|credentials?|users?|accounts?|profiles?|pii|env)([/._-]|$)`)
+	reDataSignal     = regexp.MustCompile(`(?i)((^|[/._-])(migrations?|migrate|schemas?|models?|repositor(y|ies)|quer(y|ies)|sql|db|database|seeds?|prisma|drizzle|knex|sequelize|typeorm|money|currency|prices?|pricing|amounts?|ledger|payments?|billing|invoices?)([/._-]|$))`)
+	reUXSignal       = regexp.MustCompile(`(?i)(\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less|html?|hbs|erb|ejs|njk|liquid)$|\.blade\.php$|(^|/)(components?|pages|views|screens|layouts?|styles?|templates?|ui)/)`)
+)
+
+var signalWhy = map[string]string{
+	HelperSecurity: "auth, permissions, payments, user data or secrets",
+	HelperData:     "migrations, queries, models or money math",
+	HelperUX:       "the frontend",
+}
+
+// ReviewersFor: the reviewers a change needs, by size and by the files it
+// touches (relative to root, so a home folder like /Users/... isn't read as
+// user data). Small tasks get one reviewer (the code reviewer).
+func ReviewersFor(size, root string, files []string) []string {
+	need := map[string]bool{HelperCodeReviewer: true}
+	if size != "small" {
+		need[HelperPlanReviewer] = true
+	}
+	for _, f := range files {
+		if filepath.IsAbs(f) && root != "" {
+			if r, err := filepath.Rel(root, f); err == nil && !strings.HasPrefix(r, "..") {
+				f = r
+			}
+		}
+		f = reCamel.ReplaceAllString(filepath.ToSlash(f), "${1}_${2}")
+		need[HelperSecurity] = need[HelperSecurity] || reSecuritySignal.MatchString(f)
+		need[HelperData] = need[HelperData] || reDataSignal.MatchString(f)
+		need[HelperUX] = need[HelperUX] || reUXSignal.MatchString(f)
+	}
+	var out []string
+	for _, k := range ReviewerKinds {
+		if need[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// TeamReviewers: the reviewers a plan's "## Team" section names.
+func TeamReviewers(plan string) []string {
+	team := strings.ToLower(strings.Join(Section(plan, "team"), "\n"))
+	var out []string
+	for _, k := range ReviewerKinds {
+		if strings.Contains(team, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// RequiredReviewers: every reviewer whose review the finish check needs.
+// The approved plan's Team adds to the ones size and risk call for, and
+// files changed outside the plan count as well.
+func RequiredReviewers(t *Task, s *Setup) []string {
+	if !s.PartOn("reviewer") {
+		return nil
+	}
+	files := append([]string{}, t.PlanFiles...)
+	for p := range t.OutsidePlan {
+		files = append(files, p)
+	}
+	need := ReviewersFor(t.Size, t.Root, files)
+	var out []string
+	for _, k := range ReviewerKinds {
+		if (contains(need, k) || contains(t.Reviewers, k)) && s.PartOn(k) {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func (t *Task) helperRuns(kind string) []HelperRun {
@@ -138,10 +225,10 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 	if t == nil {
 		return c.deny("helper-no-task", fmt.Sprintf("the %s works on a task; start one first.", kind))
 	}
-	switch kind {
-	case HelperChallenger:
+	switch {
+	case kind == HelperChallenger:
 		if t.Phase == PhaseBuilding {
-			return c.deny("challenger-phase", "the challenger is for before the checkpoint, and the plan is already approved. After building, run the reviewer (plumbline:reviewer).")
+			return c.deny("challenger-phase", "the challenger is for before the checkpoint, and the plan is already approved. After building, run the reviewers (plumbline:code-reviewer and the others the plan names).")
 		}
 		if !docExists(t, DocUnderstanding) || !docExists(t, DocPlan) {
 			return c.deny("challenger-docs", "write understanding.md and plan.md first: the challenger attacks both.")
@@ -149,12 +236,12 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if n := len(t.helperRuns(HelperChallenger)); n >= MaxChallengeRounds {
 			return c.deny("challenger-rounds", fmt.Sprintf("the challenger already ran %d times, the most a task gets. Write the \"## Challenge note\" in plan.md with what is still open, and go to the checkpoint.", n))
 		}
-	case HelperReviewer:
+	case isReviewer(kind):
 		if t.Phase != PhaseBuilding {
-			return c.deny("reviewer-phase", fmt.Sprintf("the reviewer checks the built change, and task %s is at the %s step. Before the checkpoint, the challenger (plumbline:challenger) is the one to run.", t.ID, t.Phase))
+			return c.deny("reviewer-phase", fmt.Sprintf("the %s checks the built change, and task %s is at the %s step. Before the checkpoint, the challenger (plumbline:challenger) is the one to run.", kind, t.ID, t.Phase))
 		}
-		if n := len(t.helperRuns(HelperReviewer)); n >= MaxReviews {
-			return c.deny("reviewer-rounds", fmt.Sprintf("the reviewer already ran %d times (the first review plus 2 fix rounds). Stop and bring what's left to the user, with your suggestion.", n))
+		if n := len(t.helperRuns(kind)); n >= MaxReviews {
+			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times (the first review plus 2 fix rounds). Stop and bring what's left to the user, with your suggestion.", kind, n))
 		}
 	}
 	return nil
@@ -185,6 +272,23 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		return c.deny("helper-no-questions", fmt.Sprintf("the %s runs without the user. Put open questions in your findings file; the lead decides what to ask.", kind))
 	case "Bash":
 		return c.helperBash(kind, in.Str("command"))
+	case "Read":
+		return c.reviewerNotes(kind, in.Str("file_path"), false)
+	case "Grep", "Glob":
+		if o := c.reviewerNotes(kind, in.Str("path"), true); o != nil {
+			return o
+		}
+		if p := in.Str("pattern"); in.ToolName == "Glob" && p != "" {
+			// The pattern is read from the search folder, and may climb out of it.
+			base := in.Str("path")
+			if base == "" {
+				base = in.Cwd
+			}
+			if !filepath.IsAbs(p) && !strings.HasPrefix(p, "~") {
+				p = filepath.Join(Abs(base, in.Cwd), p)
+			}
+			return c.reviewerNotes(kind, p, true)
+		}
 	}
 	if strings.HasPrefix(in.ToolName, "mcp__") {
 		switch MCPKind(in.ToolName) {
@@ -196,6 +300,7 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		case "write":
 			return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only. Put what should change in your findings file.", kind))
 		}
+		return c.reviewerNotes(kind, mcpPath(in.Input()), true)
 	}
 	return nil
 }
@@ -211,7 +316,98 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 		}
 		return c.deny("helper-read-only", fmt.Sprintf("the %s only runs commands that read (git diff, git log, grep, cat ...). %q changes something or isn't known to be read-only. The lead runs tests and proof.", kind, what))
 	}
+	if !isReviewer(kind) {
+		return nil
+	}
+	for _, s := range ParseShell(cmd, c.in.Cwd) {
+		dir := s.Dir
+		if dir == "" {
+			dir = c.in.Cwd
+		}
+		recursive := reSearchTool.MatchString(s.Name())
+		words := append(append([]string{}, s.Inputs...), s.Redirects...)
+		if len(s.Words) > 1 {
+			words = append(words, s.Words[1:]...)
+		}
+		for i, w := range words {
+			j := i - len(s.Inputs) - len(s.Redirects) + 1
+			dyn := (j >= 1 && j < len(s.Dyn) && s.Dyn[j]) || ((j < 1) && strings.ContainsAny(w, "$`"))
+			if dyn {
+				// Its value isn't known until it runs: refuse any that
+				// could build a path into Plumbline's data folder.
+				if wordMentionsDataDir(w) || strings.Contains(strings.ToLower(w), "plumb") {
+					return c.deny("reviewer-own-notes", fmt.Sprintf("the %s can't tell which notes file %q reads; name the file.", kind, w))
+				}
+				continue
+			}
+			if strings.HasPrefix(w, "-") {
+				// A flag's value can name a file: --file=<path>.
+				_, v, ok := strings.Cut(w, "=")
+				if !ok {
+					continue
+				}
+				w = v
+			}
+			if o := c.reviewerNotes(kind, Abs(w, dir), recursive); o != nil {
+				return o
+			}
+		}
+	}
+	// Text fed to xargs or a read loop (heredocs, here-strings) names files
+	// too, and isn't kept on the commands inside a loop: check every word of
+	// the command as written.
+	for _, w := range strings.FieldsFunc(cmd, func(r rune) bool { return strings.ContainsRune(" \t\n;|&()<>'\"`=", r) }) {
+		switch {
+		case strings.Contains(w, "$"):
+			if strings.Contains(strings.ToLower(w), "plumb") {
+				return c.deny("reviewer-own-notes", fmt.Sprintf("the %s can't tell which notes file %q reads; name the file.", kind, w))
+			}
+		case filepath.IsAbs(w) || strings.HasPrefix(w, "~/"):
+			if o := c.reviewerNotes(kind, w, false); o != nil {
+				return o
+			}
+		}
+	}
 	return nil
+}
+
+// Commands that search a folder tree: given a folder above the notes, they
+// read every reviewer's findings.
+var reSearchTool = regexp.MustCompile(`^(rg|grep|egrep|fgrep|ugrep|ag|ack|find|fd|tree|du)$`)
+
+// reviewerNotes keeps the reviews independent. In Plumbline's data folder a
+// reviewer reads only understanding.md, plan.md and its own earlier
+// findings: not another reviewer's findings, and not the report, which sums
+// them up. With tree set (a search), a folder holding the data folder counts
+// too.
+func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
+	if !isReviewer(kind) || path == "" {
+		return nil
+	}
+	data := Abs(DataDir(), "/")
+	abs := Abs(path, c.in.Cwd) // resolves symlinks, so /tmp and /private/tmp match
+	pattern := false
+	if i := strings.IndexAny(abs, "*?["); i >= 0 {
+		abs, pattern = filepath.Dir(abs[:i]+"x"), true
+	}
+	inside := isInsideFold(abs, data) || foldPath(abs) == foldPath(data)
+	// A search or a pattern starting above the data folder can reach into it.
+	above := (tree || pattern) && isInsideFold(data, abs)
+	if !inside && !above {
+		return nil
+	}
+	if inside && !pattern && c.task != nil {
+		docs := Abs(TaskDocsDir(c.task.Root, c.task.ID), "/")
+		base := filepath.Base(abs)
+		own := false
+		for _, r := range c.task.helperRuns(kind) { // includes 0.3.x review-N.md
+			own = own || foldPath(r.Findings) == foldPath(base)
+		}
+		if foldPath(filepath.Dir(abs)) == foldPath(docs) && (base == DocUnderstanding || base == DocPlan || own) {
+			return nil
+		}
+	}
+	return c.deny("reviewer-own-notes", fmt.Sprintf("each review stays independent: in the notes folder the %s reads only %s, %s and its own earlier findings, not other reviewers' findings or the report. Read the code and the diff for the rest.", kind, DocUnderstanding, DocPlan))
 }
 
 // SubagentStart records a helper run and tells the helper where its notes
@@ -244,12 +440,12 @@ func SubagentStart(in *HookInput) Output {
 		if base == "" {
 			base = "HEAD"
 		}
-		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is review %d of at most %d.", DocPlan, base, n, MaxReviews)
+		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is run %d of at most %d for the %s. Other reviewers check the change on their own: in the notes folder read only %s, %s and your own earlier findings.", DocPlan, base, n, MaxReviews, kind, DocUnderstanding, DocPlan)
 	}
 	if n > 1 {
-		fmt.Fprintf(&b, " Earlier findings: %s; check whether each was really fixed, then look at what changed since.", findingsName(kind, n-1))
+		fmt.Fprintf(&b, " Your earlier findings: %s; check whether each was really fixed, then look at what changed since.", t.helperRuns(kind)[n-2].Findings)
 	}
-	fmt.Fprintf(&b, " Write your findings to %s as you go: it is the only file you can write. Terminal commands must only read.", filepath.Join(docs, run.Findings))
+	fmt.Fprintf(&b, " The shared checklist, scoring and findings format: %s. Write your findings to %s as you go: it is the only file you can write. Terminal commands must only read.", ChecklistPath(), filepath.Join(docs, run.Findings))
 	return Context("SubagentStart", msg(b.String()))
 }
 
@@ -311,37 +507,71 @@ func (c *hookCtx) challengeProblems(plan string) []string {
 	return p
 }
 
-// reviewMissing: the finish check needs a finished review of the current code
-// and a "## Review" section in a report written after it.
+// reviewMissing: the finish check needs, from every required reviewer, a
+// finished review of the current code, and a "## Review" section in a report
+// written after the last of them.
 func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) []string {
-	if !s.PartOn(HelperReviewer) {
+	kinds := RequiredReviewers(t, s)
+	if len(kinds) == 0 {
 		return nil
 	}
-	runs := t.helperRuns(HelperReviewer)
-	last := t.lastFinished(HelperReviewer)
-	var miss []string
-	switch {
-	case len(runs) == 0:
-		miss = append(miss, "review: run the reviewer on the finished change (Agent tool, subagent_type plumbline:reviewer), after the proof")
-	case runs[len(runs)-1].alive():
-		miss = append(miss, "review: the reviewer is still running; wait for its findings")
-	case last == nil && len(runs) < MaxReviews:
-		miss = append(miss, "review: the reviewer never finished; run it again")
-	case last == nil:
-		miss = append(miss, fmt.Sprintf("review: no review finished and all %d are used; stop and ask the user how to go on", MaxReviews))
-	case !last.Complete() || last.PrintAfter != fp || !t.findingsExist(*last):
-		if len(runs) >= MaxReviews {
-			miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d reviews are used (the first plus 2 fix rounds); stop and ask the user how to go on", MaxReviews))
-		} else {
-			miss = append(miss, "review: the code changed after the last review (or during it, or it left no findings file); run the reviewer again to check the fixes")
+	var notRun, running, again, capped []string
+	var lastDone time.Time
+	for _, k := range kinds {
+		runs := t.helperRuns(k)
+		last := t.lastFinished(k)
+		if last != nil && last.Finished.After(lastDone) {
+			lastDone = last.Finished
 		}
+		name := "plumbline:" + k
+		switch {
+		case len(runs) == 0:
+			notRun = append(notRun, name)
+		case runs[len(runs)-1].alive():
+			running = append(running, name)
+		case last == nil || !last.Complete() || last.PrintAfter != fp || !t.findingsExist(*last):
+			if len(runs) >= MaxReviews {
+				capped = append(capped, name)
+			} else {
+				again = append(again, name)
+			}
+		}
+	}
+	var miss []string
+	if len(notRun) > 0 {
+		miss = append(miss, "review: run these reviewers on the finished change, after the proof (Agent tool, each with its subagent_type; they can run at the same time): "+strings.Join(notRun, ", "))
+	}
+	if len(running) > 0 {
+		miss = append(miss, "review: still running, wait for their findings: "+strings.Join(running, ", "))
+	}
+	if len(again) > 0 {
+		miss = append(miss, "review: the code changed after the last review (or during it, or a run never finished or left no findings file); run these again to check the fixes: "+strings.Join(again, ", "))
+	}
+	if len(capped) > 0 {
+		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used (the first plus 2 fix rounds) for %s; stop and ask the user how to go on", MaxReviews, strings.Join(capped, ", ")))
 	}
 	if report != "" {
 		if len(Section(report, "review")) == 0 {
-			miss = append(miss, `report: add a "## Review" section: what the reviewer found, what you checked against the code, and what you fixed or pushed back on`)
-		} else if last != nil && reportTime.Before(last.Finished) {
+			miss = append(miss, `report: add a "## Review" section: what each reviewer found, what you checked against the code, and what you fixed or pushed back on`)
+		} else if reportTime.Before(lastDone) {
 			miss = append(miss, "report: the last review finished after report.md was written; update it with the review")
 		}
 	}
 	return miss
+}
+
+// teamProblems: before the checkpoint, the plan's Team names every
+// specialist the planned files call for.
+func (c *hookCtx) teamProblems(plan string, files []string) []string {
+	if !c.setup.PartOn("reviewer") {
+		return nil
+	}
+	team := TeamReviewers(plan)
+	var p []string
+	for _, k := range ReviewersFor(c.task.Size, c.task.Root, files) {
+		if why, specialist := signalWhy[k]; specialist && c.setup.PartOn(k) && !contains(team, k) {
+			p = append(p, fmt.Sprintf(`plan.md's "## Team" must name the %s: the planned files touch %s`, k, why))
+		}
+	}
+	return p
 }

@@ -50,6 +50,15 @@ func FinishMissing(t *Task, s *Setup) []string {
 		reportTime = fi.ModTime()
 	}
 	miss = append(miss, reviewMissing(t, s, fp, report, reportTime)...)
+	if s.JiraTicket(t.Ticket) {
+		name := JiraCommentName(t.Ticket)
+		p := filepath.Join(TaskDocsDir(t.Root, t.ID), name)
+		if text, _, err := ReadDoc(t, name); err != nil {
+			miss = append(miss, fmt.Sprintf("jira: write the comment for %s to %s: only the comment, in a few plain lines a teammate reads in seconds, ready for the user to copy and post (the suggested status goes in the report under \"For you\")", t.Ticket, p))
+		} else if prob := JiraCommentProblems(text); len(prob) > 0 {
+			miss = append(miss, fmt.Sprintf("jira: %s: %s", name, strings.Join(prob, "; ")))
+		}
+	}
 	switch {
 	case err != nil:
 		miss = append(miss, "report: write it to "+filepath.Join(TaskDocsDir(t.Root, t.ID), DocReport))

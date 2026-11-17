@@ -68,6 +68,27 @@ func TaskDir(root, id string) string {
 	return filepath.Join(ProjectDir(root), "tasks", id)
 }
 
+// PluginRoot is the installed plugin's folder: Claude Code sets it for hooks;
+// otherwise it's found from the binary (dist/ under the plugin root).
+func PluginRoot() string {
+	if r := os.Getenv("CLAUDE_PLUGIN_ROOT"); r != "" {
+		return r
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Dir(filepath.Dir(exe))
+}
+
+// ChecklistPath is the checklist the challenger and every reviewer share.
+func ChecklistPath() string {
+	return filepath.Join(PluginRoot(), "skills", "task", "review-checklist.md")
+}
+
 // TaskDocsDir is the only part of the data folder Claude may write to
 // (understanding.md, plan.md, report.md).
 func TaskDocsDir(root, id string) string {

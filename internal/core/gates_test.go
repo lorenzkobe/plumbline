@@ -315,7 +315,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); !strings.Contains(fmtOut(o), "src/auth/login.go") {
 		t.Fatalf("report without outside-plan files should be sent back: %v", o)
 	}
-	h.runHelper(HelperReviewer, "# Review 1\nnothing at 80 or more\n")
+	h.runHelper(HelperCodeReviewer, "# Review 1\nnothing at 80 or more\n")
+	h.runHelper(HelperPlanReviewer, "# Review 1\nmatches the plan\n") // a normal task gets both
 	h.docs(DocReport, "# Report\n## Review\n- nothing at 80 or more\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); o != nil {
 		t.Fatalf("proven task should stop cleanly: %v", o)

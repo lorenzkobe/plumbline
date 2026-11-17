@@ -36,7 +36,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|AskUserQuestion|Agent|Task|mcp__.*",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Read|Grep|Glob|AskUserQuestion|Agent|Task|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -61,7 +61,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^plumbline:(challenger|reviewer)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer)$",
         "hooks": [
           {
             "type": "command",
@@ -73,7 +73,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "^plumbline:(challenger|reviewer)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer)$",
         "hooks": [
           {
             "type": "command",

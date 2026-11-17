@@ -10,7 +10,7 @@ Task: $ARGUMENTS
 Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, stay on the task, prove the result. If you got something wrong at a checkpoint, go back a step instead of pushing on.
 
 ## 1. Read the task
-- Jira ticket: read the ticket and every comment (comments often change the requirements). List any attachment you can't open by name and ask the user to share it. Never guess what an image shows.
+- Jira ticket: read the ticket and every comment with the Jira tools (comments often change the requirements); company tasks on a ticket can't reach the checkpoint without it. List any attachment you can't open by name and ask the user to share it. Never guess what an image shows. Pass the ticket to `plumbline task start --ticket`.
 - The user's own words: if vague, ask all your questions in one message, each with a suggestion.
 
 ## 2. Check the setup
@@ -55,11 +55,14 @@ AskUserQuestion with header `Checkpoint`, options `Approve` and `Change somethin
 - 3 failed fix attempts: stop, say what you tried and learned, and give options.
 
 ## 9. Review
-- After the proof passes, start the reviewer: the Agent tool with `subagent_type: plumbline:reviewer`. Plumbline gives it the notes folder, the diff base (the commit the task started from) and its findings file. It writes `review-1.md`.
+- After the proof passes, start every reviewer in the plan's `## Team` at once, in the background: the Agent tool with `subagent_type: plumbline:code-reviewer` (always), `plumbline:plan-reviewer` (normal and big tasks), and `plumbline:security-reviewer`, `plumbline:data-reviewer`, `plumbline:ux-reviewer` where the files call for them. Plumbline gives each the notes folder, the diff base (the commit the task started from), the shared checklist and its findings file (`code-review-1.md`, ...). The finish check names any you missed, including a specialist called for by a file changed outside the plan.
+- Give each reviewer the task in one line. Never pass one reviewer's findings to another: each review stays independent.
 - Check every finding against the code before fixing. Fix the must-fix ones that hold up; push back on the rest with evidence in the report.
-- After fixes, re-run the related tests (and the full suite, lint and build if the fix touched more), then the reviewer again: the finish check needs a review of the code as it is now. At most 3 reviews (the first plus 2 fix rounds); still not clean after that, or it's a trade-off: it goes to the user.
-- If a background review is running, wait for it; don't end with "done" meanwhile.
-- A project with `"parts": {"reviewer": false}` in its setup skips it.
+- After fixes, re-run the related tests (and the full suite, lint and build if the fix touched more), then every reviewer again: the finish check needs each one's review of the code as it is now. Tell each what changed since its last run. At most 3 runs per reviewer (the first plus 2 fix rounds); still not clean after that, or it's a trade-off: it goes to the user.
+- While reviews run in the background, wait for them; don't end with "done" meanwhile.
+- A project can switch reviews off in its setup (`"parts": {"reviewer": false}`, or one reviewer by name).
 
 ## 10. Report, then the user decides
 Write `report.md` after the last review (format in checkpoints.md; `## Review` is required), then a short chat version: bad news first, "For you" for anything needing the user. Then ask whether to commit (and, where it applies, mention the user pushes). Commit only after they say so; the commit hook checks the proof. After the commit decision: `plumbline task finish`.
+
+Jira ticket: write the comment to `<TICKET>-jira-comment.md` in the notes folder (`TICKET-123-jira-comment.md`): only the comment, a few plain lines a teammate reads in seconds, ready for the user to copy, check and post. No AI markers, no em dashes. Put the suggested status in the report under "For you". Don't post it: Jira is draft-only, unless the user's own message asks you to post, and then they confirm the exact text.

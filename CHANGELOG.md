@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0: phase 2a, several reviewers, Jira reading and drafts
+- The one reviewer is replaced by independent reviewers: `plumbline:code-reviewer` (always; replaces `plumbline:reviewer`), `plumbline:plan-reviewer` (normal and big tasks), and specialists called for by the changed files' paths: `security-reviewer` (auth, permissions, payments, user data, secrets), `data-reviewer` (migrations, queries, models, money math), `ux-reviewer` (frontend). The plan's `## Team` must name the specialists its files call for, and can add more; a file changed outside the plan adds its specialist at the finish check.
+- Every required reviewer must have reviewed the code as it is now (after a fix, all of them check again), at most 3 runs each. Findings files are `code-review-N.md`, `plan-review-N.md`, ...; a 0.3.x `reviewer` run counts as the code reviewer's.
+- Reviews stay independent: in the notes folder a reviewer reads only understanding.md, plan.md and its own earlier findings (Read, Grep, Glob and terminal commands are checked; PreToolUse now also matches Grep and Glob).
+- The challenger and the reviewers share one checklist, `skills/task/review-checklist.md`, instead of a copy in each agent file.
+- Jira: company tasks on a ticket need a Jira read before the checkpoint (`plumbline task tool-down jira` when it can't be reached) and, at the finish check, `TICKET-123-jira-comment.md` in the notes folder: only the comment, no AI markers, no em dashes.
+- Jira is draft-only: any Atlassian or Jira tool that doesn't only read (comments, transitions, edits, worklogs, Confluence pages) is refused in every state, paused included, unless the user's own latest message asks for a post; then it asks for the user's OK on the exact text, after the AI-marker and em-dash check. Helpers never post.
+- Replaced: every claude.ai connector counted as look-up only. Now only Claude Docs does; Slack, Gmail, Atlassian and the others are judged by tool name, and the write verbs now include send, post, reply, comment, transition, assign, invite, share, publish, archive, close, reopen, approve, submit and schedule.
+- `plumbline status` lists the reviewers the task needs. `"parts"` takes each reviewer's name and `"jira"`.
+
 ## 0.3.1: 1a hardening (gap review H1 to H8, M1 to M8, M10 to M12)
 - The Bash gate parses commands with a real bash parser (mvdan.cc/sh) and fails closed: a command counts as read-only only if every part of it was understood and is on the allowlist. A command that can't be parsed, or whose command name, eval text or `sh -c` string isn't known until it runs, is refused. Replaces the hand-written splitter and the heredoc stripping, which hid the rest of a heredoc's line.
 - Every rule now sees inside wrappers and shell syntax: `sh -c`, `eval`, `env`, `timeout`, `nice`, `sudo`, `xargs`, `find -exec`, `fd -x`, `trap`, `{ ...; }`, if/for/while/case, functions, subshells, `$(...)`, `<(...)`, heredocs fed to a shell, git aliases, and the command after `plumbline run proof --`.

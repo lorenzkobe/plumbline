@@ -1,4 +1,4 @@
-# Handoff: phases 1a, 1b and the 1a hardening done; smoke test, then phase 2
+# Handoff: phases 1a, 1b, the 1a hardening and 2a done; 2b next
 
 Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true.
 
@@ -87,5 +87,32 @@ Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code b
 ## Not verified yet (the smoke test covers these)
 - That PreToolUse fires for MCP tools with the `mcp__.*` matcher (smoke-test step 6b).
 
-## Phase 2: second reviewer and specialists, builders, blind QA, Jira reading and drafts
-Read the plan doc's "Agents and speed" and "Git and Jira" sections. Reuse `HelperRun` and the SubagentStart/Stop records for the new helpers rather than adding a second mechanism; builders are the first helpers that edit, so the helper gates need a per-kind policy instead of "read-only".
+## What 2a built (v0.4.0, on main)
+- Reviewers (`internal/core/helpers.go`): `plan-reviewer`, `code-reviewer`, `security-reviewer`, `data-reviewer`, `ux-reviewer`, all on the 1b `HelperRun` mechanism. `ReviewersFor(size, files)` gives the code reviewer always, the plan reviewer for normal and big tasks, and specialists from path signals (`reSecuritySignal`, `reDataSignal`, `reUXSignal`). The checkpoint refuses a plan whose `## Team` leaves out a specialist its `## Files` call for (`teamProblems`); `Task.Reviewers` keeps the Team's reviewers at approval. `RequiredReviewers` (finish check, `plumbline status`) adds specialists for files changed outside the plan. Per-kind cap `MaxReviews` (3), per-kind findings names (`code-review-N.md`); a 0.3.x `reviewer` run loads as `code-reviewer`.
+- Independence (`reviewerNotes`): a reviewer reads, in the data folder, only understanding.md, plan.md and its own findings. Read, Grep, Glob, and Bash words, inputs and redirects are checked; a search tool (`rg`, `grep`, `find`, ...) given a folder above the data folder is refused too. PreToolUse matches Grep and Glob for this.
+- Agents share `skills/task/review-checklist.md`; SubagentStart gives its path (`ChecklistPath`, from `CLAUDE_PLUGIN_ROOT` or the binary's folder).
+- Jira (`JiraTool` in pretool.go): an MCP tool whose name holds atlassian, jira or confluence is Jira; reads (get, search, lookup, fetch, list, ...) are look-ups recorded as `jira`; everything else goes to `gateJiraWrite`, in every state: refused unless the user's latest message asks (`UserAsksJira`, a sealed per-session flag written by UserPromptSubmit), then asked, after the AI-marker and em-dash check. Company tasks on a Jira ticket (`Setup.JiraTicket`) need the Jira read before the checkpoint (`tool-down jira` is the escape) and `<TICKET>-jira-comment.md` at the finish check.
+- claude.ai connectors: only `claude_ai_Claude_Docs` is a look-up server now; the write verbs grew (send, post, reply, comment, transition, ...).
+- Tests: `internal/core/reviewers_test.go`.
+
+## Decisions made in 2a
+- The smoke test runs once the plugin is complete (after phase 3), and what it finds is fixed under the plan's "Updating Plumbline" rule (the user's choice).
+- Phase 2 split into 2a and 2b (the user's choice).
+- Robust re-reviews (the user asked for the most robust option): after any code change every required reviewer checks again; a re-run looks at what changed since its own last run and its earlier findings.
+- Jira is draft-only, except when the user asks in their own message; then their OK on the exact text (the user's change at the checkpoint). Only the comment file carries the ticket prefix (the user's choice: it's the file they copy and post); the other notes keep their names.
+- The checkpoint only demands specialists in `## Team`; the base reviewers come from the size.
+
+## Known limits after 2a
+- Specialists are called for by file paths only. A risky change in a plainly named file needs the lead to name the specialist in `## Team`.
+- `UserAsksJira` is a keyword match on the user's message (jira, ticket, comment, status, transition, post). A message like "add a comment to this function" also lets a Jira post reach the confirm prompt; the prompt is the user's last guard.
+- Reviewer independence is path based. Checked: Read, Grep, Glob, MCP tools that name a path, and in terminal commands every word, input, redirect, heredoc and here-string body, globs starting above the data folder, and `--flag=<path>` values. A word whose value isn't known is refused when its text holds "plumb". Not caught: a path built at run time without that text (`$(printf %s ~/.plu)mbline/...`), or findings the lead pastes into a reviewer's prompt (the rules forbid it).
+- A fresh-eyes review of the first 2a pass found 5 more gaps (globs above the data folder, heredoc and here-string text, run-time paths, a 0.3.x reviewer blocked from its own findings, camelCase file names missing the specialist signals) and 2 lesser ones (MCP read tools, absolute paths in `## Files`); all are fixed, with cases in reviewers_test.go.
+- Grep and Glob go through the PreToolUse hook only for helpers; the lead's return at once.
+
+## Not verified yet (the smoke test covers these)
+- That the SubagentStart/Stop matchers fire for the new agent names, and that `agent_type` is `plumbline:code-reviewer` (smoke-test step 8).
+- The real Jira MCP's tool names: the Atlassian remote server's (`getJiraIssue`, `addCommentToJiraIssue`, `transitionJiraIssue`, ...) and sooperset's mcp-atlassian (`jira_get_issue`, `jira_add_comment`, ...) are covered by tests; another server's names may differ (smoke-test step 9).
+- That the UserPromptSubmit hook's `prompt` holds the user's words as typed.
+
+## Phase 2b: builders, blind QA, tracers and tester
+Read the plan doc's "Agents and speed" section. Fix gap-review M9 first (key projects by `git rev-parse --git-common-dir`), since builders work in worktrees. Reuse `HelperRun` and the SubagentStart/Stop records; builders are the first helpers that edit, so `gateHelper` needs a per-kind policy instead of "read-only".

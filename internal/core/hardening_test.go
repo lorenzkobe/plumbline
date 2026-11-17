@@ -233,11 +233,11 @@ func TestMCPToolsGated(t *testing.T) {
 	h.expect(h.pre("mcp__serena__replace_symbol_body", map[string]any{"relative_path": "src/a.go"}), "", "")
 	h.expect(h.pre("mcp__serena__create_text_file", map[string]any{"relative_path": "package.json"}), "deny", "risky")
 	// Helpers stay read-only through MCP too.
-	h.runHelper(HelperReviewer, "# Review 1\nnothing\n")
-	id, _ := h.startHelper(HelperReviewer)
-	h.expect(PreToolUse(h.helperIn(id, HelperReviewer, "mcp__serena__replace_symbol_body", map[string]any{"relative_path": "src/a.go"})), "deny", "read-only")
-	h.expect(PreToolUse(h.helperIn(id, HelperReviewer, "mcp__serena__execute_shell_command", map[string]any{"command": "touch x"})), "deny", "read-only")
-	h.expect(PreToolUse(h.helperIn(id, HelperReviewer, "mcp__serena__find_symbol", map[string]any{})), "", "")
+	h.runHelper(HelperCodeReviewer, "# Review 1\nnothing\n")
+	id, _ := h.startHelper(HelperCodeReviewer)
+	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "mcp__serena__replace_symbol_body", map[string]any{"relative_path": "src/a.go"})), "deny", "read-only")
+	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "mcp__serena__execute_shell_command", map[string]any{"command": "touch x"})), "deny", "read-only")
+	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "mcp__serena__find_symbol", map[string]any{})), "", "")
 }
 
 // M1: echoing the adopt line bound the session to another task.

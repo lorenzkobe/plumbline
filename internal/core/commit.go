@@ -140,11 +140,7 @@ func CheckCommitMessage(msg string, s *Setup) []string {
 	if s != nil {
 		switch s.Kind {
 		case "company":
-			tr := s.TicketRegex
-			if tr == "" {
-				tr = `[A-Z][A-Z0-9]+-\d+`
-			}
-			if ok, _ := regexp.MatchString(`^`+tr+`: \S`, subject); !ok {
+			if ok, _ := regexp.MatchString(`^`+s.TicketPattern()+`: \S`, subject); !ok {
 				out = append(out, "company commits start with the ticket: \"TICKET-123: What changed\"")
 			}
 		case "personal":

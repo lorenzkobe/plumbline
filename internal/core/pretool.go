@@ -90,6 +90,9 @@ func allow(reason string) Output {
 // PreToolUse is the gate for edits, terminal commands, reads of secret files,
 // checkpoint questions and helpers.
 func PreToolUse(in *HookInput) Output {
+	if (in.ToolName == "Grep" || in.ToolName == "Glob") && helperKind(in.AgentType, false) == "" {
+		return nil // only reviewers' searches are checked; the lead's stay fast
+	}
 	c := newCtx(in)
 	defer c.close()
 	if errors.Is(c.taskErr, ErrTampered) {
@@ -147,38 +150,125 @@ func PreToolUse(in *HookInput) Output {
 }
 
 // MCP servers that only look things up or work outside the code (memory,
-// code search, docs, the browser).
-var mcpLookupServers = []string{"mempalace", "socraticode", "context7", "claude-in-chrome", "easel", "claude_ai_"}
+// code search, docs, the browser). Of the claude.ai connectors only Claude
+// Docs is here: the others (Slack, Gmail, Atlassian, ...) send and change
+// things in your name, so they are judged by tool name like any server.
+var mcpLookupServers = []string{"mempalace", "socraticode", "context7", "claude-in-chrome", "easel", "claude_ai_claude_docs"}
 
 var (
 	reMCPShell = regexp.MustCompile(`(^|_)(shell|terminal|exec|execute|run|command|bash|script)(_|$)`)
-	reMCPWrite = regexp.MustCompile(`(^|_)(write|edit|create|delete|remove|replace|insert|rename|move|patch|apply|save|modify|append|restore|reset|format|refactor|update|upload|put|set|add|commit|push|merge|checkout|mkdir|copy|clone)(_|$)`)
-	reCamel    = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	reMCPWrite = regexp.MustCompile(`(^|_)(write|edit|create|delete|remove|replace|insert|rename|move|patch|apply|save|modify|append|restore|reset|format|refactor|update|upload|put|set|add|commit|push|merge|checkout|mkdir|copy|clone|send|transition|assign|invite|publish|archive|reopen|approve|submit)(_|$)`)
+	// Verbs that are also nouns (get_post, list_comment_threads): a write
+	// unless the tool's name starts by reading.
+	reMCPWriteSoft = regexp.MustCompile(`(^|_)(post|comment|reply|share|schedule|close)(_|$)`)
+	reMCPReadFirst = regexp.MustCompile(`^(get|list|search|read|fetch|find|query|lookup|view|describe|show|count)(_|$)`)
+	reCamel        = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 )
 
 // MCPKind: "shell" for a tool that runs commands, "write" for one that
 // changes files or things, "" for lookups. Judged by the tool's name.
 func MCPKind(tool string) string {
-	rest := strings.TrimPrefix(tool, "mcp__")
-	server, name := rest, ""
-	if i := strings.LastIndex(rest, "__"); i >= 0 {
-		server, name = rest[:i], rest[i+2:]
+	if jira, read := JiraTool(tool); jira {
+		if read {
+			return ""
+		}
+		return "write"
 	}
+	server, name := mcpSplit(tool)
 	low := strings.ToLower(server)
 	for _, s := range mcpLookupServers {
 		if strings.Contains(low, s) {
 			return ""
 		}
 	}
-	name = strings.ToLower(reCamel.ReplaceAllString(name, "${1}_${2}"))
-	name = strings.ReplaceAll(name, "-", "_")
+	name = mcpWords(name)
 	switch {
 	case reMCPShell.MatchString(name):
 		return "shell"
 	case reMCPWrite.MatchString(name):
 		return "write"
+	case reMCPWriteSoft.MatchString(name) && !reMCPReadFirst.MatchString(name):
+		return "write"
 	}
 	return ""
+}
+
+func mcpSplit(tool string) (server, name string) {
+	rest := strings.TrimPrefix(tool, "mcp__")
+	if i := strings.LastIndex(rest, "__"); i >= 0 {
+		return rest[:i], rest[i+2:]
+	}
+	return rest, ""
+}
+
+// mcpWords: getJiraIssue, get-jira-issue -> get_jira_issue.
+func mcpWords(name string) string {
+	return strings.ReplaceAll(strings.ToLower(reCamel.ReplaceAllString(name, "${1}_${2}")), "-", "_")
+}
+
+// Jira (and the rest of Atlassian) is read-only for Claude: the user posts
+// what Claude drafts, unless they ask for the post themselves.
+var (
+	reJira     = regexp.MustCompile(`(?i)atlassian|jira|confluence`)
+	reJiraRead = regexp.MustCompile(`^(get|search|lookup|fetch|list|read|view|find|query)(_|$)|^atlassian_user_info$`)
+)
+
+// JiraTool: an MCP tool of a Jira or Atlassian server (or one named for
+// Jira), and whether it only reads.
+func JiraTool(tool string) (jira, read bool) {
+	if !strings.HasPrefix(tool, "mcp__") || !reJira.MatchString(tool) {
+		return false, false
+	}
+	_, name := mcpSplit(tool)
+	n := mcpWords(name)
+	for _, p := range []string{"jira_", "confluence_", "atlassian_"} {
+		if m := strings.TrimPrefix(n, p); m != n && m != "user_info" {
+			n = m
+		}
+	}
+	return true, reJiraRead.MatchString(n)
+}
+
+// gateJiraWrite: in every state, paused included. A post goes through only
+// when the user's latest message asked for it, and then only after their OK
+// on the exact text.
+func (c *hookCtx) gateJiraWrite() Output {
+	text := strings.Join(mcpStrings(c.in.Input()), "\n")
+	if m := AIMarkers(text); len(m) > 0 {
+		return c.deny("jira-ai-markers", "this Jira text has AI markers ("+strings.Join(m, "; ")+"). Anything in the user's name carries none; remove them.")
+	}
+	if strings.Contains(text, "—") {
+		return c.deny("jira-filler", "this Jira text has an em dash. Plain words for teammates: use a comma, a colon or a full stop.")
+	}
+	if !JiraAsked(c.in.SessionID) {
+		where := "the task's notes folder"
+		if c.task != nil {
+			where = filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), JiraCommentName(c.task.Ticket))
+		}
+		return c.deny("jira-draft-only", fmt.Sprintf("Jira is draft-only: posts, comments, status changes and edits are the user's, unless their own latest message asks you to post. Put the comment in %s (only the comment, ready to copy) and the suggested status in the report under \"For you\".", where))
+	}
+	return c.ask("jira-post", fmt.Sprintf("the user asked for this Jira change (%s). Check the exact text before allowing it.", c.in.ToolName))
+}
+
+// mcpStrings: every string value in a tool's input.
+func mcpStrings(v any) []string {
+	switch x := v.(type) {
+	case string:
+		return []string{x}
+	case map[string]any:
+		var out []string
+		for _, e := range x {
+			out = append(out, mcpStrings(e)...)
+		}
+		return out
+	case []any:
+		var out []string
+		for _, e := range x {
+			out = append(out, mcpStrings(e)...)
+		}
+		return out
+	}
+	return nil
 }
 
 var reMCPShellOnly = regexp.MustCompile(`(^|_)(shell|terminal|bash|command)(_|$)`)
@@ -223,6 +313,9 @@ func mcpPath(input map[string]any) string {
 // commands goes through the Bash gate; one that names a file goes through
 // the edit gate; any other changing tool waits for the approved plan.
 func (c *hookCtx) gateMCP() Output {
+	if jira, read := JiraTool(c.in.ToolName); jira && !read {
+		return c.gateJiraWrite()
+	}
 	kind := MCPKind(c.in.ToolName)
 	if kind == "" {
 		return nil
@@ -253,6 +346,11 @@ func (c *hookCtx) gateMCP() Output {
 		return c.deny("before-approval", fmt.Sprintf("%s may change things, and the plan isn't approved yet. Use read-only tools until the checkpoint.", c.in.ToolName))
 	}
 	return nil
+}
+
+// jiraTask: a company task on a Jira ticket, with the Jira part on.
+func (c *hookCtx) jiraTask() bool {
+	return c.task != nil && c.setup.JiraTicket(c.task.Ticket)
 }
 
 // existingDir is the deepest folder of p that exists.
@@ -456,14 +554,17 @@ func foldPath(p string) string {
 func isInsideFold(path, dir string) bool { return IsInside(foldPath(path), foldPath(dir)) }
 
 func mentionsDataDir(s Segment) bool {
-	dd := strings.ToLower(DataDir())
 	for _, w := range append(append([]string{}, s.Words...), s.Redirects...) {
-		w = strings.ToLower(w)
-		if strings.Contains(w, dd) || strings.Contains(w, "/.plumbline/") || strings.HasSuffix(w, "/.plumbline") || strings.HasPrefix(w, "~/.plumbline") || strings.HasPrefix(w, "$home/.plumbline") || strings.HasPrefix(w, "${home}/.plumbline") || strings.HasPrefix(w, ".plumbline/") {
+		if wordMentionsDataDir(w) {
 			return true
 		}
 	}
 	return false
+}
+
+func wordMentionsDataDir(w string) bool {
+	w = strings.ToLower(w)
+	return strings.Contains(w, strings.ToLower(DataDir())) || strings.Contains(w, "/.plumbline/") || strings.HasSuffix(w, "/.plumbline") || strings.HasPrefix(w, "~/.plumbline") || strings.HasPrefix(w, "$home/.plumbline") || strings.HasPrefix(w, "${home}/.plumbline") || strings.HasPrefix(w, ".plumbline/")
 }
 
 func mentionsProtectedConfig(s Segment, cwd string) bool {
@@ -1156,6 +1257,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, pc.Problems...)
 			p = append(p, CheckRefs(t, text)...)
 			p = append(p, c.challengeProblems(text)...)
+			p = append(p, c.teamProblems(text, pc.Files)...)
 		}
 	}
 	return p
@@ -1179,5 +1281,8 @@ func (c *hookCtx) groundingProblems() []string {
 	need("socraticode", "search the code with SocratiCode first")
 	need("mempalace", "check MemPalace for earlier work on this first")
 	need("serena", "look up exact callers with Serena first (or, if Serena is down or the task adds only new code: plumbline task tool-down serena --reason \"...\")")
+	if c.jiraTask() {
+		need("jira", fmt.Sprintf("read the ticket %s and all its comments with the Jira tools first (comments often change the requirements; if Jira can't be reached: plumbline task tool-down jira --reason \"...\")", t.Ticket))
+	}
 	return p
 }

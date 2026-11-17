@@ -76,7 +76,7 @@ func usage() {
   plumbline status                      where the task is, and what's missing
   plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."]
   plumbline task show|list|replan|finish
-  plumbline task tool-down serena|context7 --reason "..."
+  plumbline task tool-down serena|context7|jira --reason "..."
   plumbline task adopt <id>             continue an earlier task in this session
   plumbline run test|related|lint|build|e2e [--files a,b] [--task id]
   plumbline run proof ui|api|schema -- <command>
@@ -273,14 +273,14 @@ func cmdTask(args []string) error {
 			return err
 		}
 		if len(pos) == 0 {
-			return errors.New("which tool? serena or context7")
+			return errors.New("which tool? serena, context7 or jira")
 		}
 		tool := strings.ToLower(pos[0])
 		if tool == "socraticode" || tool == "mempalace" {
 			return errors.New(tool + " is required; the task can't go on without it. Fix it or ask the user")
 		}
-		if tool != "serena" && tool != "context7" {
-			return errors.New("only serena or context7 can be marked down")
+		if tool != "serena" && tool != "context7" && tool != "jira" {
+			return errors.New("only serena, context7 or jira can be marked down")
 		}
 		if strings.TrimSpace(f["reason"]) == "" {
 			return errors.New(`say why: --reason "..."`)
@@ -503,6 +503,9 @@ func cmdStatus(args []string) error {
 		fmt.Printf("Helper: %s %s, %s (%s)\n", h.Kind, h.Started.Local().Format("15:04"), state, h.Findings)
 	}
 	if t.Phase == core.PhaseBuilding && s != nil {
+		if r := core.RequiredReviewers(t, s); len(r) > 0 {
+			fmt.Println("Reviewers needed:", strings.Join(r, ", "))
+		}
 		miss := core.FinishMissing(t, s)
 		if len(miss) == 0 {
 			fmt.Println("Proof: complete on the current code.")
