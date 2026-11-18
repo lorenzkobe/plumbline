@@ -101,7 +101,7 @@ func TestDesignPlanNeedsDesignSectionAndUIProof(t *testing.T) {
 	// The pick is named as whole words: "Direction 1" isn't "Direction 12",
 	// and "Direction B" isn't "direction but".
 	h.docs(DocPlan, strings.Replace(designPlan, "Direction B, mockup", "Keep the direction but use Direction BX, mockup", 1))
-	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "must name the direction the user picked")
+	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "must start with the direction the user picked")
 
 	// design.md emptied after the pick: the checkpoint notices.
 	h.docs(DocPlan, designPlan)

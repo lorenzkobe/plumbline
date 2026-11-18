@@ -46,7 +46,7 @@ The user usually hands over the task and comes back later: research and plan wit
   - Real choice of approaches: recommend one, plan it in full, and list the others in a few lines each, so the user can pick another at the same stop.
 - "Checkpoint 1" (optional): the understanding alone, only when the task is so unclear that planning first would likely be wasted.
 - Never pre-answer a checkpoint. Edits are blocked until the plan is approved; before that, only reading and saved commands run. MCP tools that change code (Serena's edit tools, a filesystem server) follow the same rules as edits, and ones that run commands follow the rules for terminal commands.
-- Write terminal commands out plainly. Plumbline refuses what it can't read: eval of text that isn't known, a command name in a variable, a shell reading commands from a pipe or from a heredoc with $ in it, a git alias made with -c. Only one checkpoint question per prompt.
+- Write terminal commands out plainly. Plumbline refuses what it can't read: eval of text that isn't known, a command name in a variable, a shell reading commands from a pipe or from a heredoc with $ in it, a git alias made with -c. With xargs, end the command with `--` (`xargs sed -n 1p --`) so a listed file can't act as a flag. Only one checkpoint question per prompt.
 - While building, nothing waits on the user except real decisions:
   - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report. More than 3 means the plan was wrong: that's a real decision, so ask the user.
   - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".
@@ -60,7 +60,7 @@ The user usually hands over the task and comes back later: research and plan wit
 
 ## Design (design tasks)
 - Brand kit first (repo, then ask; a new project agrees one with the user). Then at least 3 different mockup directions, phone first, listed in `design.md` (`## Brand kit`, `## Directions`).
-- The user picks one on AskUserQuestion, header "Direction", one option per direction (labels starting "Direction"). The checkpoint is refused until they have, and until plan.md's `## Design` names the pick and `## Real-world proof` has `- ui: ...`.
+- The user picks one on AskUserQuestion, header "Direction", one option per direction (labels starting "Direction"). The checkpoint is refused until they have, and until plan.md's `## Design` starts with the pick (`Direction B (link): ...`) and `## Real-world proof` has `- ui: ...`.
 - Quality bar: Linear, Stripe, Notion, Arc. Never: purple and blue gradients, cards-in-a-grid everywhere, emoji piles, stock illustrations, bland fonts, template layouts, hype wording, em dashes in UI text.
 
 ## Devops and production

@@ -165,3 +165,31 @@ func TestDocs(t *testing.T) {
 		t.Errorf("problems: %v", pc.Problems)
 	}
 }
+
+// L5: "test:" inside a word ("latest:", "contest:") is not a test link.
+func TestCaseTestLinkNeedsWholeWord(t *testing.T) {
+	for _, c := range []string{
+		"- [normal] the latest: version is shown",
+		"- [edge] contest:entry is kept",
+	} {
+		pc := CheckPlan("## Cases\n" + c + "\n")
+		if len(pc.CaseTests) != 0 {
+			t.Errorf("%q linked to %v", c, pc.CaseTests)
+		}
+		if !strings.Contains(strings.Join(pc.Problems, "\n"), "needs \"test: <file>\"") {
+			t.Errorf("%q should still need a test link: %v", c, pc.Problems)
+		}
+	}
+	for c, want := range map[string]string{
+		"- [normal] x -> test: src/a_test.go":         "src/a_test.go",
+		"- [normal] x (Test: src/b_test.go)":          "src/b_test.go",
+		"- [normal] x -> unit-test: src/c_test.go":    "src/c_test.go",
+		"- [normal] x -> test: `src/d.test.ts::a b`":  "src/d.test.ts",
+		"- [normal] latest: y -> test: src/e_test.go": "src/e_test.go",
+	} {
+		pc := CheckPlan("## Cases\n" + c + "\n")
+		if len(pc.CaseTests) != 1 || pc.CaseTests[0] != want {
+			t.Errorf("%q: case tests %v, want %s", c, pc.CaseTests, want)
+		}
+	}
+}

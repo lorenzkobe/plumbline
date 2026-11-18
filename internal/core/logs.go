@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -26,10 +27,29 @@ type Event struct {
 
 func logsDir() string { return filepath.Join(DataDir(), "logs") }
 
+var reQuoted = regexp.MustCompile(`"[^"\n]*"`)
+
+// scrubDetail keeps a log line free of what the user wrote and of paths that
+// name them: quoted and backticked text (commit subjects, plan and case
+// text, commands) becomes "..." and paths are shown from the repo or ~.
+func scrubDetail(s, root string) string {
+	s = reQuoted.ReplaceAllString(s, `"..."`)
+	s = reBacktick.ReplaceAllString(s, "`...`")
+	if root != "" {
+		s = strings.ReplaceAll(s, root+string(filepath.Separator), "")
+		s = strings.ReplaceAll(s, root, ".")
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && home != "/" {
+		s = strings.ReplaceAll(s, home, "~")
+	}
+	return s
+}
+
 func LogEvent(e Event) {
 	if e.At.IsZero() {
 		e.At = Now()
 	}
+	e.Detail = scrubDetail(e.Detail, "")
 	dir := filepath.Join(logsDir(), e.At.Format("2006-01"))
 	_ = os.MkdirAll(dir, 0o700)
 	name := e.Task

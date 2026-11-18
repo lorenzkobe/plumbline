@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.1: limits pass, release 1 (quick fixes)
+- Command names are matched case-insensitively (`GIT push`, `VERCEL --prod`): macOS's disk runs them as the real tools (G9).
+- Arguments xargs adds count as file names only when `--` ends the command (`xargs sed -n 1p --`), since GNU tools read a file named `-i` or `--output=x` as a flag. The refusal says how (G8).
+- The same for an unquoted glob: `sed -n 1p *`, `sort *` or `git log *` reads only when nothing it matches there is named like a flag (a file `-i` or `--output=x`), or after `--` (G12, found while fixing G8).
+- git read commands take an argument that isn't known yet only when it can't be a flag: after `--`, starting with a literal (`HEAD~$n`), or only `$(git merge-base ...)` / `$(git rev-parse <safe flags>)` (G2).
+- A setup changed since you confirmed it keeps every risky path you confirmed and skips only what the confirmed copy skipped too. Confirming keeps a copy in the data folder (G10).
+- Identical refusals in one message (parallel calls) count once for "twice in a row" (G7). Allowed calls in between still don't reset it: retrying the same refused thing after a few reads is still a loop.
+- Logs drop quoted and backticked text (commit subjects, plan and case text, commands) and show paths from the repo or `~` (L3).
+- Reviewers and the challenger never prompt you either: what would ask (reading `.env`) is refused and goes in their findings (B9).
+- Builders may link to the system's tools (`/usr/bin/node`, `/opt/homebrew/...`), never the home folder or another repo (B10). A builder's in-place edit of a file it names through a variable (`sed -i ... "$f"`) is refused like `rm "$x"` (B4).
+- plan.md's `## Design` must start with the picked direction; a mention further on ("not Direction B") no longer counts (D2).
+- A hook binary that's there but can't run (killed at start, refused by the system) is logged in errors.log like a missing one, and exits 1 (P6).
+- Monitor commands get the changed-files check after them, like Bash (G5).
+- `npx`/`bunx`/`pnpx` running the project's own tool (`node_modules/.bin`, here or above inside the repo) or with `--no-install` isn't an install (`npx tsc --noEmit`); `-p`/`--package` still is (L1).
+- A case's `test:` link must be a whole word ("latest:" isn't one), and a trailing `)` or `,` isn't part of the path (L5).
+
 ## 0.6.0: design workflow, devops rules, standup (phase 3)
 - Design tasks (`/plumbline:design`, `plumbline task start --design`): the brand kit and at least 3 mockup directions go in `design.md`; the user picks one on a question with header "Direction" (one option per direction, labels starting "Direction"; free text and other options aren't a pick; the latest pick wins until approval). The checkpoint is refused until a direction is picked, plan.md's `## Design` names it, and `## Real-world proof` has `ui`. A direction question can't come pre-answered, share a prompt with the checkpoint, or change an approved plan (replan first). `"parts": {"design": false}` turns it off.
 - Devops: a command the approved plan lists still asks each time when it deploys, deletes, writes outside the laptop (cloud writes, production database writes, uploads) or runs on another machine (ssh, scp, rsync to a host, ansible, kubectl exec). Package runners are looked through (`npx vercel --prod`, `pnpm dlx`, `yarn <tool>`), and deploy scripts are found behind flags and workspaces (`npm --prefix infra run deploy`, `yarn workspace api deploy`), sourced or interpreted (`. ./deploy.sh`, `python deploy.py`), and in mvn/gradle/cargo/twine. Such a command not in the plan asks. Reads, dry runs and help run as listed. `"deploy_pipeline": true` in the setup refuses deploys by hand (vercel, sls, cdk, sam, fly, firebase, kubectl apply, helm, terraform apply, pulumi up, gcloud/az deploy, wrangler, docker push, ...), with or without a task. `"parts": {"devops": false}` turns both off; the 1a outside-the-laptop prompt stays.

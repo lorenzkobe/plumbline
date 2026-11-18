@@ -97,7 +97,7 @@ func (c *hookCtx) projectKey() string {
 }
 
 func (c *hookCtx) log(typ, rule, detail string) {
-	e := Event{Type: typ, Rule: rule, Detail: limit(detail, 160), Project: c.projectKey()}
+	e := Event{Type: typ, Rule: rule, Detail: limit(scrubDetail(detail, c.root), 160), Project: c.projectKey()}
 	if c.task != nil {
 		e.Task = c.task.ID
 		e.Size = c.task.Size
@@ -155,18 +155,20 @@ func PreToolUse(in *HookInput) Output {
 		if o := c.gateHelper(kind); o != nil {
 			return o
 		}
-		if isWorker(kind) {
-			return c.noAsk(kind, c.gateTool())
-		}
+		return c.noAsk(kind, c.gateTool())
 	}
 	return c.gateTool()
 }
 
-// noAsk: a worker runs without the user, so a question the gates would put
+// noAsk: a helper runs without the user, so a question the gates would put
 // to the user is refused instead, to go to the lead.
 func (c *hookCtx) noAsk(kind string, o Output) Output {
 	if d, reason := decisionOf(o); d == "ask" {
-		return c.deny("helper-no-questions", fmt.Sprintf("the %s runs without the user, and this needs the user's OK: %s Put it in your notes for the lead.", kind, strings.TrimPrefix(reason, "Plumbline: ")))
+		where := "your findings"
+		if isWorker(kind) {
+			where = "your notes"
+		}
+		return c.deny("helper-no-questions", fmt.Sprintf("the %s runs without the user, and this needs the user's OK: %s Put it in %s for the lead.", kind, strings.TrimPrefix(reason, "Plumbline: "), where))
 	}
 	return o
 }
@@ -617,6 +619,43 @@ func wordsEqual(a, b []string) bool {
 	return true
 }
 
+// runsProjectTool: npx, bunx or pnpx running the project's own copy of a
+// tool (node_modules/.bin here or in a folder above, inside the repo), or told
+// never to install, so nothing is downloaded. -p/--package always installs.
+func (c *hookCtx) runsProjectTool(s Segment) bool {
+	switch s.Name() {
+	case "npx", "bunx", "pnpx":
+	default:
+		return false
+	}
+	t, ok := runnerTarget(s)
+	if !ok || len(t.Words) == 0 || s.Dir == "" || c.root == "" {
+		return false
+	}
+	at := len(s.Words) - len(t.Words) // where the tool's name is
+	for _, w := range s.Words[1:at] {
+		switch {
+		case w == "-p", w == "--package", strings.HasPrefix(w, "--package="):
+			return false
+		case w == "--no-install", w == "--no":
+			return true
+		}
+	}
+	tool := t.Words[0]
+	if s.dyn(at) || tool == "" || strings.ContainsAny(tool, `/\@`) {
+		return false
+	}
+	for d := s.Dir; IsInside(d, c.root); d = filepath.Dir(d) {
+		if fi, err := os.Stat(filepath.Join(d, "node_modules", ".bin", tool)); err == nil && !fi.IsDir() {
+			return true
+		}
+		if d == c.root || d == filepath.Dir(d) {
+			break
+		}
+	}
+	return false
+}
+
 func (c *hookCtx) isSaved(cmd string, seg *Segment) bool {
 	if c.setup == nil || !c.setupOK {
 		return false
@@ -830,6 +869,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	segs := ParseShell(cmd, c.in.Cwd)
 	v := &verdicts{}
 	allQuiet := true // every segment reads only, or is a saved command
+	hint := ""       // how to make the line read only, when there's a simple way
 	var commits []Segment
 	addsAll := false
 	var added []string
@@ -1030,7 +1070,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		joined := strings.Join(s.Words, " ")
 		approved := c.task != nil && c.task.Phase == PhaseBuilding && c.task.Approved(s.Words)
 		c.devopsVerdict(s, approved, v)
-		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !approved {
+		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !approved && !c.runsProjectTool(s) {
 			if c.task != nil {
 				v.d("new-package", "this installs a package that isn't in the approved plan's \"Needs your OK\" list. Don't install it. Keep going with what you can, and put it under \"For you\" in the report: why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
 			} else {
@@ -1056,6 +1096,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		if !quiet && !c.isSaved(cmd, &s) {
 			allQuiet = false
+			if needsDoubleDash(s) {
+				hint = doubleDashHint
+			}
 		}
 	}
 	for _, s := range commits {
@@ -1083,9 +1126,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if c.task != nil {
 			// The user is often away while Claude researches, so refuse
 			// instead of waiting on a prompt.
-			return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list.")
+			return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list."+hint)
 		}
-		v.a("before-approval", "no task is active, so only reading and the project's saved commands run without asking. Allow this if it's fine to run now.")
+		v.a("before-approval", "no task is active, so only reading and the project's saved commands run without asking. Allow this if it's fine to run now."+hint)
 	}
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))

@@ -35,11 +35,18 @@ type Segment struct {
 	stdinUnknown bool
 }
 
+// Name is the command's base name, lowercased: macOS's disk ignores case, so
+// "GIT push" runs git and must meet git's rules. On Linux an upper-case name
+// that only matches a rule is refused for nothing worse than a typo. A name
+// that isn't known ($X) is kept as written.
 func (s Segment) Name() string {
 	if len(s.Words) == 0 {
 		return ""
 	}
-	return filepath.Base(s.Words[0])
+	if len(s.Dyn) > 0 && s.Dyn[0] {
+		return filepath.Base(s.Words[0])
+	}
+	return strings.ToLower(filepath.Base(s.Words[0]))
 }
 
 func (s Segment) Arg(i int) string {

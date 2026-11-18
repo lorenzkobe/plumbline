@@ -2,17 +2,56 @@
 
 Every known limit from phases 1a to 3 in one list. The user's call (2026-11-17): build the remaining phases first, then work through this list. Each item points to where the full text is (handoff-3.md section, gap review). Tick an item when it's fixed, with the version.
 
+## Decisions (2026-11-18)
+The user's answers on how to handle the list:
+- Fix everything that has a workable fix; nothing is accepted just because it's hard. The smoke test (V1-V20) runs at the end, not first (token budget); items that depend on it (L6 on V1, R2 on V11, B6 on V7/V9) are fixed last.
+- G3: an MCP tool whose name doesn't say read or write counts as a write. Setup keeps a per-server list of known read tools.
+- G6 (and R6 with it): setup adds Claude Code `deny` rules for `.env` and key files, so Claude Code itself skips them for Read, Grep and Glob.
+- M14: fix it. Changes are attributed to the session that made them.
+- W1: build the hotfix flow.
+- W2, W3: wait for real use.
+- G1, B1, P1: Claude Code's Bash sandbox stays optional. `/plumbline:setup` explains the pros and cons and offers the exact settings for the user to add (Plumbline can't switch it on: a plugin can't set `sandbox.*`). The settings: `sandbox.filesystem.denyRead` for the seal key, `allowUnsandboxedCommands: false`, and `excludedCommands` for Docker and the database client (production reads still ask each time). `/plumbline:status` shows whether it's on.
+  - Pros: P1 is fixed at the OS level, and G1's writes outside the project are blocked.
+  - Cons: Docker must be excluded and then runs outside the fence. Package registries must be allowed by domain. Caches outside the project need `allowWrite`. Dev servers need local binding, and e2e browsers may not start. Logins (gh, keychain, aws sso) may need macOS services. Linux needs bubblewrap and socat. Failures don't say "sandbox".
+  - B1 stays a guard rail: the sandbox applies to the whole session, so it can't limit a builder to its copy.
+  - Source: code.claude.com/docs/en/sandboxing.md and the settings reference, checked 2026-11-18.
+- Fixes for items first marked "accept":
+  - G4: mvdan.cc/sh v3.14.1 parses zsh (`LangZsh`). Parse as bash, then as zsh; zsh nodes the walker doesn't know are opaque.
+  - R4: a user-only `/plumbline:size small` override, so the user can keep a low-impact change to a risky file small.
+  - R5: when `## For you` isn't "nothing", the closing message must open with the "For you" line.
+  - B4: a builder's write whose target can't be read (`rm "$x"`) is refused (builders can't ask anyway).
+  - B5: files the lead's own tools touched during a builder's command aren't blamed on the builder.
+  - D1: a reminder (not a gate, as chosen) when a normal task's plan changes screen files.
+  - S3: a personal project's standup follows the branch name into sibling repos and `frontend_repo`.
+  - P5: token counts read from the transcript (hooks get its path).
+  - R1: specialists are also called for by the diff's contents (SQL, auth, money code in any file).
+  - R3: a reviewer's prompt is checked against the other findings files.
+  - O2: more Postgres functions that change things (`setval`, `pg_terminate_backend`, ...).
+  - S2: a setup list of extra repos for the standup.
+- Drop P2 and P7 (only tasks from before 0.4.1 / 0.3.0).
+- Releases, in order: (1) quick fixes: T1, L5, G9, G7, G8, G2, G10, L3, B9, B10, D2, P6, G5, L1 (`tsc --noEmit`); (2) the WORKFLOW.md rules and checklist (WF1, WF2, WF5, WF6); (3) the bigger fixes (L2 first) and the rest of the list; (4) WF3, WF4; (5) the smoke test and the V-dependent items.
+
+## Added from the user's WORKFLOW.md (2026-11-18)
+- [ ] WF1. Reuse rule: search for an existing helper, validator, query or component before writing new logic; extract only real duplication; don't abstract on looks alone. Core rule plus review checklist (duplicated logic, missed reuse, unjustified abstraction).
+- [ ] WF2. Review checklist adds backward compatibility, logging and observability gaps, resource leaks, config/environment/deploy mistakes, and test quality (over-mocking, mocking the thing under test, arbitrary sleeps, real external services). Core rule 5 adds: keep backward compatibility unless asked to break it; never hide failures or ignore warnings.
+- [ ] WF3. Optional saved `format`, `typecheck` and `security` commands (`plumbline run format|typecheck|security`); when setup defines them, commit needs them to pass.
+- [ ] WF4. A `[bug]` case needs a recorded failing run taken while only test files had changed since approval (the regression test failed before the fix).
+- [ ] WF5. Case labels `[failure]` (a dependency is down, times out or returns garbage; rollback) and `[concurrent]` (two requests at once).
+- [ ] WF6. The report needs `## Verdict`: Ready / Ready with noted limitations / Not ready, and under Proof anything that couldn't run with the exact command to run later. The finish check checks both.
+
 ## Gates and parsing
 - [ ] G1. Code run by interpreters isn't inspected (`python -c`, `node -e`, `awk 'BEGIN{system()}'`, a script file). Never runs before approval, but while building it can do anything. (handoff: after the hardening)
-- [ ] G2. git's read commands accept arguments not known yet (`git diff $(git merge-base ...)`); an expansion producing `--output=` would slip through. (after the hardening)
+- [x] G2. (0.6.1) git's read commands accept arguments not known yet (`git diff $(git merge-base ...)`); an expansion producing `--output=` would slip through. (after the hardening)
 - [ ] G3. MCP tools are judged by name; a write tool without a write verb isn't gated. (after the hardening)
 - [ ] G4. zsh-only syntax that bash can't parse is refused. (after the hardening)
-- [ ] G5. Monitor commands get the Bash gate before, but no changed-files check after. (after 0.4.1)
+- [x] G5. (0.6.1) Monitor commands get the Bash gate before, but no changed-files check after. (after 0.4.1)
 - [ ] G6. Grep asks only when its path or glob names a secret file; a folder search reaching a `.env` isn't caught, and Grep fails open. (after 0.4.1)
-- [ ] G9. Command names are matched as written: on macOS's case-insensitive disk `VERCEL --prod` or `GIT push` runs the real tool but isn't recognised by any name-based rule (found by the phase 3 review). (pre-existing)
-- [ ] G10. An unconfirmed setup's `risky_paths` and `ignore_changes` are still used, so a terminal-edited setup could drop a risky path or widen what the changed-files check skips (0.6.0 covers parts and deploy_pipeline only). (pre-existing, found in phase 3)
-- [ ] G7. "In a row" for repeated blocks: allowed calls in between don't clear it; two identical refusals in one message count at once. (after 0.4.1)
-- [ ] G8. Arguments that xargs or find add are taken as files, not flags, so a file named like a flag (`--output=x`) gets past the read-only check. (decisions in the hardening)
+- [x] G9. (0.6.1) Command names are matched as written: on macOS's case-insensitive disk `VERCEL --prod` or `GIT push` runs the real tool but isn't recognised by any name-based rule (found by the phase 3 review). (pre-existing)
+- [x] G10. (0.6.1) An unconfirmed setup's `risky_paths` and `ignore_changes` are still used, so a terminal-edited setup could drop a risky path or widen what the changed-files check skips (0.6.0 covers parts and deploy_pipeline only). (pre-existing, found in phase 3)
+- [x] G7. (0.6.1: parallel refusals count once; allowed calls in between still don't reset it, by design: a retry after a few reads is still a loop) "In a row" for repeated blocks: allowed calls in between don't clear it; two identical refusals in one message count at once. (after 0.4.1)
+- [x] G8. (0.6.1) Arguments that xargs or find add are taken as files, not flags, so a file named like a flag (`--output=x`) gets past the read-only check. (decisions in the hardening)
+- [ ] G11. Arguments xargs adds aren't checked for secret files: `rg -l KEY | xargs cat` could print `.env` (rg skips hidden files by default, so it needs `--hidden` or `-uu`). (found in 0.6.1)
+- [x] G12. (0.6.1) An unquoted glob could expand to a file named like a flag (`sed -n 1p *` with a file `-i` there edits files; `git log *` with `--output=x` writes one). A non-pure command with a pattern reads only when no match there starts with "-", or after `--`. (found in 0.6.1, pre-existing)
 
 ## Proof and state
 - [ ] P1. The task-state and run seals use a key in the data folder; a process Claude starts while building could read it and forge a record. (Known limits; after 0.4.1)
@@ -20,7 +59,7 @@ Every known limit from phases 1a to 3 in one list. The user's call (2026-11-17):
 - [ ] P3. Weakened-test detection is instructions only; no gate checks the diff for skipped or loosened tests. (Known limits)
 - [ ] P4. Full-stack e2e: nothing requires `plumbline run e2e` for full-stack tasks. (Known limits)
 - [ ] P5. Hooks can't see token usage, so logs don't record tokens. (Known limits)
-- [ ] P6. A binary that exists but can't run blocks the gates but leaves nothing in errors.log. (after 0.4.1)
+- [x] P6. (0.6.1) A binary that exists but can't run blocks the gates but leaves nothing in errors.log. (after 0.4.1)
 - [ ] P7. A task without `StartCommit` (before 0.3.0) falls back to HEAD for `ChangedSince`. (after 0.4.1)
 
 ## Checkpoint, reviews and report
@@ -35,17 +74,17 @@ Every known limit from phases 1a to 3 in one list. The user's call (2026-11-17):
 - [ ] B1. Builder confinement and QA blindness are guard rails, not a sandbox: code a builder or QA runs can reach anywhere. For builders, changes landing in the main checkout's tracked, untracked or git files are caught after the command (not ignored files, not other copies); for QA nothing catches its own tests reading the copies. (after 2b)
 - [ ] B2. A builder's copy has no ignored files (`node_modules`, build output), so its tests may not run there. (after 2b)
 - [ ] B3. A builder's new outside-plan files don't count toward the 3-file cap until merged. (after 2b)
-- [ ] B4. Builder writes with unknown targets (`rm "$x"`) aren't refused up front; the copy's changed-files check records them. (after 2b)
+- [x] B4. (0.6.1) Builder writes with unknown targets (`rm "$x"`) aren't refused up front; the copy's changed-files check records them. (after 2b)
 - [ ] B5. The lead's change and a builder's command at the same moment can be misattributed either way. (after 2b)
 - [ ] B6. "Running" is a tool call in the last 30 minutes; a builder or QA thinking longer without one counts as finished. (after 2b)
 - [ ] B7. While a builder's copy exists, blind QA can't search or glob from the repo root (only the Grep tool). (after 2b)
 - [ ] B8. Test files are known by name only (Rust inline tests and other conventions need a test file). (after 2b)
-- [ ] B9. `noAsk` covers workers only; a reviewer reading `.env` still prompts the user. (after 2b)
-- [ ] B10. `ln -s` to anything outside the copy is refused, including harmless system paths (`/usr/bin/node`). (after 2b)
+- [x] B9. (0.6.1) `noAsk` covers workers only; a reviewer reading `.env` still prompts the user. (after 2b)
+- [x] B10. (0.6.1) `ln -s` to anything outside the copy is refused, including harmless system paths (`/usr/bin/node`). (after 2b)
 
 ## Design, devops, standup (phase 3)
 - [ ] D1. The design gate holds only design tasks; a normal task can change screens without mockups (by choice). (after phase 3)
-- [ ] D2. `## Design` is found by heading prefix and the pick by its short name in that section's text; "not Direction B" would count. (after phase 3)
+- [x] D2. (0.6.1) `## Design` is found by heading prefix and the pick by its short name in that section's text; "not Direction B" would count. (after phase 3)
 - [ ] O1. Deploys are known by CLI name and by scripts named for deploying (deploy, publish, ship); anything else (`go-live.sh`, a `release` make target, an unlisted deploy tool) isn't refused in a pipeline project and runs like any command while building. Docker pointed at another machine (`docker --context prod`, `-H ssh://`) isn't seen as remote. (after phase 3)
 - [ ] O2. A database client that names no host (or names it in a variable, or through PGHOST or a service file) counts as remote and asks; `select` calls to functions that change things beyond the listed ones (setval, pg_terminate_backend, ...) read as reads when approved. (after phase 3)
 - [ ] S1. A task keeps only when each file was last opened, so a file opened Monday and again Tuesday counts for Tuesday only in the standup. (after phase 3)
@@ -55,11 +94,11 @@ Every known limit from phases 1a to 3 in one list. The user's call (2026-11-17):
 
 ## Gap review (docs/gap-review-1a.md), still open
 - [ ] M14. Two sessions in one repo: one session's edits stop the other.
-- [ ] L1. False blocks: `npx tsc --noEmit`, `pip install -r requirements.txt` refused as installs during a task.
+- [x] L1. (0.6.1 for npx/bunx/pnpx of a project tool; `pip install -r requirements.txt` is still an install, by design) False blocks: `npx tsc --noEmit`, `pip install -r requirements.txt` refused as installs during a task.
 - [ ] L2. Only the Read tool counts as "opened"; `cat`/`sed -n`/`rg` reads give a false "didn't open this file".
-- [ ] L3. Logs hold commit subjects and absolute paths in Detail.
+- [x] L3. (0.6.1) Logs hold commit subjects and absolute paths in Detail.
 - [ ] L4. Without failing-test ids, the baseline compares counts only; a broken-environment baseline sticks.
-- [ ] L5. `test:` matches inside words like "latest:".
+- [x] L5. (0.6.1) `test:` matches inside words like "latest:".
 - [ ] L6. If the AskUserQuestion response is a plain string, the `"Q"="A"` fallback could be spoofed.
 
 ## Tooling

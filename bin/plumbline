@@ -1,6 +1,7 @@
 #!/bin/sh
 # Picks the prebuilt Plumbline binary for this laptop. No Go needed.
-# If it can't, it logs why (the next session start reports it) and exits 1:
+# If it can't, or a hook's binary can't run, it logs why (the next session
+# start reports it) and exits 1:
 # gate hooks then block (onFailure: block), searches and other hooks go on.
 d=${0%/*}/../dist
 case "$(uname -sm)" in
@@ -11,9 +12,19 @@ case "$(uname -sm)" in
   *) b="" ;;
 esac
 if [ -n "$b" ] && [ -x "$b" ]; then
-  exec "$b" "$@"
-fi
-if [ -n "$b" ]; then
+  if [ "$1" != hook ]; then
+    exec "$b" "$@"
+  fi
+  # A hook exits 0 or 2. Anything else means the binary is there but
+  # couldn't run (refused by the system, killed at start, crashed outside
+  # Go): log it like a missing one.
+  "$b" "$@"
+  rc=$?
+  if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then
+    exit "$rc"
+  fi
+  why="the Plumbline binary couldn't run (exit $rc): $b"
+elif [ -n "$b" ]; then
   why="the Plumbline binary is missing or can't run: $b"
 else
   why="no Plumbline binary for $(uname -sm)"

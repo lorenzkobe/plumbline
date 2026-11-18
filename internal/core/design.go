@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // A design task (plumbline task start --design) agrees the look before any
@@ -56,6 +57,18 @@ func directionKey(label string) string {
 		}
 	}
 	return strings.TrimSpace(k)
+}
+
+// opensWith: the line, without list marks and emphasis, starts with the
+// phrase as whole words.
+func opensWith(line, phrase string) bool {
+	l := strings.TrimSpace(reMarkup.ReplaceAllString(line, ""))
+	l = strings.TrimSpace(strings.TrimLeft(l, "-+ "))
+	if len(l) < len(phrase) || !strings.EqualFold(l[:len(phrase)], phrase) {
+		return false
+	}
+	rest := []rune(l[len(phrase):])
+	return len(rest) == 0 || !(unicode.IsLetter(rest[0]) || unicode.IsDigit(rest[0]))
 }
 
 // designDocProblems: design.md holds the brand kit (or the one agreed for a
@@ -157,12 +170,14 @@ func (c *hookCtx) designProblems(planText string, pc PlanCheck) []string {
 		return p
 	}
 	key := directionKey(t.Direction)
-	design := strings.Join(Section(planText, "design"), "\n")
+	design := Section(planText, "design")
 	switch {
-	case !hasContent(Section(planText, "design")):
-		p = append(p, fmt.Sprintf(`plan.md needs a "## Design" section naming the picked direction (%s) and its mockup`, directionKey(t.Direction)))
-	case !mentionsWord(design, key):
-		p = append(p, fmt.Sprintf(`plan.md's "## Design" must name the direction the user picked (%s)`, directionKey(t.Direction)))
+	case !hasContent(design):
+		p = append(p, fmt.Sprintf(`plan.md needs a "## Design" section naming the picked direction (%s) and its mockup`, key))
+	case !opensWith(design[0], key):
+		// The first line is the pick, so a mention ("not Direction B")
+		// further on can't stand in for it.
+		p = append(p, fmt.Sprintf(`plan.md's "## Design" must start with the direction the user picked (%s), as in "%s (mockup link): ..."`, key, key))
 	}
 	if !contains(pc.ProofKinds, "ui") {
 		p = append(p, `a design task needs "- ui: ..." under "## Real-world proof": screenshots of the real screens at phone, tablet and desktop sizes compared to the mockup`)

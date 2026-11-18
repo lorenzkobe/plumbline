@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // Fail closed: a segment counts as read-only only when every part of it was
@@ -112,6 +114,22 @@ func ReadOnly(s Segment) bool {
 	if pureReaders[name] {
 		return true
 	}
+	// Arguments xargs adds are file names from a listing, but a file named
+	// like a flag (-i, --output=x) is read as one by GNU tools, which take
+	// flags after operands. Only "--" at the end makes them operands.
+	if s.MoreArgs && s.Words[len(s.Words)-1] != "--" {
+		return false
+	}
+	// The same for an unquoted pattern: sed -n 1p * with a file named -i
+	// there edits files. Judged against the files there now.
+	for i, dashed := 1, false; i < len(s.Words); i++ {
+		if !s.dyn(i) && !s.glob(i) && s.Words[i] == "--" {
+			dashed = true
+		}
+		if !dashed && s.glob(i) && globMayBeFlag(s.Words[i], s.Dir) {
+			return false
+		}
+	}
 	switch name {
 	case "command":
 		return strings.ContainsAny(shortFlags(s.Arg(1)), "vV") // command -v, -pv: prints where a command is
@@ -127,8 +145,6 @@ func ReadOnly(s Segment) bool {
 	if s.dynArgs() {
 		return false // an argument not known until it runs could be a flag that writes
 	}
-	// Arguments xargs or find add are file names from a listing: they're
-	// taken as files, not flags (a file named like a flag is the one gap).
 	args := s.Words[1:]
 	switch name {
 	case "less", "more":
@@ -264,6 +280,46 @@ func ReadOnly(s Segment) bool {
 	return false
 }
 
+// globMayBeFlag: an unquoted pattern the shell could expand to a file named
+// like a flag: its first part is a pattern that matches such a file now (or
+// the folder isn't known). "src/*" can't: its matches start with "src/".
+func globMayBeFlag(pattern, dir string) bool {
+	for _, p := range expandBraces(pattern) {
+		if strings.HasPrefix(p, "-") {
+			return true
+		}
+		if p == "" || !strings.ContainsAny(p[:1], "*?[") {
+			continue
+		}
+		if dir == "" {
+			return true
+		}
+		first, _, _ := strings.Cut(p, "/")
+		m, _ := filepath.Glob(filepath.Join(dir, first))
+		for _, x := range m {
+			if strings.HasPrefix(filepath.Base(x), "-") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// needsDoubleDash: the segment would read only if "--" ended it, because
+// xargs adds arguments that could be flags.
+func needsDoubleDash(s Segment) bool {
+	if !s.MoreArgs || len(s.Words) == 0 || s.Words[len(s.Words)-1] == "--" {
+		return false
+	}
+	t := s
+	t.Words = append(append([]string{}, s.Words...), "--")
+	t.Dyn = append(append([]bool{}, s.Dyn...), false)
+	t.Glob = append(append([]bool{}, s.Glob...), false)
+	return ReadOnly(t)
+}
+
+const doubleDashHint = ` To read the files xargs adds, end the command with "--" (xargs sed -n 1p --), so a file named like a flag can't act as one.`
+
 func isDecl(name string) bool {
 	switch name {
 	case "export", "declare", "local", "readonly", "typeset":
@@ -289,6 +345,16 @@ func gitReadOnlySeg(s Segment) bool {
 		return false
 	}
 	sub, args := s.Words[i], s.Words[i+1:]
+	paths := false // after "--", arguments are paths
+	for k, a := range args {
+		j := i + 1 + k
+		if !paths && !s.dyn(j) && a == "--" {
+			paths = true
+		}
+		if s.dyn(j) && !paths && !gitDynArgSafe(s, j) {
+			return false // its value could be a flag (--output=x, -D)
+		}
+	}
 	if gitReadOnly[sub] {
 		for _, a := range args {
 			low := strings.ToLower(a)
@@ -322,6 +388,67 @@ func gitReadOnlySeg(s Segment) bool {
 	}
 	return false
 }
+
+// gitDynArgSafe: word j of a git command isn't known until it runs, but
+// can't be a flag: it starts with a literal that isn't "-" (HEAD~$n), or it
+// is only $(git merge-base ...) or $(git rev-parse ...) with flags that print
+// a commit id, ref name or path (their output never starts with "-").
+func gitDynArgSafe(s Segment, j int) bool {
+	if len(s.src) != len(s.Words) || s.src[j] == nil || len(s.src[j].Parts) == 0 {
+		return false
+	}
+	w := s.src[j]
+	switch p := w.Parts[0].(type) {
+	case *syntax.Lit:
+		return p.Value != "" && p.Value[0] != '-' && p.Value[0] != '\\'
+	case *syntax.SglQuoted:
+		return p.Value != "" && p.Value[0] != '-' && !p.Dollar
+	}
+	part := w.Parts[0]
+	if len(w.Parts) != 1 {
+		return false
+	}
+	if dq, ok := part.(*syntax.DblQuoted); ok && len(dq.Parts) > 0 {
+		if lit, ok := dq.Parts[0].(*syntax.Lit); ok {
+			return lit.Value != "" && lit.Value[0] != '-' && lit.Value[0] != '\\'
+		}
+		if len(dq.Parts) != 1 {
+			return false
+		}
+		part = dq.Parts[0]
+	}
+	cs, ok := part.(*syntax.CmdSubst)
+	if !ok || len(cs.Stmts) != 1 || len(cs.Stmts[0].Redirs) > 0 {
+		return false
+	}
+	ce, ok := cs.Stmts[0].Cmd.(*syntax.CallExpr)
+	if !ok || len(ce.Assigns) > 0 || len(ce.Args) < 2 {
+		return false
+	}
+	words := make([]string, len(ce.Args))
+	for k, a := range ce.Args {
+		if words[k] = a.Lit(); words[k] == "" {
+			return false
+		}
+	}
+	if words[0] != "git" {
+		return false
+	}
+	switch words[1] {
+	case "merge-base":
+		return true
+	case "rev-parse":
+		for _, a := range words[2:] {
+			if strings.HasPrefix(a, "-") && !revParsePrints[a] && !strings.HasPrefix(a, "--short=") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+var revParsePrints = set("--abbrev-ref --short --verify -q --quiet --show-toplevel --show-prefix --git-dir --git-common-dir --symbolic-full-name --is-inside-work-tree")
 
 // gitListOnly: git branch or git tag in list mode only (no create, delete,
 // move or annotate).

@@ -123,6 +123,10 @@ func PostToolUse(in *HookInput) Output {
 		RefreshSnapshot(c.snapID(), c.root)
 	case in.ToolName == "Bash":
 		return c.withMainCheck(c.afterBash())
+	case in.ToolName == "Monitor" && in.Str("command") != "":
+		// Monitor runs its command in Bash's shell: the same check after it.
+		// What it changes later is seen by the next check.
+		return c.withMainCheck(c.checkChanged(ParseShell(in.Str("command"), in.Cwd)))
 	case in.ToolName == "AskUserQuestion":
 		return c.afterQuestion()
 	case strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":

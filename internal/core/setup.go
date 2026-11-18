@@ -131,9 +131,24 @@ func LoadSetup(root string) (*Setup, bool, error) {
 	if !ok {
 		// Changed since the user confirmed it (for example by a terminal
 		// command): nothing in it may relax a rule until they confirm it
-		// again. Every part counts as on, and deploys by hand are refused.
+		// again. Every part counts as on, deploys by hand are refused, no
+		// risky path the user confirmed is dropped, and the changed-files
+		// check skips only what the confirmed copy skipped too.
 		s.Parts = nil
 		s.DeployPipeline = true
+		var was Setup
+		if b, err := os.ReadFile(confirmedPath(root) + ".json"); err == nil && json.Unmarshal(b, &was) == nil {
+			s.RiskyPaths = uniq(append(s.RiskyPaths, was.RiskyPaths...))
+			var both []string
+			for _, g := range s.IgnoreChanges {
+				if contains(was.IgnoreChanges, g) {
+					both = append(both, g)
+				}
+			}
+			s.IgnoreChanges = both
+		} else {
+			s.IgnoreChanges = nil
+		}
 	}
 	return &s, ok, nil
 }
@@ -143,6 +158,14 @@ func ConfirmSetup(root string) error {
 	p, ok := SetupPath(root)
 	if !ok {
 		return errors.New("no setup")
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	// The confirmed copy, so an unconfirmed edit can be held to it (LoadSetup).
+	if err := writeFileAtomic(confirmedPath(root)+".json", b); err != nil {
+		return err
 	}
 	return writeFileAtomic(confirmedPath(root), []byte(fileHash(p)+"\n"))
 }

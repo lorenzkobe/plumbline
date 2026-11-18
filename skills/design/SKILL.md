@@ -39,7 +39,7 @@ Trace the screens, components, styles and data the design touches (SocratiCode, 
 
 ## 6. Plan and checkpoint
 Write `understanding.md` and `plan.md` as in the task workflow, plus:
-- `## Design`: the picked direction by its short name (`Direction B`), its mockup link, the screens, the sizes (phone, tablet, desktop) and the states. The checkpoint is refused if it names another direction.
+- `## Design`: starts with the picked direction by its short name (`Direction B (link): ...`), then its mockup link, the screens, the sizes (phone, tablet, desktop) and the states. The checkpoint is refused if the section starts with anything else.
 - `## Real-world proof`: `- ui: ...` is required: screenshots of the real screens at phone, tablet and desktop sizes, compared to the mockup.
 - `## Checks`: the frontend checks that apply (the setup's `frontend_checks`; by default all): a visual check in a browser with screenshots against the mockup, screen sizes phone first, the states, accessibility basics (keyboard, contrast, labels), and end-to-end tests that click through the UI with Playwright (in the repo when allowed, local only when not).
 - `## Team`: `ux-reviewer` (the checkpoint asks for it when the files are frontend).

@@ -459,7 +459,7 @@ func TestReviewFindingsBeforeApproval(t *testing.T) {
 	}
 	for _, c := range []string{
 		"set -e; ls", "set -o pipefail; git log | head", "shopt -s globstar", "unset X", "pushd src && ls && popd",
-		`n=3; sed -n "${n}p" src/a.go`, `for i in 1 2; do sed -n "${i}p" src/a.go; done`, "rg -l A src | xargs sed -n 1p",
+		`n=3; sed -n "${n}p" src/a.go`, `for i in 1 2; do sed -n "${i}p" src/a.go; done`, "rg -l A src | xargs sed -n 1p --",
 		"git branch --contains HEAD", "git tag --sort=-v:refname", "git tag --points-at HEAD", "git config user.name",
 		"FOO=bar; echo $FOO", "for f in src/*.go; do sed -n 1p \"$f\"; done", "echo $((1+2))", "command -pv git",
 	} {

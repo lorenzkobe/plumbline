@@ -59,7 +59,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|AskUserQuestion|mcp__.*",
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|AskUserQuestion|mcp__.*",
         "hooks": [
           {
             "type": "command",

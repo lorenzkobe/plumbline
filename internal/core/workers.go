@@ -354,7 +354,7 @@ func (c *hookCtx) builderBash(wt, cmd string) Output {
 				continue
 			}
 			if i < len(s.Dyn) && s.Dyn[i] {
-				if fileWriters[name] {
+				if fileWriters[name] || inPlace(s) {
 					return c.deny("builder-own-copy", fmt.Sprintf("%s names a file through %q, whose value Plumbline can't know. Builders write the paths out plainly, inside the copy.", name, w))
 				}
 				continue
@@ -372,7 +372,7 @@ func (c *hookCtx) builderBash(wt, cmd string) Output {
 				w = v
 			}
 			abs := realCase(Abs(homeWord(w), s.Dir))
-			if (link || inProject(abs)) && outside(abs) {
+			if ((link && !systemToolPath(abs)) || inProject(abs)) && outside(abs) {
 				return c.deny("builder-own-copy", fmt.Sprintf("%q is outside your copy of the repo (%s). Builders work only there: name paths inside the copy.", w, wt))
 			}
 		}
@@ -537,6 +537,21 @@ func LeftCopies(t *Task) []string {
 }
 
 // fileWriters: commands whose arguments name files they write or link.
+// systemToolPath: a cleaned absolute path among the system's own tools
+// (/usr/bin/node, /opt/homebrew/bin/python3), which a builder may link to.
+// Never the root, the home folder or a project.
+func systemToolPath(abs string) bool {
+	if home, err := os.UserHomeDir(); err == nil && isInsideFold(abs, home) {
+		return false
+	}
+	for _, d := range []string{"/usr", "/bin", "/sbin", "/opt/homebrew", "/opt/local", "/nix/store"} {
+		if isInsideFold(abs, d) {
+			return true
+		}
+	}
+	return false
+}
+
 var fileWriters = map[string]bool{
 	"cp": true, "mv": true, "ln": true, "rsync": true, "install": true, "tee": true, "dd": true, "rm": true,
 	"mkdir": true, "rmdir": true, "touch": true, "chmod": true, "chown": true, "tar": true, "unzip": true,

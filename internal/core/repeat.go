@@ -5,13 +5,17 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Repeated blocks: the same refusal twice in a row means trying again won't
 // help, so Claude stops and asks instead of looping. "In a row" is per
 // session (and per helper): a different refusal in between starts over, and
-// a new message from the user clears it.
+// a new message from the user clears it. Identical refusals within
+// sameMessageWindow are one message's parallel calls: Claude hadn't seen the
+// first yet, so they count once.
 
 const repeatNote = " This is the second time in a row Plumbline refused exactly this. Don't try it again or work around it: stop, tell the user what you were doing and why it's refused, and ask how to go on (end your message with a question)."
 
@@ -25,9 +29,14 @@ func lastBlockPath(sessionID, agentID string) string {
 	return filepath.Join(DataDir(), "sessions", name+".lastblock")
 }
 
+const sameMessageWindow = 2 * time.Second
+
+// blockNow is the clock for repeat checks; tests move it.
+var blockNow = time.Now
+
 // noteBlock records a refusal and reports whether the one before it, in the
-// same session and helper, was the same: the same rule and reason for the
-// same target (file, command or tool).
+// same session and helper, was the same (the same rule and reason for the
+// same target: file, command or tool) and came in an earlier message.
 func noteBlock(sessionID, agentID, rule, reason, target string) bool {
 	if sessionID == "" {
 		return false
@@ -36,8 +45,17 @@ func noteBlock(sessionID, agentID, rule, reason, target string) bool {
 	key := hex.EncodeToString(sum[:])
 	p := lastBlockPath(sessionID, agentID)
 	prev, _ := os.ReadFile(p)
-	_ = writeFileAtomic(p, []byte(key))
-	return strings.TrimSpace(string(prev)) == key
+	now := blockNow()
+	_ = writeFileAtomic(p, []byte(key+" "+strconv.FormatInt(now.UnixNano(), 10)))
+	prevKey, prevAt, timed := strings.Cut(strings.TrimSpace(string(prev)), " ")
+	if prevKey != key {
+		return false
+	}
+	if !timed { // written before the time was kept
+		return true
+	}
+	n, err := strconv.ParseInt(prevAt, 10, 64)
+	return err != nil || now.Sub(time.Unix(0, n)) >= sameMessageWindow
 }
 
 // blockTarget: what a refused tool call was aimed at.

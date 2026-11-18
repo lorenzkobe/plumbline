@@ -118,7 +118,7 @@ func TestChallengerBeforeCheckpoint(t *testing.T) {
 	h.expect(hi("Bash", map[string]any{"command": "./test.sh"}), "deny", "") // saved commands are the lead's
 	h.expect(hi("Bash", map[string]any{"command": "plumbline task replan"}), "deny", "")
 	h.expect(hi("Bash", map[string]any{"command": "cat src/a.go | grep A && git log -3 && plumbline docs-dir"}), "allow", "")
-	h.expect(hi("Bash", map[string]any{"command": "cat .env"}), "ask", "") // safety rules still apply
+	h.expect(hi("Bash", map[string]any{"command": "cat .env"}), "deny", "runs without the user") // safety rules still apply, and helpers never ask
 	h.expect(hi("AskUserQuestion", checkpointQ()), "deny", "without the user")
 	h.expect(hi("Agent", map[string]any{"subagent_type": "Explore"}), "deny", "can't start other helpers")
 	if o := hi("Read", map[string]any{"file_path": a}); o != nil {

@@ -162,8 +162,9 @@ func bullet(line string) (string, bool) {
 var reCaseLabel = regexp.MustCompile(`^\[(normal|edge|refused|boundary|repeat-safe|bug|performance)\]`)
 
 // A case's test: "test: path" or "test: path::name", in backticks when the
-// name has spaces ("test: `a.test.ts::refunds twice`").
-var reTestLink = regexp.MustCompile("(?i)test:\\s*(?:`([^`]+)`|([^\\s`]+))")
+// name has spaces ("test: `a.test.ts::refunds twice`"). "test" must be a
+// whole word, so "latest: x" is not a link.
+var reTestLink = regexp.MustCompile("(?i)\\btest:\\s*(?:`([^`]+)`|([^\\s`]+))")
 
 const notApply = "does not apply, because"
 
@@ -203,7 +204,7 @@ func CheckPlan(text string) PlanCheck {
 		}
 		lower := strings.ToLower(b)
 		if m := reTestLink.FindStringSubmatch(b); m != nil {
-			ref := strings.TrimSpace(m[1] + m[2])
+			ref := strings.TrimSpace(m[1] + strings.TrimRight(m[2], ").,;"))
 			pc.CaseTests = append(pc.CaseTests, strings.SplitN(ref, "::", 2)[0])
 			if strings.Contains(ref, "::") {
 				refs[ref]++

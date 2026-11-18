@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // harness: a temp git repo, a temp Plumbline home, and a session.
@@ -36,6 +37,11 @@ func newHarness(t *testing.T) *harness {
 	run(t, repo, "git", "add", "-A")
 	run(t, repo, "git", "commit", "-q", "-m", "init")
 	repo, _ = filepath.EvalSymlinks(repo)
+	// Each refusal lands in a later message than the one before, unless a
+	// test sets its own clock (repeat.go's sameMessageWindow).
+	at := time.Unix(1_700_000_000, 0)
+	blockNow = func() time.Time { at = at.Add(3 * time.Second); return at }
+	t.Cleanup(func() { blockNow = time.Now })
 	return &harness{t: t, repo: repo, sid: "sess-1"}
 }
 
