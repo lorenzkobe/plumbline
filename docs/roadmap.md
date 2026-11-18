@@ -34,7 +34,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 2: 0.6.3 (commit 89a2845): WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
 - Release 3b: 0.6.4 (commit a4c7f2c): P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
 - Release 3c: 0.6.5 (commit c96821f): R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
-- Release 3d, first part: 0.6.6: M14.
+- Release 3d, first part: 0.6.6 (commit ffbcd0e): M14.
+- Release 3d, second part: 0.6.7: W1, M15 (found while building it).
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -77,9 +78,17 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - A second open task in one checkout is refused; it needs its own worktree (`claude -w`).
 - Found while building it: Claude Code sends a command that exits non-zero to `PostToolUseFailure`, which Plumbline didn't hook (docs checked 2026-11-18).
 
+## Decisions for release 3d, W1 (2026-11-18)
+- The spec, from the plan doc: started only by the user, one combined checkpoint, the smallest fix, targeted tests, safety rules fully on, the full suite and review right after; the stop-the-damage fix is kept apart from the root-cause fix.
+- The user's typed `/plumbline:hotfix` is the go-ahead: the hook starts the task itself, so Claude has no command that makes one.
+- The first hotfix commit needs the related tests (with the plan's case tests), lint and build; the full suite and every reviewer come right after it, and later commits follow the usual rules.
+- `## Root cause` (fixed here, or the follow-up task) is required in plan.md at the checkpoint and in report.md at the finish check.
+- M15, found while building it: the start commit follows the lead's checkout, switch or pull until the task's first commit, for every task, and only to a commit that holds nothing made during the task (on a remote-tracking branch, or in a local branch at task start). The fresh-eyes review found that following any HEAD move let a stash hide the task's edits, and that a commit in a failed line wasn't counted; both fixed and tested.
+- Found while building it: branch switches are refused before approval (only reading and saved commands run then), so a hotfix switches to the production branch right after the checkpoint. M16 (the baseline is from the starting branch) is left open.
+
 ## Next: release 3d, bigger pieces (each its own release)
 - [x] M14: two sessions in one repo (0.6.6).
-- W1: the hotfix flow.
+- [x] W1: the hotfix flow (0.6.7), with M15.
 - The sandbox option: G1, P1, B1.
 - The standup: S1 to S4.
 

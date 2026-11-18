@@ -168,6 +168,7 @@ func PreToolUse(in *HookInput) Output {
 	if d, _ := decisionOf(o); d != "deny" {
 		c.noteLeadBusy()
 		c.noteBusy()
+		c.noteHeadBefore()
 	}
 	return o
 }
@@ -1275,12 +1276,18 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision,
 		return "deny", "setup", "the project setup isn't confirmed, so its test command can't be trusted. Run /plumbline:setup."
 	}
 	final := ctx.isFinalCommit(ci, addsAll, added)
-	missing := ProofMissing(ctx.task, ctx.setup, final)
+	// A hotfix's first commit goes out on the related tests, lint and build;
+	// the full suite comes right after it (W1).
+	hotfix := ctx.task.Hotfix() && ctx.task.Commits == 0
+	missing := ProofMissing(ctx.task, ctx.setup, final && !hotfix)
 	if len(missing) > 0 {
 		return "deny", "commit-proof", "no commit without proof on the current code: " + strings.Join(missing, "; ") + "."
 	}
 	kind := "slice commit, related tests passed"
-	if final {
+	switch {
+	case hotfix:
+		kind = "hotfix commit, related tests, lint and build passed; the full suite and every reviewer run right after it"
+	case final:
 		kind = "last commit of the task, full suite passed"
 	}
 	return "ask", "commit", fmt.Sprintf("commit \"%s\" (%s).", subject, kind)
@@ -1484,6 +1491,8 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 	var p []string
 	combined := cp == 2 && t.Phase == PhaseUnderstanding
 	switch {
+	case cp == 1 && t.Hotfix():
+		return []string{`a hotfix has one checkpoint: write understanding.md and plan.md, then ask the combined one (header "Checkpoint")`}
 	case cp == 1 && t.Phase != PhaseUnderstanding:
 		return []string{fmt.Sprintf("the task is at the %s step, past checkpoint 1", t.Phase)}
 	case cp == 2 && t.Phase == PhaseBuilding:
@@ -1520,6 +1529,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, c.sizeProblems(pc.Files)...)
 			p = append(p, c.upgradeProblems(pc)...)
 			p = append(p, c.designProblems(text, pc)...)
+			p = append(p, hotfixProblems(t, text)...)
 		}
 	}
 	return p

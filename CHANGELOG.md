@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.7: release 3d, the hotfix flow (W1)
+- `/plumbline:hotfix <what's broken, or the ticket>`, yours only, starts a hotfix: a small task bound to the session, with the ticket taken from what you typed. It's refused when Plumbline is paused, the setup is missing or unconfirmed, Docker is down, nothing was said, or a task is already open in the session or the checkout.
+- A hotfix has one checkpoint (Checkpoint 1 is refused), and its plan needs `## Root cause`: what really broke, and either "this fix is the root-cause fix" or the follow-up task. The report repeats it.
+- Its first commit needs the related tests (with the plan's case tests), lint and build instead of the full suite. After it, the task line says to run the full suite and every reviewer next, the finish check holds the task until they ran, and later commits follow the usual rules.
+- Every task: until its first commit, the commit it started from follows Claude's checkout, switch or pull when that moved HEAD (also when the line failed after it), so after branching from another branch or pulling teammates' commits, the reviews and finish checks see only the task's own changes (M15). It follows only to a commit on a remote-tracking branch or one already in a local branch when the task started, so a stash, a branch made from one, or a commit made during the task never becomes the starting point. A commit you make in your own terminal doesn't move it.
+- A `git commit` inside a line that then fails is counted as the task's commit.
+- The user-only command hook's timeout is 15 seconds (the hotfix checks Docker).
+- `plumbline task start` and the hotfix hook share one task-start helper.
+
 ## 0.6.6: release 3d, two sessions in one checkout (M14)
 - Each change is put on the session that made it. Every session's edits and terminal commands are recorded per checkout (sealed, in the project's data folder), and folded into the other sessions' snapshots, so one session's edit no longer stops the other at its next command.
 - A task leaves out the files another session changed while it was open, as it does your own unsaved work: they're not in its review, the code reviewer's coverage, the specialists it needs, `plumbline run related` or the final-commit check. While building, Claude is refused editing them, and a command that changes one holds it for "For you". Files in the plan, or that the task itself changed outside the plan, stay the task's.

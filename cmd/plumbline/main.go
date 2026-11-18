@@ -242,7 +242,7 @@ func cmdTask(args []string) error {
 		if !ok {
 			return errors.New("the project setup changed since the user confirmed it; ask them to re-confirm with /plumbline:setup")
 		}
-		if !dockerOK() {
+		if !core.DockerReady() {
 			return errors.New("the Docker app isn't running. It's required (SocratiCode and the test database). Start it, then try again")
 		}
 		size := f["size"]
@@ -262,19 +262,11 @@ func cmdTask(args []string) error {
 			}
 			kind = core.KindDesign
 		}
-		pre, _ := core.DirtyFiles(root)
-		t := &core.Task{
-			ID: newTaskID(), Title: title, Ticket: f["ticket"], Size: size, SizeWhy: f["why"], Kind: kind,
-			Root: root, Branch: core.CurrentBranch(root), Phase: core.PhaseUnderstanding,
-			Created: core.Now(), Preexisting: pre, StartCommit: core.HeadCommit(root),
-		}
-		if err := os.MkdirAll(core.TaskDocsDir(root, t.ID), 0o700); err != nil {
+		t := &core.Task{Title: title, Ticket: f["ticket"], Size: size, SizeWhy: f["why"], Kind: kind}
+		if err := core.NewTask(root, t); err != nil {
 			return err
 		}
-		if err := core.SaveTask(t); err != nil {
-			return err
-		}
-		core.LogEvent(core.Event{Type: "task", Task: t.ID, Size: size, Project: core.ProjectKey(root), Rule: "start"})
+		pre := t.Preexisting
 		for _, o := range core.ListTasks(root) {
 			if o.Open() && o.ID != t.ID && o.Branch == t.Branch {
 				fmt.Printf("Note: task %s is also open on %s. Pass --task %s to plumbline commands.\n", o.ID, o.Branch, t.ID)
@@ -823,15 +815,6 @@ func cmdSetup(args []string) error {
 	}
 	return fmt.Errorf("unknown setup command %q", args[0])
 }
-
-func dockerOK() bool {
-	if os.Getenv("PLUMBLINE_SKIP_DOCKER") == "1" { // tests only
-		return true
-	}
-	return core.DockerUp()
-}
-
-func newTaskID() string { return core.NewID() }
 
 func claudeSettingsPath() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {

@@ -57,7 +57,8 @@ type Task struct {
 	// doesn't make the task normal (files that decide what runs still do).
 	SizeByUser bool `json:"size_by_user,omitempty"`
 	// Kind is "design" for a design task (mockups and the user's pick of a
-	// direction before the plan), "" for the usual task.
+	// direction before the plan), "hotfix" for one the user started with
+	// /plumbline:hotfix, "" for the usual task.
 	Kind string `json:"kind,omitempty"`
 	// DesignNoted: the lead was reminded once that the plan changes
 	// screens and a design task would mock them up first (D1).
@@ -106,6 +107,12 @@ type Task struct {
 	// Commit the task started from: the reviewer diffs against it, so slice
 	// commits made during the task are reviewed too.
 	StartCommit string `json:"start_commit,omitempty"`
+	// HeadBefore: HEAD before the lead's checkout, switch, pull or commit
+	// now running; until the task's first commit, StartCommit follows a move.
+	HeadBefore string `json:"head_before,omitempty"`
+	// StartTips: the local branches' commits at task start; StartCommit may
+	// follow only to one of these or to a remote-tracking branch's commit.
+	StartTips []string `json:"start_tips,omitempty"`
 	// Challenger and reviewer runs, as recorded by the SubagentStart and
 	// SubagentStop hooks.
 	Helpers []HelperRun `json:"helpers,omitempty"`

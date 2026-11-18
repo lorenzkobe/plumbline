@@ -84,6 +84,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 			miss = append(miss, "report: list these under \"Outside the plan\" or \"For you\": "+strings.Join(notListed, ", "))
 		}
 		miss = append(miss, reportShapeMissing(t, report)...)
+		miss = append(miss, hotfixReportMissing(t, report)...)
 		miss = append(miss, verdictMissing(t, s, fp, report)...)
 		miss = append(miss, weakenedMissing(changes, report, s)...)
 		miss = append(miss, upgradeMissing(t, s, changes, report)...)

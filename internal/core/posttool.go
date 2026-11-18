@@ -205,6 +205,7 @@ func (c *hookCtx) afterBash() Output {
 			}
 		}
 		c.followBranch(segs)
+		c.followHead(segs, false)
 		if in.AgentID == "" {
 			c.noteShellReads(segs)
 		} else {

@@ -3,6 +3,7 @@
 ## Company projects
 - Start: `git fetch`, confirm the base branch (usually develop or dev), `git checkout <base> && git pull`, then `git checkout -b fix/TICKET-123` (or feat/, hotfix/).
 - Commits: `TICKET-123: Fix log format`. Always prefixed, so cherry-picks stay traceable.
+- Hotfixes (/plumbline:hotfix): branch from the branch production runs from (usually main or master; ask when unsure), as `hotfix/TICKET-123`. The fix also goes back into the base branch; the user merges it.
 
 ## Personal projects
 - Ask: work on main, or make a branch?

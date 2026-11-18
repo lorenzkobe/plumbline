@@ -22,7 +22,11 @@ func DockerUp() bool {
 }
 
 func taskLine(t *Task) string {
-	return fmt.Sprintf("task %s \"%s\" (%s, %s step, branch %s). Notes folder: %s", t.ID, t.Title, t.Size, t.Phase, t.Branch, TaskDocsDir(t.Root, t.ID))
+	kind := t.Size
+	if t.Hotfix() {
+		kind = "hotfix, " + t.Size
+	}
+	return fmt.Sprintf("task %s \"%s\" (%s, %s step, branch %s). Notes folder: %s%s", t.ID, t.Title, kind, t.Phase, t.Branch, TaskDocsDir(t.Root, t.ID), hotfixNote(t))
 }
 
 // SessionStart loads the rules, the project's state and leftover tasks.
@@ -120,7 +124,7 @@ func UserPromptSubmit(in *HookInput) Output {
 
 // UserPromptExpansion runs the user-only commands. These fire only when you
 // type the command yourself, so Claude can't pause, resume, cancel, mark a
-// block wrong or keep a risky change small.
+// block wrong, keep a risky change small or start a hotfix.
 func UserPromptExpansion(in *HookInput) Output {
 	name := strings.ToLower(strings.TrimPrefix(in.CommandName, "/"))
 	switch {
@@ -187,6 +191,8 @@ func UserPromptExpansion(in *HookInput) Output {
 		return say(fmt.Sprintf("task %s was closed by the user. Its changes stay in the working tree; nothing was undone.%s", t.ID, note))
 	case "size":
 		return say(userSize(c, in.CommandArgs))
+	case "hotfix":
+		return say(userHotfix(c, in.CommandArgs))
 	case "wrong":
 		e, err := MarkLastBlockWrong(in.CommandArgs)
 		if err != nil {

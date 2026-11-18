@@ -38,7 +38,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - `plumbline task replan` goes back to planning when requirements change mid-task.
 - `plumbline task finish` closes the task after the report and the user's commit decision.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
-- Pause, resume, cancel, "this block was wrong" and keeping a risky change small are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small.
+- Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests, lint and build, with the full suite and every reviewer right after it.
 
 ## Checkpoints (Claude Code's question prompt, answered by the user)
 The user usually hands over the task and comes back later: research and plan without stopping, stop once at the checkpoint, then build and prove to the end without stopping (except for real decisions).
