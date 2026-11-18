@@ -154,6 +154,10 @@ type Task struct {
 	// PrintBeforeMove: the code's fingerprint before that checkout, switch
 	// or pull, so the approval fingerprint can follow the move too.
 	PrintBeforeMove string `json:"print_before_move,omitempty"`
+	// BaselinePrint: after such a move with nothing changed since approval,
+	// the code it landed on. Runs on exactly this code are the task's
+	// starting point (M16), in place of the ones from before the move.
+	BaselinePrint string `json:"baseline_print,omitempty"`
 	// StartTips: the local branches' commits at task start; StartCommit may
 	// follow only to one of these or to a remote-tracking branch's commit.
 	StartTips []string `json:"start_tips,omitempty"`
@@ -246,7 +250,7 @@ func seal(data []byte) string {
 // that never verify.
 func CheckDataDir() error {
 	why := func(err error) error {
-		return fmt.Errorf("Plumbline can't read or write its folder %s (%v). If Claude Code's Bash sandbox is on, Plumbline's commands must run outside it: run the plumbline command on its own line (a pipe, redirect, heredoc, cd or && can keep the whole line sandboxed), and exclude Plumbline from the sandbox with plumbline setup sandbox (the user runs it as ! plumbline setup sandbox if it's refused here) or by adding \"plumbline *\" to sandbox.excludedCommands", DataDir(), err)
+		return fmt.Errorf("can't read or write Plumbline's folder %s (%v). If Claude Code's Bash sandbox is on, Plumbline's commands must run outside it: run the plumbline command on its own line (a pipe, redirect, heredoc, cd or && can keep the whole line sandboxed), and exclude Plumbline from the sandbox with plumbline setup sandbox (the user runs it as ! plumbline setup sandbox if it's refused here) or by adding \"plumbline *\" to sandbox.excludedCommands", DataDir(), err)
 	}
 	if _, err := sealKey(); err != nil {
 		return why(err)

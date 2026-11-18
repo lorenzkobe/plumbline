@@ -31,6 +31,7 @@ Run these checks in parallel. One fix attempt per tool, then ask the user.
    - frontend checks that apply (responsive layouts, and so on): ask
    - brand kit location: repo first, then ask. Where mockups go: Claude artifacts unless the project differs (a company that doesn't allow them: local HTML)
    - generated files the changed-files check should skip (coverage, snapshots, caches) as globs
+   - this project's own risky files, beyond the built-in ones (auth, sessions, permissions, payments, billing, checkout, invoices, migrations, `.sql`, infra, deploy and CI config, dependency manifests): ask, with suggestions from the repo, such as money math (pricing, ledger, wallet, tax), user data and exports, webhooks, crypto and key handling, feature flags, and shared code most of the repo imports (SocratiCode's graph shows it). Save the ones the user picks as `risky_paths` globs (`src/ledger/**`, `lib/money.ts`): a change to one outside the approved plan is then refused, and a plan that changes one can't be small. None: leave it out
    - whether to keep a glossary and decision records
 3. Review CLAUDE.md, WORKFLOW.md and similar files against the real code. List what's outdated, repeated, or in conflict with Plumbline, and propose changes. Change nothing until the user approves.
 4. Save. Personal projects get `.plumbline.json` committed in the repo; company projects keep it on this laptop only. Write the JSON and save it in one step (a confirm prompt appears; the user checks the commands, since saved commands are what Claude may run before approval):
@@ -38,7 +39,7 @@ Run these checks in parallel. One fix attempt per tool, then ask the user.
    plumbline setup save <<'JSON'
    {"kind": "personal", "base_branch": "main",
     "commands": {"test": "...", "test_related": "... {files}", "lint": "...", "build": "...", "app": "...", "db_up": "...", "e2e": "...", "format": "...", "typecheck": "...", "security": "...", "builder_setup": "..."},
-    "ignore_changes": ["coverage/**"], "frontend_repo": "", "deploy_notes": "", "prod_access": "tunnel",
+    "ignore_changes": ["coverage/**"], "risky_paths": [], "frontend_repo": "", "deploy_notes": "", "prod_access": "tunnel",
     "deploy_pipeline": true, "frontend_checks": [], "brand_kit": "", "mockups": "artifacts", "glossary": false}
    JSON
    ```

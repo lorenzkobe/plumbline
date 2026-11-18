@@ -38,7 +38,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 3d, second part: 0.6.7 (commit 67c9126): W1, M15 (found while building it).
 - Release 3d, third part: 0.6.8 (commit cfb9d24): the sandbox option (G1, P1, B1, each partly; the leftovers are in known-gaps.md).
 - Release 3d, fourth part: 0.6.9 (commit 1ed00e8): the standup (S1, S4; S2 and S3 dropped).
-- Release 4: 0.6.10: WF3, WF4.
+- Release 4: 0.6.10 (commit 1a6630b): WF3, WF4.
+- The open items: 0.6.11: M16, T1, W3; W2 dropped.
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -123,7 +124,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - The items that depend on it: L6 (after V1), R2 (after V11), B6 (after V7 and V9).
 - N11: the real-session prompt test script, run by hand.
 
-## Open, not scheduled
-- T1: staticcheck for Go 1.27; the user runs `go run honnef.co/go/tools/cmd/staticcheck@latest ./...`, then the findings get fixed in the next release.
-- W2 (bundling MCP servers), W3 (a setup question for risky files): wait for real use.
-- Dropped: P2, P7.
+## The open items (0.6.11), shipped before release 5
+- [x] M16: the baseline is retaken on the code a followed branch switch or pull lands on, while nothing changed since approval.
+- [x] T1: staticcheck is clean. Run it with `GOTOOLCHAIN=go1.27.4 go run honnef.co/go/tools/cmd/staticcheck@latest ./...` (the `go` on the PATH is 1.23, and its automatic switch picks a toolchain too old for Go 1.27's standard library).
+- [x] W3: the setup asks for the project's own risky files.
+- Dropped: W2 (bundled servers get other tool names, and would run beside the user's own), P2, P7.

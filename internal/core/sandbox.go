@@ -403,7 +403,7 @@ func EnableSandbox(root string, extra []string) ([]string, error) {
 func UndoSandbox(root string) error {
 	b, err := os.ReadFile(sandboxUndoPath(root))
 	if err != nil {
-		return errors.New("Plumbline hasn't changed the sandbox settings in this checkout")
+		return errors.New("no sandbox settings in this checkout were added by Plumbline, so there is nothing to undo")
 	}
 	var undo sandboxUndo
 	if err := json.Unmarshal(b, &undo); err != nil {

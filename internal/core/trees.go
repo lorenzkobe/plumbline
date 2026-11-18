@@ -458,7 +458,12 @@ func PostToolUseFailure(in *HookInput) Output {
 	case in.ToolName == "Bash" || in.ToolName == "Monitor":
 		segs := ParseShell(in.Str("command"), in.Cwd)
 		if in.ToolName == "Bash" {
-			c.followHead(segs, true) // git checkout main && npm test moved HEAD although the line failed
+			moved := c.followHead(segs, true) // git checkout main && npm test moved HEAD although the line failed
+			o = c.withTrackerCheck(c.withMainCheck(c.checkChanged(segs)))
+			if moved != "" {
+				o = addContext(o, moved)
+			}
+			break
 		}
 		o = c.withTrackerCheck(c.withMainCheck(c.checkChanged(segs)))
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":

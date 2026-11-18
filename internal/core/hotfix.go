@@ -232,15 +232,17 @@ func (c *hookCtx) noteHeadBefore() {
 // own changes. A commit the user makes in their own terminal doesn't move
 // it. failed: the line exited non-zero, so the success path didn't count a
 // commit in it; a HEAD that moved under a git commit counts here.
-func (c *hookCtx) followHead(segs []Segment, failed bool) {
+// It returns a note for Claude when the task's starting point moved too.
+func (c *hookCtx) followHead(segs []Segment, failed bool) string {
 	t := c.task
 	if t == nil || c.in.AgentID != "" || t.HeadBefore == "" {
-		return
+		return ""
 	}
 	moves, commits := movesHead(segs, t.Root), commitsIn(segs, t.Root)
 	if !moves && !commits {
-		return // another call running beside it: leave its note
+		return "" // another call running beside it: leave its note
 	}
+	note := ""
 	before, printBefore := t.HeadBefore, t.PrintBeforeMove
 	t.HeadBefore, t.PrintBeforeMove = "", ""
 	now := HeadCommit(t.Root)
@@ -254,9 +256,12 @@ func (c *hookCtx) followHead(segs []Segment, failed bool) {
 	case t.Commits == 0 && followable(t, now):
 		c.log("task", "start-commit-moved", abbrev(t.StartCommit)+" -> "+abbrev(now))
 		t.StartCommit = now
-		c.followApproval(segs, printBefore)
+		if c.followApproval(segs, printBefore) {
+			note = msg("the task's starting point moved with this command to " + abbrev(now) + ", and nothing changed since the plan was approved, so runs on this code now are the task's baseline. Run plumbline run test and the other saved checks now, before any edit, so failures already on this branch aren't counted as the task's (the tester can run the suite in the background).")
+		}
 	}
 	_ = SaveTask(t)
+	return note
 }
 
 // followApproval: the approval fingerprint follows the start commit's move
@@ -266,30 +271,39 @@ func (c *hookCtx) followHead(segs []Segment, failed bool) {
 // fix. Once code changed, it stays: those then need the user's waiver.
 // Only a line of nothing but git checkout, switch, pull or fetch counts, so
 // an edit in the same line (git checkout main && sed -i ...) isn't taken
-// in as approved code.
-func (c *hookCtx) followApproval(segs []Segment, printBefore string) {
+// in as approved code. When nothing at all had changed since approval, the
+// code it landed on is also the task's new starting point (M16), and it
+// returns true.
+func (c *hookCtx) followApproval(segs []Segment, printBefore string) bool {
 	t := c.task
 	if t.ApprovalPrint == "" || printBefore == "" {
-		return
+		return false
 	}
 	for _, s := range segs {
 		if sub, _ := GitSub(s); !contains([]string{"checkout", "switch", "pull", "fetch"}, sub) {
-			return
+			return false
 		}
 	}
 	changed, err := treeChanges(t.Root, t.ApprovalPrint, printBefore)
 	if err != nil {
-		return
+		return false
 	}
 	cases := t.caseTestFiles()
 	for _, f := range changed {
 		if !c.isTestFile(f) && !contains(cases, f) {
-			return
+			return false
 		}
 	}
-	if now, err := Fingerprint(t.Root, c.ignore()); err == nil {
-		t.ApprovalPrint = now
+	now, err := Fingerprint(t.Root, c.ignore())
+	if err != nil {
+		return false
 	}
+	t.ApprovalPrint = now
+	if len(changed) > 0 {
+		return false // tests written before the move would count as old failures
+	}
+	t.BaselinePrint = now
+	return true
 }
 
 func abbrev(commit string) string {

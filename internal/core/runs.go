@@ -62,6 +62,9 @@ type Run struct {
 	Seen     []string `json:"seen,omitempty"`
 	Problems int      `json:"problems,omitempty"`
 	Baseline bool     `json:"baseline,omitempty"` // run before any task edit
+	// Rebased: a baseline taken on the code a checkout or pull after the
+	// approval landed on (Task.BaselinePrint); these replace earlier ones.
+	Rebased bool `json:"rebased,omitempty"`
 }
 
 // Complete is true only when the run finished and the code did not change
@@ -156,6 +159,9 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	if t != nil {
 		r.TaskID = t.ID
 		r.Baseline = t.Phase != PhaseBuilding && t.LastCodeChange.IsZero()
+		if t.BaselinePrint != "" && before == t.BaselinePrint {
+			r.Baseline, r.Rebased = true, true
+		}
 	}
 	if err := appendRun(root, r); err != nil {
 		return nil, err
@@ -645,15 +651,31 @@ func unnamedFailures(r *Run) int {
 }
 
 // baselineRuns: the task's complete runs of a kind taken before its first
-// edit, oldest first.
+// edit, oldest first. Once one was taken on the code a branch switch or
+// pull after the approval landed on (Rebased), only the ones on the newest
+// such code count: the ones from a branch the task was on before don't
+// describe this code (M16).
 func baselineRuns(runs []*Run, taskID, kind string) []*Run {
 	var out []*Run
+	landed := ""
 	for _, r := range runs {
 		if r.TaskID == taskID && r.Kind == kind && r.Baseline && r.Complete() {
 			out = append(out, r)
+			if r.Rebased {
+				landed = r.PrintBefore
+			}
 		}
 	}
-	return out
+	if landed == "" {
+		return out
+	}
+	var rebased []*Run
+	for _, r := range out {
+		if r.Rebased && r.PrintBefore == landed {
+			rebased = append(rebased, r)
+		}
+	}
+	return rebased
 }
 
 // brokenBaseline: every test failed in each run before the first edit, so

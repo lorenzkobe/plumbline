@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.11: the open items before release 5 (M16, T1, W3; W2 dropped)
+- M16: after a checkout, switch or pull that the start commit follows (a hotfix switching to the production branch), on a line of only git checkout, switch, pull or fetch, with nothing changed since approval, runs on the code it landed on are the task's baseline. Once one of a kind exists, earlier baselines of that kind stop counting (after two switches, only the newest branch's), so a failure the new branch already had isn't the task's. Claude is told to run the checks right then, and the hotfix skill says to switch before writing anything. A test or code written before the switch keeps the old baseline (fails closed, as before).
+- T1: staticcheck 0.8.2 is clean (run with `GOTOOLCHAIN=go1.27.4`); two error messages that started with a capital are reworded.
+- W3: `/plumbline:setup` asks for the project's own risky files beyond the built-in ones, with suggestions from the repo, and saves them as `risky_paths`.
+- W2 (bundling the MCP servers in the plugin) is dropped: bundled servers get other tool names, which every lookup check would have to learn, and they'd run beside your own.
+
 ## 0.6.10: release 4 (WF3, WF4)
 - WF3: the setup can save `format`, `typecheck` and `security` commands (`prettier --check .`, `tsc --noEmit`, `npm audit --audit-level=high`). `plumbline run format|typecheck|security` runs them; they pass on exit 0, or with no more problems than before the task, like lint and build. Every commit needs each saved one, a hotfix's first commit too, and a plan that changes packages needs their before-state at the checkpoint. The tester and builders may run them.
 - A format command that rewrites files (`prettier --write`, `gofmt -w`, `black .`, `ruff format`, also behind npx or pnpm exec) is refused at `plumbline setup save`; one that rewrites anyway (a script) is named at commit.

@@ -142,7 +142,7 @@ func TestCommandsSayWhenTheFolderIsFenced(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(data, 0o700) })
 	out, code := plumbline(t, home, data, "", "status")
-	if code != 1 || !strings.Contains(out, "can't read or write its folder") || !strings.Contains(out, "plumbline setup sandbox") {
+	if code != 1 || !strings.Contains(out, "can't read or write Plumbline's folder") || !strings.Contains(out, "plumbline setup sandbox") {
 		t.Errorf("status with a fenced folder: %d\n%s", code, out)
 	}
 	if out, code := plumbline(t, home, data, "", "version"); code != 0 {

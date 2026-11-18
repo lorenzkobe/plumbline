@@ -202,11 +202,14 @@ func (c *hookCtx) afterBash() Output {
 			}
 		}
 		c.followBranch(segs)
-		c.followHead(segs, false)
+		moved := c.followHead(segs, false)
 		if in.AgentID == "" {
 			c.noteShellReads(segs)
 		} else {
 			c.noteHelperOpened(shellReadFiles(segs)...)
+		}
+		if moved != "" {
+			return addContext(c.checkChanged(segs), moved)
 		}
 	}
 	return c.checkChanged(segs)

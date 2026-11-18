@@ -610,3 +610,100 @@ func TestBugTestChangedAfterItsFailingRun(t *testing.T) {
 		t.Fatalf("the test as it is now was seen failing: %s", m)
 	}
 }
+
+// M16: a failure already on the branch the task switches to after its
+// checkpoint isn't the task's, once the checks run there before any edit.
+func TestBaselineRetakenAfterTheSwitch(t *testing.T) {
+	for _, mode := range []string{"switch first", "edit first", "test first"} {
+		h := newHarness(t)
+		h.setup()
+		run(t, h.repo, "git", "checkout", "-q", "-b", "develop")
+		run(t, h.repo, "git", "checkout", "-q", "main")
+		write(t, filepath.Join(h.repo, "FAIL"), "x") // main already fails test_new
+		run(t, h.repo, "git", "add", "-A")
+		run(t, h.repo, "git", "commit", "-q", "-m", "chore: broken on main")
+		run(t, h.repo, "git", "checkout", "-q", "develop")
+		tk := h.startTask("small")
+		tk.StartCommit, tk.StartTips = HeadCommit(h.repo), BranchTips(h.repo)
+		must(t, SaveTask(tk))
+		if r, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard); err != nil || !r.Baseline || r.Failed != 0 {
+			t.Fatalf("develop's baseline passes: %+v %v", r, err)
+		}
+		for _, tool := range []string{"mcp__socraticode__search", "mcp__mempalace__search", "mcp__serena__find_symbol"} {
+			h.post(tool, nil, nil)
+		}
+		h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
+		h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- nothing\n")
+		h.docs(DocPlan, goodPlan)
+		h.approve()
+		switch mode {
+		case "edit first":
+			h.fix("return 2")
+		case "test first":
+			// A test written before the move would look like a failure the
+			// new branch already had, so it isn't a fresh starting point.
+			p := filepath.Join(h.repo, "src", "a_test.go")
+			write(t, p, "package src\n")
+			h.post("Edit", map[string]any{"file_path": p}, nil)
+		}
+		approved := h.task().ApprovalPrint
+		cmd := "git checkout -q main"
+		if d, r := decision(h.bash(cmd)); d == "deny" { // an edit first asks about carrying it along
+			t.Fatalf("%s refused: %s", cmd, r)
+		}
+		run(t, h.repo, "git", "checkout", "-q", "main")
+		o := h.post("Bash", map[string]any{"command": cmd}, map[string]any{})
+		said := strings.Contains(fmtOut(o), "runs on this code now are the task's baseline")
+		if said != (mode == "switch first") {
+			t.Fatalf("%s: the note about the new baseline: %v (%s)", mode, said, fmtOut(o))
+		}
+		if mode == "test first" {
+			if tk := h.task(); tk.BaselinePrint != "" || tk.ApprovalPrint == approved {
+				t.Fatalf("test first: the approval follows (%v) but the baseline doesn't (%q)", tk.ApprovalPrint != approved, tk.BaselinePrint)
+			}
+			continue
+		}
+		if mode == "switch first" {
+			if r, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard); err != nil || !r.Rebased || r.Failed != 1 {
+				t.Fatalf("main's baseline: %+v %v", r, err)
+			}
+			h.fix("return 2")
+		}
+		_, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
+		must(t, err)
+		m := proofMissingNow(h, true)
+		switch mode {
+		case "switch first":
+			if m != "" {
+				t.Fatalf("main's own failure was counted as the task's: %s", m)
+			}
+		case "edit first":
+			// Code changed before the move: the old baseline stays (fails
+			// closed, and Claude tells the user which failure was there).
+			if !strings.Contains(m, "full test suite") || h.task().BaselinePrint != "" {
+				t.Fatalf("edit before the switch: %s", m)
+			}
+		}
+	}
+}
+
+func TestRebasedBaselinesReplaceTheOldOnes(t *testing.T) {
+	old := &Run{TaskID: "t1", Kind: KindTest, Baseline: true, Finished: Now(), PrintBefore: "a", PrintAfter: "a", Ran: 3}
+	moved := &Run{TaskID: "t1", Kind: KindTest, Baseline: true, Rebased: true, Finished: Now(), PrintBefore: "b", PrintAfter: "b", Ran: 3, Failed: 1, FailedIDs: []string{"x"}}
+	if b := BaselineFor([]*Run{old}, "t1", KindTest); b != old {
+		t.Fatalf("without a move: %+v", b)
+	}
+	if b := BaselineFor([]*Run{old, moved}, "t1", KindTest); b != moved {
+		t.Fatalf("after the move the old, better baseline must not win: %+v", b)
+	}
+	if b := BaselineFor([]*Run{old, moved}, "t1", KindLint); b != nil {
+		t.Fatalf("another kind: %+v", b)
+	}
+	// A second move: only the newest landing point's runs count, even when
+	// the first branch's run had fewer failures.
+	again := &Run{TaskID: "t1", Kind: KindTest, Baseline: true, Rebased: true, Finished: Now(), PrintBefore: "c", PrintAfter: "c", Ran: 3, Failed: 2, FailedIDs: []string{"y", "z"}}
+	moved.Failed, moved.FailedIDs = 0, nil
+	if b := BaselineFor([]*Run{old, moved, again}, "t1", KindTest); b != again {
+		t.Fatalf("after a second move: %+v", b)
+	}
+}
