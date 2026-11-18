@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Checks on what the challenger and the reviewers write, run when they stop
@@ -299,7 +300,12 @@ const (
 )
 
 func shingles(text string) map[string]bool {
-	words := strings.Fields(strings.ToLower(text))
+	// Words without their punctuation: "x->a" and "x -> a" are the same
+	// words, so a phrase the plan holds counts as the plan's (IND1), and
+	// changed punctuation doesn't hide a pasted finding.
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	})
 	out := map[string]bool{}
 	for i := 0; i+shingleWords <= len(words); i++ {
 		s := strings.Join(words[i:i+shingleWords], " ")

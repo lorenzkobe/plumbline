@@ -101,7 +101,7 @@ The user's answers on how to handle the list:
 - [x] L3. (0.6.1) Logs hold commit subjects and absolute paths in Detail.
 - [x] L4. (0.6.4: failing test names are read for Vitest (whole files that fail to load too), mocha, RSpec, cargo and PHPUnit; failures without a name may not grow; of the runs before the first edit, the one with the fewest failures is the baseline, so fixing a broken environment and running again replaces it but a worse run never excuses more; a baseline where every test failed isn't one, and the finish check says so. Runners whose output shows no names, or a custom tests_ran_pattern, still compare counts) Without failing-test ids, the baseline compares counts only; a broken-environment baseline sticks.
 - [x] L5. (0.6.1) `test:` matches inside words like "latest:".
-- [ ] L6. If the AskUserQuestion response is a plain string, the `"Q"="A"` fallback could be spoofed.
+- [x] L6 (0.6.12). If the AskUserQuestion response is a plain string, the `"Q"="A"` fallback could be spoofed. The smoke run showed the hook gets a structured `answers` map, so the fallback is gone.
 
 ## Tooling
 - [x] T1. (0.6.11: staticcheck 0.8.2 is clean; it needs `GOTOOLCHAIN=go1.27.4 go run honnef.co/go/tools/cmd/staticcheck@latest ./...`, since the `go` on the PATH is 1.23 and its automatic switch picks a toolchain too old for Go 1.27's standard library. It found two error messages starting with a capital, reworded) staticcheck didn't run for 0.5.0 (the installed one is too old for Go 1.27). Run `go run honnef.co/go/tools/cmd/staticcheck@latest ./...` and fix what it finds.
@@ -113,7 +113,7 @@ The user's answers on how to handle the list:
 
 ## Not verified against Claude Code yet (smoke test, after phase 3)
 Confirm these before fixing the list above, since some fixes depend on how Claude Code behaves. Full text is in the handoff-3.md section named in brackets. Steps 1 to 18 of docs/smoke-test.md cover them (the standup's V20 is in step 17).
-- [ ] V1. The AskUserQuestion `tool_response` shape (`PLUMBLINE_DEBUG=1` saves the real one). Settles L6 too. (1a)
+- [x] V1 (smoke run 1). The AskUserQuestion `tool_response` shape (`PLUMBLINE_DEBUG=1` saves the real one). Settles L6 too. (1a)
 - [ ] V2. A PreToolUse deny holds in auto mode. (1a)
 - [ ] V3. `command_name` in UserPromptExpansion is `plumbline:pause`. (1a)
 - [ ] V4. Hooks inside a helper get the lead's `session_id`; if not, bind by `agent_id`. (1a, 1b)

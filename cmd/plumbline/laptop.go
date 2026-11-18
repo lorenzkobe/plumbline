@@ -26,6 +26,43 @@ type undoRecord struct {
 	DenyAdded    []string                   `json:"deny_added,omitempty"` // permissions.deny rules Plumbline added
 }
 
+// laptopState: what setup laptop sets, as Claude Code's user settings have
+// it now, so setup learns it without reading the settings file (SR3). Only
+// these values are shown, nothing else in the file.
+func laptopState() string {
+	sp := claudeSettingsPath()
+	settings := map[string]json.RawMessage{}
+	if b, err := os.ReadFile(sp); err == nil {
+		if err := json.Unmarshal(b, &settings); err != nil {
+			return "Laptop: Claude Code's user settings aren't valid JSON (" + sp + ")\n"
+		}
+	}
+	memory := "on"
+	if v, ok := settings["autoMemoryEnabled"]; ok && strings.TrimSpace(string(v)) == "false" {
+		memory = "off"
+	}
+	attribution := "Claude Code's default (on)"
+	var a struct {
+		Commit *string `json:"commit"`
+		PR     *string `json:"pr"`
+	}
+	if v, ok := settings["attribution"]; ok && json.Unmarshal(v, &a) == nil && a.Commit != nil && *a.Commit == "" {
+		attribution = "off"
+	}
+	rule := "no"
+	if b, err := os.ReadFile(filepath.Join(filepath.Dir(sp), "CLAUDE.md")); err == nil && strings.Contains(string(b), mdStart) {
+		rule = "yes"
+	}
+	_, deny, _ := denyList(settings)
+	n, all := 0, core.SecretDenyRules()
+	for _, r := range all {
+		if contains(deny, r) {
+			n++
+		}
+	}
+	return fmt.Sprintf("Laptop: built-in memory %s; AI attribution %s; ask-before-task rule in the global CLAUDE.md: %s; .env and key file deny rules: %d of %d\n", memory, attribution, rule, n, len(all))
+}
+
 func undoPath() string { return filepath.Join(core.DataDir(), "undo", "laptop.json") }
 
 // setupLaptop changes your Claude Code user settings. Claude can only reach it

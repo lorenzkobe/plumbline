@@ -505,3 +505,28 @@ func longConversationNote(in *HookInput) string {
 	_ = writeFileAtomic(marker, []byte("1"))
 	return msg("this conversation is getting long. Once this task is wrapped up, a fresh session saves tokens; the task state carries over.")
 }
+
+// UncommittedWork: the task's own changes that aren't committed yet (CM1).
+// Once the task is done no commit can be made for it, so finish waits for
+// the commit. The user's own work, another session's files, what the setup
+// ignores and the setup file itself don't count.
+func UncommittedWork(t *Task, s *Setup) []string {
+	dirty, err := DirtyFiles(t.Root)
+	if err != nil {
+		return nil
+	}
+	var ignore []string
+	if s != nil {
+		ignore = s.IgnoreChanges
+	}
+	others := t.OthersWork()
+	var out []string
+	for p := range dirty {
+		if others[p] || MatchAny(ignore, p) || p == RepoSetupFile {
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
+}

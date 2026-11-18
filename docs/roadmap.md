@@ -119,9 +119,32 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] WF3: optional saved `format`, `typecheck` and `security` commands.
 - [x] WF4: a `[bug]` case needs a recorded failing run of its named test, taken while only test files had changed.
 
+## Next: fixes from the first smoke run (0.6.12), before the rest of release 5
+The smoke run (2026-11-18) passed steps 1, 2, 3, 6, 6b and 7, mostly passed 4, and found the bugs below. Evidence, logs and file:line for each id: [smoke-run-1.md](smoke-run-1.md). Test setup to reuse: `~/Documents/PersonalDevProjects/kwenta-smoke` (copy of kwenta-web; origin is the local bare `kwenta-smoke-remote.git`), sessions started with `PLUMBLINE_DEBUG=1 claude --plugin-dir <this repo> --debug hooks --debug-file ../kwenta-smoke-logs/stepN.log`; Plumbline is not installed.
+
+Decided with the user:
+- Fix these now, then retest steps 3 and 5 and carry on from step 8 (rather than finish every step first).
+- Outside a task, Plumbline stops asking for ordinary commands and leaves them to Claude Code's own mode (auto mode). It still asks for its fixed list (installs, MCP and Claude Code settings changes, production and cloud, secret reads, setup save, laptop and sandbox), and PostToolUse still stops the work when a command changes repo files before a plan. Step 3's `touch foo.txt` check then expects no prompt, then the stop naming the file.
+- Skip ui-ux-pro-max for now (only `/plumbline:design` uses it).
+
+To fix (each with a test that fails first):
+- [x] TB1 (0.6.12): `plumbline task start ... && <reads>` never binds the task to the session (posttool.go `onlyPlumbline`); the deny then says "no task is active". Bind when the rest of the line only reads, point the deny at `plumbline task adopt <id>` when the branch has an open unbound task, and tell the task skill to start on its own line.
+- [x] SA1 (0.6.12): SubagentStop `decision: block` doesn't send a background helper back (it already handed back with `SubagentHandback`). Check the findings file when the helper calls `SubagentHandback` (PreToolUse deny with the reason); keep SubagentStop as the fallback. Check Claude Code's docs first.
+- [x] RTK1 (0.6.12): treat `rtk <cmd>` and `rtk proxy <cmd>` as wrappers and judge the inner command (helpers' read-only rule, the lead's gate, proof matching); `rtk gain`/`discover` only read.
+- [x] CM1 (0.6.12): `plumbline task finish` refuses while the task's own files are changed but not committed (commit first, then finish). Decided with the user: `--uncommitted` (behind a prompt) finishes anyway when the user said they'll commit themselves.
+- [x] SEC1 (0.6.12): a saved check that already failed before the task has no baseline unless Claude ran it before the first edit. Decided with the user: not a temporary copy (it has no node_modules, so lint, typecheck and build would fail there by the hundreds and excuse new problems); instead the first change waits until every saved check has a run on the code as approved.
+- [x] SR1 (0.6.12): setup adds Serena with `--agent-interface tools` (Serena 2.x defaults to REPL: one `serena_repl` tool Plumbline can't read); the deny for `serena_repl` names the flag.
+- [x] SR2 (0.6.12): Serena writes `.serena/` into each repo on first start; setup puts it in `ignore_changes`.
+- [x] SR8 (0.6.12): an `ignore_changes` glob matching a git-ignored path makes every `plumbline run` fail in the fingerprint's `git add` (git.go:56-62); skip such globs, and setup rejects them.
+- [x] (0.6.12) Outside-a-task prompts (the decision above), and setup saves once at the end (SR5).
+- [x] CFG1 (0.6.12): `.plumbline.json` leaves the code fingerprint, so a setup change doesn't make proof stale.
+- [x] IND1 (0.6.12): the helper-prompt independence check ignores phrases that are also in the task title, understanding.md or plan.md.
+- [x] (0.6.12) Smaller: SR3 (setup says how to learn the laptop state instead of reading settings.json), SR4 (laptop prompt says it changes Claude Code settings), SR6 (setup offers doc fixes as a task, not edits), SR7 (setup explains a tracked `.claude/settings.local.json` before the sandbox), SR10 (rules: every change starts by asking to open a task), L6 (drop the `"Q"="A"` string fallback: the hook gets a structured `answers` map), the stale "paused"/step note on a plumbline command message, read-only `awk` for helpers.
+- [x] (0.6.12) smoke-test.md: hook time is ~30-40 ms, not 5 ms; step 6b's variable check uses `CMD=$(cat f); $CMD`; step 3's touch check per the decision above; finish comes after the commit in step 5.
+
 ## Release 5, last
 - The smoke test, V1 to V20 (docs/smoke-test.md).
-- The items that depend on it: L6 (after V1), R2 (after V11), B6 (after V7 and V9).
+- The items that depend on it: R2 (after V11), B6 (after V7 and V9). L6 is done (0.6.12, after V1 in smoke run 1).
 - N11: the real-session prompt test script, run by hand.
 
 ## The open items (0.6.11), shipped before release 5

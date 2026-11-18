@@ -369,6 +369,11 @@ func cmdTask(args []string) error {
 		if miss := core.FinishMissing(t, s); len(miss) > 0 {
 			return errors.New("not proven yet: " + strings.Join(miss, "; "))
 		}
+		if _, leave := f["uncommitted"]; !leave {
+			if work := core.UncommittedWork(t, s); len(work) > 0 {
+				return fmt.Errorf("the task's changes aren't committed yet (%s). Commit first (ask the user), then finish: once the task is done, Claude can't commit them. If the user said they'll commit these themselves, run plumbline task finish --uncommitted", strings.Join(work, ", "))
+			}
+		}
 		t.Phase = core.PhaseDone
 		core.LogEvent(core.Event{Type: "phase", Task: t.ID, Rule: core.PhaseDone, Size: t.Size, Project: core.ProjectKey(root), Detail: fmt.Sprintf("commits=%d", t.Commits)})
 		core.LogTokens(t, core.ProjectKey(root))
@@ -801,6 +806,7 @@ func cmdSetup(args []string) error {
 	f, _, _ := flags(args[1:])
 	switch args[0] {
 	case "show":
+		fmt.Print(laptopState())
 		root := mustRoot()
 		p, found := core.SetupPath(root)
 		if !found {
@@ -838,6 +844,9 @@ func cmdSetup(args []string) error {
 			return err
 		}
 		fmt.Printf("Saved and confirmed: %s\n", p)
+		if dead := core.DeadIgnoreGlobs(root, s.IgnoreChanges); len(dead) > 0 {
+			fmt.Printf("Note: ignore_changes %s only names files git already ignores, so it isn't needed (git never counts them).\n", strings.Join(dead, ", "))
+		}
 		return nil
 	case "laptop":
 		return setupLaptop(f)

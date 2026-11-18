@@ -149,3 +149,29 @@ func TestCommandsSayWhenTheFolderIsFenced(t *testing.T) {
 		t.Errorf("version needs no folder: %d\n%s", code, out)
 	}
 }
+
+// SR3: setup learns the laptop's state from plumbline setup show, which
+// names only the values setup laptop sets.
+func TestLaptopStateShowsOnlyItsValues(t *testing.T) {
+	home := t.TempDir()
+	cfg := filepath.Join(home, "claude")
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("PLUMBLINE_HOME", filepath.Join(home, "data"))
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(`{"env":{"API_TOKEN":"s3cret"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := laptopState()
+	if !strings.Contains(got, "memory on") || !strings.Contains(got, "attribution Claude Code's default") || !strings.Contains(got, "CLAUDE.md: no") || strings.Contains(got, "s3cret") {
+		t.Fatalf("before: %s", got)
+	}
+	if err := setupLaptop(map[string]string{"memory-off": "true", "attribution-off": "true", "claude-md": "true", "deny-secrets": "true"}); err != nil {
+		t.Fatal(err)
+	}
+	got = laptopState()
+	if !strings.Contains(got, "memory off") || !strings.Contains(got, "attribution off") || !strings.Contains(got, "CLAUDE.md: yes") || strings.Contains(got, " 0 of") || strings.Contains(got, "s3cret") {
+		t.Fatalf("after: %s", got)
+	}
+}

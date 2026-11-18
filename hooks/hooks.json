@@ -36,7 +36,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^(Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|Read|AskUserQuestion|Agent|Task)$|^mcp__(?!.*(?:mempalace|socraticode|context7).*__)(?!.*serena.*__(?:find_symbol|find_referencing_symbols|get_symbols_overview|search_for_pattern|find_file|list_dir)$)",
+        "matcher": "^(Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|Read|AskUserQuestion|Agent|Task|SubagentHandback)$|^mcp__(?!.*(?:mempalace|socraticode|context7).*__)(?!.*serena.*__(?:find_symbol|find_referencing_symbols|get_symbols_overview|search_for_pattern|find_file|list_dir)$)",
         "hooks": [
           {
             "type": "command",

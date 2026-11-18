@@ -137,6 +137,8 @@ func ReadOnly(s Segment) bool {
 		return len(s.Words) == 1 // alone; with a command, the command is its own segment
 	case "trap":
 		return true // the trap's command is its own segment
+	case "rtk":
+		return rtkReadOnly(s) // what rtk runs is its own segment
 	case "git":
 		return gitReadOnlySeg(s)
 	case "plumbline":
@@ -684,6 +686,7 @@ func sedScriptReadOnly(sc string) bool {
 var (
 	reAwkSystem   = regexp.MustCompile(`\bsystem\s*\(|\|\s*getline|\|&|@load|@include`)
 	reAwkPrintOut = regexp.MustCompile(`\bprintf?\b[^;{}\n]*?(>|\|[^|])`)
+	reAwkString   = regexp.MustCompile(`"(?:[^"\\\n]|\\.)*"`)
 )
 
 // awkReadOnly: the program doesn't run commands or print to files or pipes.
@@ -714,7 +717,10 @@ func awkReadOnly(args []string) bool {
 	if prog == "" {
 		return false
 	}
-	return !reAwkSystem.MatchString(prog) && !reAwkPrintOut.MatchString(prog)
+	// A > or | inside a string is text, not a redirect: print c" lines >110"
+	// prints. A real redirect stays outside the quotes (print > "f").
+	bare := reAwkString.ReplaceAllString(prog, `""`)
+	return !reAwkSystem.MatchString(prog) && !reAwkPrintOut.MatchString(bare)
 }
 
 // Commands whose file arguments are the files they change.

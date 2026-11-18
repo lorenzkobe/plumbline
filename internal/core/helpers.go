@@ -79,6 +79,9 @@ type HelperRun struct {
 	NotCovered []string `json:"not_covered,omitempty"`
 	// Builders: how the run ended, from its notes' "## Status" (N10).
 	Status string `json:"status,omitempty"`
+	// The findings file (its hash, or "missing") when a handback was last
+	// refused, so a second try with nothing changed goes through (SA1).
+	HandbackDenied string `json:"handback_denied,omitempty"`
 }
 
 // Counts: a run that finished on unchanged code with a findings file that
@@ -749,6 +752,67 @@ func SubagentStart(in *HookInput) Output {
 	return Context("SubagentStart", msg(b.String()))
 }
 
+// stopProblems: whether the helper's findings file is missing, and what's
+// wrong with it. It records on run what the checks read from the file.
+func (c *hookCtx) stopProblems(run *HelperRun, kind string) (missing bool, problems []string) {
+	t := c.task
+	if !t.findingsExist(*run) {
+		return true, nil
+	}
+	switch {
+	case kind == HelperChallenger || isReviewer(kind):
+		problems = c.findingsProblems(run)
+	case kind == HelperBuilder:
+		if run.Status = builderStatus(t.findingsText(*run)); run.Status == "" {
+			problems = []string{fmt.Sprintf(`end your notes with "## Status" and one of: %s (blocked or needs context when you couldn't finish: bad work is worse than none)`, strings.Join(BuilderStatuses, ", "))}
+		}
+	}
+	return false, problems
+}
+
+// stopReason: what a helper must do before it stops or hands back, or "".
+func stopReason(t *Task, run *HelperRun, missing bool, problems []string, verb string) string {
+	out := filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)
+	switch {
+	case missing:
+		return fmt.Sprintf("write your findings to %s before you %s (if you found nothing, say so there, with what you checked).", out, verb)
+	case len(problems) > 0:
+		return fmt.Sprintf("fix your findings file (%s) before you %s: %s.", out, verb, strings.Join(problems, "; "))
+	}
+	return ""
+}
+
+// gateHandback: a helper handing its report back (SubagentHandback) gets the
+// stop check first, since a background helper that has handed back isn't
+// sent back by SubagentStop (SA1). A second try with the file unchanged
+// goes through, as a second stop does, and SubagentStop records what's
+// still wrong.
+func (c *hookCtx) gateHandback(kind string) Output {
+	t := c.task
+	if t == nil {
+		return nil
+	}
+	run := t.runByAgent(c.in.AgentID)
+	if run == nil || !run.Finished.IsZero() {
+		return nil
+	}
+	missing, problems := c.stopProblems(run, kind)
+	reason := stopReason(t, run, missing, problems, "hand back")
+	if reason == "" {
+		return nil
+	}
+	seen := sha256Hex([]byte(t.findingsText(*run)))
+	if missing {
+		seen = "missing"
+	}
+	if run.HandbackDenied == seen {
+		return nil
+	}
+	run.HandbackDenied = seen
+	_ = SaveTask(t)
+	return c.deny("helper-handback", reason)
+}
+
 // SubagentStop records the end of a helper run. A helper that wrote no
 // findings is sent back once to write them.
 func SubagentStop(in *HookInput) Output {
@@ -766,22 +830,12 @@ func SubagentStop(in *HookInput) Output {
 	if run == nil || !run.Finished.IsZero() {
 		return nil
 	}
-	out := filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)
-	if !t.findingsExist(*run) && !in.StopHookActive {
-		return Output{"decision": "block", "reason": msg(fmt.Sprintf("write your findings to %s before you stop (if you found nothing, say so there, with what you checked).", out))}
-	}
-	var problems []string
-	switch {
-	case kind == HelperChallenger || isReviewer(kind):
-		problems = c.findingsProblems(run)
-	case kind == HelperBuilder:
-		if run.Status = builderStatus(t.findingsText(*run)); run.Status == "" && t.findingsExist(*run) {
-			problems = []string{fmt.Sprintf(`end your notes with "## Status" and one of: %s (blocked or needs context when you couldn't finish: bad work is worse than none)`, strings.Join(BuilderStatuses, ", "))}
+	missing, problems := c.stopProblems(run, kind)
+	if reason := stopReason(c.task, run, missing, problems, "stop"); reason != "" && !in.StopHookActive {
+		if len(problems) > 0 {
+			_ = SaveTask(t) // what the checks read from the file
 		}
-	}
-	if len(problems) > 0 && !in.StopHookActive {
-		_ = SaveTask(t) // what the checks read from the file
-		return Output{"decision": "block", "reason": msg(fmt.Sprintf("fix your findings file (%s) before you stop: %s.", out, strings.Join(problems, "; ")))}
+		return Output{"decision": "block", "reason": msg(reason)}
 	}
 	run.Problems = problems
 	run.Finished = Now()

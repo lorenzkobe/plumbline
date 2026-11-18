@@ -113,6 +113,10 @@ func UserPromptSubmit(in *HookInput) Output {
 	}
 	var line string
 	switch {
+	case stateCommand(in.Prompt) != "":
+		// It runs after this hook (UserPromptExpansion), so the state read
+		// here is about to change: say so instead of the old state.
+		line = "Plumbline: the user typed /plumbline:" + stateCommand(in.Prompt) + ", which changes Plumbline's state for this project. Go by what it reports."
 	case c.root == "":
 		line = "Plumbline: Question mode (not a git repo). Answer from the real code, with file:line."
 	case c.paused:
@@ -123,6 +127,20 @@ func UserPromptSubmit(in *HookInput) Output {
 		line = "Plumbline: no task active. Pick the mode (Question / Explore / Task) and say it in one line. If this asks for a change, ask before starting the task workflow."
 	}
 	return Context("UserPromptSubmit", line)
+}
+
+// stateCommand: the Plumbline command the message is, when it changes the
+// state the prompt hook would describe ("" otherwise).
+func stateCommand(prompt string) string {
+	f := strings.Fields(strings.ToLower(strings.TrimSpace(prompt)))
+	if len(f) == 0 || !strings.HasPrefix(f[0], "/plumbline:") {
+		return ""
+	}
+	switch name := strings.TrimPrefix(f[0], "/plumbline:"); name {
+	case "pause", "resume", "cancel", "size", "hotfix":
+		return name
+	}
+	return ""
 }
 
 // UserPromptExpansion runs the user-only commands. These fire only when you

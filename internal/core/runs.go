@@ -158,7 +158,9 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	}
 	if t != nil {
 		r.TaskID = t.ID
-		r.Baseline = t.Phase != PhaseBuilding && t.LastCodeChange.IsZero()
+		// Before any change: before approval, or after it on the code as
+		// approved (SEC1: the checks are run then, before the first edit).
+		r.Baseline = t.LastCodeChange.IsZero() && (t.Phase != PhaseBuilding || t.ApprovalPrint != "" && before == t.ApprovalPrint)
 		if t.BaselinePrint != "" && before == t.BaselinePrint {
 			r.Baseline, r.Rebased = true, true
 		}

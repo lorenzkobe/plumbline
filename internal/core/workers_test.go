@@ -464,6 +464,7 @@ func TestClaudeCodeWorktreesAreNotCopies(t *testing.T) {
 	tk.Phase, tk.Checkpoint2At, tk.ApprovalPrint = PhaseBuilding, Now(), ""
 	must(t, SaveTask(tk))
 	id, _ := g.startHelper(HelperQA) // approved before 0.5.0, no code changed: QA may start
+	g.baselines()                    // the checks' runs before the first change (SEC1)
 	qa := func(tool string, input any) Output { return g.hi(id, HelperQA, tool, input) }
 	g.expect(qa("Read", map[string]any{"file_path": filepath.Join(feat, "src", "a.go")}), "", "")
 	g.expect(qa("Write", map[string]any{"file_path": filepath.Join(feat, "src", "a_test.go")}), "", "")

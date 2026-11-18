@@ -7,28 +7,31 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 ## 1. Hooks load and are fast
 - `/hooks`: Plumbline's hooks appear for SessionStart, UserPromptSubmit, UserPromptExpansion, PreToolUse, PostToolUse and Stop.
 - `/plumbline:status` runs, and `plumbline version` works when Claude runs it (the plugin's `bin/` is on the PATH).
-- Ask Claude to run `git status` five times. It should feel instant (each hook is about 5 ms).
+- Ask Claude to run `git status` five times. It should feel instant (each hook is about 30-40 ms through the launcher; the session-start hook is slower, under a second, because it checks Docker).
 
 ## 2. Setup
-- `/plumbline:setup`. Check that the confirm prompt appears for `plumbline setup save` and for `plumbline setup laptop`.
+- `/plumbline:setup`. Check that the confirm prompt appears for `plumbline setup save` (once, at the end) and for `plumbline setup laptop` (it says it changes Claude Code's own settings). Looking-around commands (`serena --help`, `claude mcp list`) get no Plumbline prompt; Claude Code's own mode decides. Doc fixes are offered as a task, not edited during setup.
+- With Serena: it's added with `--agent-interface tools`, and `.serena/**` is in `ignore_changes`.
 - After saving: `plumbline run test` records a run and says how many tests ran. If it says it couldn't tell, setup needs a `tests_ran_pattern`.
 
 ## 3. No code before approval (auto mode)
-- Say: "Rename the variable x in some file." Claude should ask whether to start the task workflow. Say yes.
+- Say: "Rename the variable x in some file." Claude should ask whether to start the task workflow before trying any edit. Say yes. **Expected: `plumbline task start` runs on its own line**, and `plumbline status` and the hooks agree on the task.
 - Before the checkpoint, ask Claude to just make the edit anyway. **Expected: the edit is blocked** (deny holds in auto mode).
 - Ask Claude to run the saved test command. **Expected: it runs without asking.**
 - Ask Claude to run `node -e "1"`. **Expected: refused, no prompt** (so nothing waits on you during a task).
-- Outside any task, ask Claude to run `touch foo.txt`. **Expected: a confirm prompt.** Allow it. **Expected: right after, the work stops** with "a terminal command changed files before any plan was approved". Delete foo.txt.
+- Outside any task, ask Claude to run `touch foo.txt`. **Expected: no Plumbline prompt** (Claude Code's own mode decides). **Expected: right after, the work stops** with "a terminal command changed files before any plan was approved", naming foo.txt. Delete foo.txt.
 
 ## 4. The checkpoint, then hands-off building
 - Give a small real task and walk away. **Expected: one question prompt (your terminal sound), showing the understanding and the plan, with "Approve" / "Change something".** Pick "Change something" first: the task stays where it is.
-- Ask again and pick "Approve". **Expected: Claude is told the user approved** and builds without any more prompts.
+- Ask again and pick "Approve". **Expected: Claude is told the user approved**, runs every saved check once before its first edit (an edit before that is refused, naming the checks), then builds without any more prompts.
 - If Claude says Plumbline couldn't read the approval, run Claude with `PLUMBLINE_DEBUG=1`, answer once more, and send `~/.plumbline/debug/askuser-response.json`. The answer shape needs fixing.
 - While it builds, check: an edit to a file not in the plan but part of the change goes through; an edit to an auth, migration or package file not in the plan is refused and shows up under "For you" in the report.
 
 ## 5. Commit and finish
 - Before running tests, ask Claude to commit. **Expected: blocked**, naming the missing proof.
 - Let Claude run the tests and write the report, then ask it to commit. **Expected: a confirm prompt** showing the message. Check there's no Co-Authored-By line.
+- Before the commit, ask Claude to finish the task. **Expected: refused**, naming the uncommitted files ("commit first"). After the commit, `plumbline task finish` closes it.
+- With a saved check that already fails before the task (`npm audit` with old problems): **expected: the finish isn't blocked by those old problems**, only by new ones.
 - Ask Claude to push. **Expected: blocked.**
 - Ask Claude to say it's done before writing the report. **Expected: it gets sent back once**, then stops and shows you what's missing.
 
@@ -40,7 +43,7 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 
 ## 6b. Unclear commands and MCP tools (0.3.1)
 - During a task, before the checkpoint, ask Claude to run `bash -c 'touch x'`. **Expected: refused** (only reading and saved commands).
-- Ask Claude to run `CMD=ls; $CMD`. **Expected: refused**, "Plumbline can't tell what this runs".
+- Ask Claude to run `CMD=$(cat somefile); $CMD`. **Expected: refused**, "Plumbline can't tell what this runs". (`CMD=ls; $CMD` is allowed: Plumbline sees the value on the same line, so it knows this runs `ls`.)
 - If Serena is installed: before the checkpoint, ask Claude to change a function with Serena's `replace_symbol_body`. **Expected: refused.** This checks that PreToolUse fires for MCP tools (matcher `mcp__.*`).
 - If you paused Plumbline with 0.3.0, the pause is gone after the upgrade: run `/plumbline:pause` again if you still want it.
 
@@ -55,6 +58,8 @@ Use a normal-size task (small tasks skip the challenger).
 - After building and the proof, say "done" before any review. **Expected: sent back**, naming `plumbline:plan-reviewer` and `plumbline:code-reviewer`.
 - Have the reviewers run in the background. **Expected: Claude can wait for them without being sent back**, and they write `plan-review-1.md` and `code-review-1.md`. If a reviewer start isn't recorded, `/hooks` should show the SubagentStart matcher `^plumbline:(challenger|(plan|code|security|data|ux)-reviewer)$`; note the agent_type Claude Code sent.
 - Ask Claude to have the code reviewer read `plan-review-1.md` (or `report.md`). **Expected: refused** ("each review stays independent").
+- (0.6.12) When a background helper hands back with a findings file Plumbline refuses (a cited line with no quote), **expected: the hand-back is refused** with the reason, and the helper fixes the file and hands back again on its own, with no SendMessage from the lead. If it doesn't continue, note it: SubagentStop's send-back doesn't reach a helper that has handed back, and this is the fallback.
+- (0.6.12) With rtk installed, a reviewer's `rtk git diff` runs (rtk is judged by the command it runs). A prompt to a reviewer that repeats a phrase the plan holds (the task's own rename mapping) isn't refused.
 - After the reviews, change one line of code. **Expected: the finish check asks every reviewer for another review.**
 
 ## 9. Specialists and Jira (0.4.0)

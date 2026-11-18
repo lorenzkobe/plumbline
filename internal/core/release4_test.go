@@ -323,6 +323,7 @@ func (h *harness) approveOut() Output {
 	if h.task().Phase != PhaseBuilding {
 		h.t.Fatal("checkpoint approval not recorded")
 	}
+	h.baselines()
 	return o
 }
 

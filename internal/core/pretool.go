@@ -67,6 +67,29 @@ func newCtx(in *HookInput) *hookCtx {
 	return c
 }
 
+// unboundHint: the lead has no task, and this branch has one open task in
+// this checkout that no session holds (its start didn't bind, TB1): how to
+// pick it up. "" otherwise.
+func (c *hookCtx) unboundHint() string {
+	if c.root == "" || c.task != nil || c.in.AgentID != "" {
+		return ""
+	}
+	branch, here := CurrentBranch(c.root), treeKey(c.root)
+	var found *Task
+	for _, t := range ListTasks(c.root) {
+		if t.Open() && t.SessionID == "" && t.Branch == branch && treeKey(t.Root) == here {
+			if found != nil {
+				return ""
+			}
+			found = t
+		}
+	}
+	if found == nil {
+		return ""
+	}
+	return fmt.Sprintf(" Task %s (\"%s\") is open on this branch but no session holds it. If it's the one just started, tie it to this session by running plumbline task adopt %s on its own line (it asks the user once).", found.ID, found.Title, found.ID)
+}
+
 // close releases the task lock; every hook defers it.
 func (c *hookCtx) close() {
 	if c.unlock != nil {
@@ -158,6 +181,9 @@ func PreToolUse(in *HookInput) Output {
 	}
 	if kind := helperKind(in.AgentType, false); kind != "" && in.AgentID != "" {
 		c.touchRun(kind)
+		if in.ToolName == "SubagentHandback" {
+			return c.gateHandback(kind)
+		}
 		if o := c.gateHelper(kind); o != nil {
 			return o
 		}
@@ -359,6 +385,12 @@ func mcpNameKind(tool string) (kind string, unclear bool) {
 	return "write", true
 }
 
+// serenaREPL: Serena 2's default single tool, which runs Python (SR1).
+func serenaREPL(tool string) bool {
+	server, name := mcpSplit(tool)
+	return strings.Contains(strings.ToLower(server), "serena") && contains(strings.Split(mcpWords(name), "_"), "repl") // not replace_symbol_body
+}
+
 // mcpKind is MCPKindIn with this project's setup.
 func (c *hookCtx) mcpKind() string { return MCPKindIn(c.in.ToolName, c.setup) }
 
@@ -482,6 +514,9 @@ func mcpPath(input map[string]any) string {
 // commands goes through the Bash gate; one that names a file goes through
 // the edit gate; any other changing tool waits for the approved plan.
 func (c *hookCtx) gateMCP() Output {
+	if serenaREPL(c.in.ToolName) && !c.paused {
+		return c.deny("serena-repl", "Serena's REPL runs Python, which can change any file, and Plumbline can't check what it does. Use Serena's own tools: the user re-adds Serena with --agent-interface tools (claude mcp add ... serena start-mcp-server ... --agent-interface tools; /plumbline:setup does it). Meanwhile use Read, Grep and the other tools.")
+	}
 	if jira, read := JiraTool(c.in.ToolName); jira && !read {
 		return c.gateJiraWrite()
 	}
@@ -509,7 +544,7 @@ func (c *hookCtx) gateMCP() Output {
 		return nil
 	}
 	if c.task == nil {
-		return c.ask("mcp-change", fmt.Sprintf("%s may change files or things outside the laptop, and no task is active. Allow it if that's fine now.", c.in.ToolName))
+		return c.ask("mcp-change", fmt.Sprintf("%s may change files or things outside the laptop, and no task is active. Allow it if that's fine now.%s", c.in.ToolName, c.unboundHint()))
 	}
 	if c.task.Phase != PhaseBuilding {
 		why := fmt.Sprintf("%s may change things, and the plan isn't approved yet. Use read-only tools until the checkpoint.", c.in.ToolName)
@@ -625,7 +660,7 @@ func (c *hookCtx) gateEdit(path string) Output {
 			}
 			return allow("task notes")
 		}
-		return c.deny("own-files", "Plumbline's own files (task state, proof, logs) can't be edited. Task notes go in the task's docs folder (plumbline docs-dir).")
+		return c.deny("own-files", "Plumbline's own files (task state, proof, logs) can't be edited. Task notes go in the task's docs folder (plumbline docs-dir)."+c.unboundHint())
 	}
 	if IsSecretFile(abs) {
 		return c.deny("secret-edit", "Claude doesn't edit .env or key files. Tell the user which variable to add or change (name only) and they make the change. Templates like .env.example are fine.")
@@ -656,7 +691,7 @@ func (c *hookCtx) gateEdit(path string) Output {
 		return c.ask("outside-project", fmt.Sprintf("%s is outside this project.", abs))
 	}
 	if c.task == nil {
-		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, ask in one line whether to start the task workflow, then run: plumbline task start --title \"...\". To try something out, use a throwaway copy in the scratchpad instead.")
+		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, ask in one line whether to start the task workflow, then run: plumbline task start --title \"...\". To try something out, use a throwaway copy in the scratchpad instead."+c.unboundHint())
 	}
 	if c.task.Phase != PhaseBuilding {
 		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at the checkpoint.", c.task.ID, c.task.Phase))
@@ -822,6 +857,16 @@ func plumblineReads(s Segment) bool {
 	return false
 }
 
+// finishLeavesWork: plumbline task finish --uncommitted (CM1).
+func finishLeavesWork(s Segment) bool {
+	for _, w := range s.Words[3:] {
+		if w == "--uncommitted" || strings.HasPrefix(w, "--uncommitted=") {
+			return true
+		}
+	}
+	return false
+}
+
 // standupSetsTracker: plumbline standup tracker --set <path>.
 func standupSetsTracker(s Segment) bool {
 	if s.Arg(1) != "standup" {
@@ -903,6 +948,12 @@ func protectedBase(t string) bool {
 // outside-plan files in the same command. It returns the rule and the reason
 // when the file is refused.
 func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
+	if need := c.baselineMissing(); len(need) > 0 {
+		if c.in.AgentID != "" {
+			return "baseline-first", fmt.Sprintf("the lead hasn't recorded how the saved checks stand before any change (%s), so %s waits. Stop and tell the lead in your notes.", strings.Join(need, ", "), rel)
+		}
+		return "baseline-first", fmt.Sprintf("before the first change, record how the saved checks stand on the approved code: run %s now, each on its own line. A problem they show was there before the task, so it won't block the finish; without them it would. Then make the change.", strings.Join(need, ", "))
+	}
 	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
 		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
 	}
@@ -929,6 +980,50 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, c.task.OutsideCount()+pending+1)
 	}
 	return "", ""
+}
+
+// baselineMissing (SEC1): until the task's first change, the saved checks
+// that have no run on the untouched code yet. Those runs tell a problem
+// that was already there from a new one; without one, a check that already
+// failed blocks the finish. A waived check needs none.
+func (c *hookCtx) baselineMissing() []string {
+	t := c.task
+	// A task approved before 0.5.0 has no approval fingerprint, so no run
+	// after approval can be one.
+	if t == nil || !t.LastCodeChange.IsZero() || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" {
+		return nil
+	}
+	var runs []*Run
+	var need []string
+	for _, k := range append([]string{KindTest}, CheckKinds...) {
+		if savedCommand(c.setup, k) == "" || t.waived(k) {
+			continue
+		}
+		if runs == nil {
+			runs = LoadRuns(t.Root)
+		}
+		if len(baselineRuns(runs, t.ID, k)) == 0 {
+			need = append(need, "plumbline run "+k)
+		}
+	}
+	if len(need) > 0 && t.Phase == PhaseBuilding {
+		// The code moved since approval without Claude changing it (the
+		// user edited a file): no run can be a starting point now.
+		if fp, err := Fingerprint(t.Root, c.ignore()); err != nil || fp != t.ApprovalPrint && fp != t.BaselinePrint {
+			return nil
+		}
+	}
+	return need
+}
+
+// waived: the task has a waiver for this check.
+func (t *Task) waived(kind string) bool {
+	for _, w := range t.Waivers {
+		if w.Check == kind {
+			return true
+		}
+	}
+	return false
 }
 
 // Variables that switch commit hooks off.
@@ -996,6 +1091,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 					v.a("setup-change", "this turns on Claude Code's Bash sandbox in this checkout ("+SandboxLocalFile+"): Plumbline's folder is fenced off from commands, Plumbline's own commands, Docker and any --exclude names run outside it, and Claude can't retry a command outside it. Builds that need the network, caches outside the project or a login may then fail; undo with plumbline setup undo-sandbox.")
 				case "undo-sandbox":
 					v.a("setup-change", "this takes out the sandbox settings Plumbline added in this checkout ("+SandboxLocalFile+").")
+				case "laptop":
+					v.a("setup-change", "this changes Claude Code's own user settings (built-in memory, AI attribution, deny rules for .env and key files, as its flags say) and may add a rule to your global CLAUDE.md. The old values are kept; plumbline setup undo-laptop puts them back.")
+				case "undo-laptop":
+					v.a("setup-change", "this puts back the Claude Code user settings and global CLAUDE.md that plumbline setup laptop changed.")
 				default:
 					v.a("setup-change", "this saves Plumbline setup. Check the values before allowing.")
 				}
@@ -1014,6 +1113,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 			if s.Arg(1) == "task" && (s.Arg(2) == "start" || s.Arg(2) == "tool-down" || s.Arg(2) == "size" || s.Arg(2) == "finish") {
 				quiet = true
+			}
+			if s.Arg(1) == "task" && s.Arg(2) == "finish" && finishLeavesWork(s) {
+				v.a("finish-uncommitted", "this closes the task with its changes uncommitted, and Claude can't commit them after that. Allow it only if you said you'll commit them yourself.")
 			}
 			if s.Arg(1) == "task" && s.Arg(2) == "start" {
 				if o := c.otherSessionTask(); o != nil {
@@ -1222,14 +1324,14 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if len(v.deny) > 0 {
 		return c.deny(v.denyRule, strings.Join(uniq(v.deny), " "))
 	}
-	if !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) && !allQuiet && !hasCommit {
-		if c.task != nil {
-			// The user is often away while Claude researches, so refuse
-			// instead of waiting on a prompt.
-			return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list."+hint)
-		}
-		v.a("before-approval", "no task is active, so only reading and the project's saved commands run without asking. Allow this if it's fine to run now."+hint)
+	if !c.paused && c.task != nil && c.task.Phase != PhaseBuilding && !allQuiet && !hasCommit {
+		// The user is often away while Claude researches, so refuse
+		// instead of waiting on a prompt.
+		return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list."+hint)
 	}
+	// Outside a task an ordinary command is left to Claude Code's own
+	// permission mode: the rules above still ask for their fixed list, and
+	// the post hook stops the work when a command changes the repo's files.
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
 	}
@@ -1284,7 +1386,7 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision,
 		return "ask", "commit", fmt.Sprintf("commit \"%s\" (Plumbline is paused, so proof isn't checked).", subject)
 	}
 	if ctx.task == nil {
-		return "deny", "commit-no-task", "commits happen inside a task, after the report and the user's OK. If this commit is outside any task, the user can pause Plumbline with /plumbline:pause."
+		return "deny", "commit-no-task", "commits happen inside a task, after the report and the user's OK. If this commit is outside any task, the user can pause Plumbline with /plumbline:pause." + ctx.unboundHint()
 	}
 	if ctx.task.Phase != PhaseBuilding {
 		return "deny", "commit-phase", fmt.Sprintf("task %s is at the %s step; nothing can be committed before the plan is approved and proven.", ctx.task.ID, ctx.task.Phase)
@@ -1509,7 +1611,7 @@ func (c *hookCtx) gateQuestion() Output {
 		return c.deny("checkpoint-format", "a checkpoint question needs an option whose label starts with \"Approve\" and at least one other option (for example \"Change something\").")
 	}
 	if c.task == nil {
-		return c.deny("no-task", "start the task first: plumbline task start --title \"...\".")
+		return c.deny("no-task", "start the task first: plumbline task start --title \"...\"."+c.unboundHint())
 	}
 	problems := c.checkpointProblems(cp)
 	if len(problems) > 0 {

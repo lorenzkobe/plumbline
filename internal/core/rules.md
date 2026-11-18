@@ -19,7 +19,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 ## Modes (pick one, say it in one line)
 - Question: how or why something works. Answer from the real code with file:line. No changes.
 - Explore: try something. Anything that runs stays local; experimental edits go in a throwaway copy (scratchpad or /tmp), never the working branch.
-- Task: something needs to change. Never start it on your own: ask in one line ("This looks like a task. Start the task workflow for PROJ-123?"). The user typing /plumbline:task counts as yes.
+- Task: something needs to change. Never start it on your own: ask in one line ("This looks like a task. Start the task workflow for PROJ-123?"). The user typing /plumbline:task counts as yes. Every change to the repo's files is a task, however small (a one-line rename too): ask first, and never edit to find out whether Plumbline allows it.
 
 ## Tools
 - MemPalace: our past conversations only. Never facts about the code.
@@ -29,14 +29,14 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Required for any task: MemPalace, SocratiCode, Docker. Check them once at task start (in parallel); one fix attempt each, then ask the user.
 
 ## The plumbline command (on PATH)
-- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task (after the user said yes). `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
+- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task (after the user said yes). Run it on its own line, so the task is tied to this session. `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
 - `plumbline status` shows the step, what's proven and what's missing. `plumbline docs-dir` prints the task's notes folder.
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`, and `plumbline run format|typecheck|security` when the setup saves them: Plumbline runs the saved command and records the result. Only these runs count as proof. Every commit needs each saved check (lint, build, format, typecheck, security) to pass.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
 - `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files (the user can keep a low-impact one small with /plumbline:size small) and always for files that decide which checks run (CI, git hooks, test and lint config, AI instructions).
 - `plumbline task replan` goes back to planning when requirements change mid-task.
-- `plumbline task finish` closes the task after the report and the user's commit decision.
+- `plumbline task finish` closes the task after the report and the commit. It refuses while the task's changes aren't committed; `--uncommitted` (it asks the user) is for when the user said they'll commit themselves.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
 - Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests and the saved checks, with the full suite and every reviewer right after it.
 

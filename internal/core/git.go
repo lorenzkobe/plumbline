@@ -53,7 +53,9 @@ func Fingerprint(root string, ignore []string) (string, error) {
 		// code. (Naming a path git already ignores is an error in git add.)
 		args = append(args, ":(exclude)"+WorktreesDir)
 	}
-	for _, g := range ignore {
+	// The setup file isn't code: runs count only for the saved command that
+	// made them, so a setup change leaves the proof standing (CFG1).
+	for _, g := range liveGlobs(root, append(append([]string{}, ignore...), RepoSetupFile)) {
 		args = append(args, ":(exclude,glob)"+g)
 	}
 	add := exec.Command("git", args...)
@@ -215,4 +217,79 @@ func worktreesUnignored(root string) bool {
 	}
 	_, err := gitOut(root, "check-ignore", "-q", WorktreesDir+"/")
 	return err != nil
+}
+
+// liveGlobs drops the ignore globs whose fixed leading part git already
+// ignores (dist/** with dist/ in .gitignore): they can only name ignored
+// files, which git add -A leaves out anyway, and git add refuses a pathspec
+// whose fixed part is an ignored path, which made every fingerprint fail
+// (SR8). A glob with no fixed folder (**/*.snap) is never refused.
+func liveGlobs(root string, globs []string) []string {
+	prefix := map[string]string{}
+	var ask []string
+	for _, g := range globs {
+		if p := globPrefix(g); p != "" {
+			if _, seen := prefix[g]; !seen {
+				prefix[g] = p
+				ask = append(ask, p)
+			}
+		}
+	}
+	if len(ask) == 0 {
+		return globs
+	}
+	cmd := exec.Command("git", "check-ignore", "--stdin", "-z")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader(strings.Join(ask, "\x00") + "\x00")
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+			return globs // check-ignore failed: keep them all, as before
+		}
+	}
+	ignored := map[string]bool{}
+	for _, p := range strings.Split(string(out), "\x00") {
+		if p != "" {
+			ignored[p] = true
+		}
+	}
+	var live []string
+	for _, g := range globs {
+		if p := prefix[g]; p == "" || !ignored[p] {
+			live = append(live, g)
+		}
+	}
+	return live
+}
+
+// DeadIgnoreGlobs: the ignore globs that only name files git already
+// ignores, for setup to point out.
+func DeadIgnoreGlobs(root string, globs []string) []string {
+	live := map[string]bool{}
+	for _, g := range liveGlobs(root, globs) {
+		live[g] = true
+	}
+	var dead []string
+	for _, g := range globs {
+		if !live[g] {
+			dead = append(dead, g)
+		}
+	}
+	return dead
+}
+
+// globPrefix: the fixed path a glob starts with, up to the folder before its
+// first wildcard (dist/*.js: dist), the whole glob when it has none, "" when
+// it starts with one.
+func globPrefix(g string) string {
+	g = strings.TrimPrefix(g, "./")
+	i := strings.IndexAny(g, "*?[")
+	if i < 0 {
+		return strings.TrimSuffix(g, "/")
+	}
+	j := strings.LastIndex(g[:i], "/")
+	if j <= 0 {
+		return ""
+	}
+	return g[:j]
 }

@@ -747,7 +747,7 @@ func TestCaseTestsWithoutAFilesCommand(t *testing.T) {
 func TestReplanIntoAPackagePlan(t *testing.T) {
 	h := groundedTask(t, "small")
 	h.docs(DocPlan, goodPlan)
-	h.approve()
+	h.approveOnly() // no runs before the change
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)

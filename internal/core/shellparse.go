@@ -1450,6 +1450,8 @@ func unwrap(s Segment, depth int, pc *parseCtx) []Segment {
 		}
 	case name == "git":
 		return unwrapGit(s, depth, pc)
+	case name == "rtk":
+		return unwrapRtk(s, depth, pc)
 	}
 	return []Segment{s}
 }

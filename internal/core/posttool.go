@@ -171,8 +171,10 @@ func (c *hookCtx) afterBash() Output {
 	segs := ParseShell(cmd, in.Cwd)
 	c.noteDevDBAllowed(segs)
 	// Bind a task to this session only on a real plumbline task start or
-	// adopt: printing the id line some other way binds nothing.
-	onlyPlumbline := len(segs) > 0
+	// adopt: printing the id line some other way binds nothing. Beside the
+	// start, the line may hold only commands whose output can't carry an id
+	// line someone wrote (TB1).
+	onlyPlumbline, startTail := len(segs) > 0, len(segs) > 0
 	var start, adopt *Segment
 	for i := range segs {
 		s := &segs[i]
@@ -184,10 +186,13 @@ func (c *hookCtx) afterBash() Output {
 		case isPlumblineBin(s.Name()), s.Name() == "cd", s.Name() == "" && len(s.Env) == 0:
 		default:
 			onlyPlumbline = false
+			if !startTailReads(*s) {
+				startTail = false
+			}
 		}
 	}
-	if m := reTaskStarted.FindStringSubmatch(out); m != nil && start != nil && onlyPlumbline {
-		c.bind(m[1], true)
+	if id := oneID(reTaskStarted, out); id != "" && start != nil && startTail {
+		c.bind(id, true)
 	}
 	if m := reAdopted.FindStringSubmatch(out); m != nil && adopt != nil && onlyPlumbline && contains(adopt.Words[3:], m[1]) {
 		c.bind(m[1], false)
@@ -265,6 +270,36 @@ func (c *hookCtx) noteHelperOpened(files ...string) {
 	if added {
 		_ = SaveTask(c.task)
 	}
+}
+
+// startTailReads: a command that may share a line with plumbline task
+// start: it only reads, and prints nothing a command or file could have put
+// an id line in (no echo, cat, grep, git log).
+func startTailReads(s Segment) bool {
+	if s.Opaque != "" || len(s.Redirects) > 0 || s.Stdin != nil || s.Piped || !ReadOnly(s) {
+		return false
+	}
+	switch s.Name() {
+	case "pwd", "ls", "true":
+		return true
+	case "git":
+		sub, _ := GitSub(s)
+		return (sub == "status" || sub == "rev-parse" || sub == "branch") && gitReadOnlySeg(s)
+	}
+	return false
+}
+
+// oneID: the id the output's id lines name, or "" when there are none or
+// they name different tasks.
+func oneID(re *regexp.Regexp, out string) string {
+	id := ""
+	for _, m := range re.FindAllStringSubmatch(out, -1) {
+		if id != "" && m[1] != id {
+			return ""
+		}
+		id = m[1]
+	}
+	return id
 }
 
 // bind binds a task to this session, under that task's lock. A new task
@@ -436,20 +471,14 @@ func responseText(raw json.RawMessage) string {
 	return string(raw)
 }
 
-// findAnswer looks for the user's answer to a question in the tool response,
-// whatever shape Claude Code uses for it.
+// findAnswer looks for the user's answer to a question in the tool
+// response's answers map. Text that reads like "Question"="Answer" is never
+// read: Claude Code sends the map (V1), and a free-text answer could carry
+// that text (L6).
 func findAnswer(raw json.RawMessage, question string) string {
 	var v any
 	if json.Unmarshal(raw, &v) == nil {
-		if a := walkAnswer(v, question); a != "" {
-			return a
-		}
-	}
-	text := responseText(raw)
-	// "Question"="Answer" style
-	q := regexp.QuoteMeta(question)
-	if m := regexp.MustCompile(`"` + q + `"\s*=\s*"([^"]*)"`).FindStringSubmatch(text); m != nil {
-		return m[1]
+		return walkAnswer(v, question)
 	}
 	return ""
 }

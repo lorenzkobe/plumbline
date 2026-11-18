@@ -160,14 +160,14 @@ func TestZshOnlySyntaxIsChecked(t *testing.T) {
 		"() { cat src/a.go }":                          "allow",
 		"echo ${arr[(r)x]}":                            "allow",
 		"zsh -c 'echo ${(U)x}'":                        "allow",
-		"echo ${(U)x} >>| src/a.go":                    "ask", // zsh's clobbering append writes
-		"echo ${(U)x} &>| src/a.go":                    "ask",
+		"echo ${(U)x} >>| src/a.go":                    "", // zsh's clobbering append writes: not a read, so Claude Code's mode decides
+		"echo ${(U)x} &>| src/a.go":                    "",
 		"echo ${(U)x}; ls *(e:'touch y':)":             "deny", // a glob qualifier can run code
 		"echo ${(U)x}; ls **/*.go(.om[1,3])":           "deny",
 		"echo ${(e)x}":                                 "deny", // (e) evaluates the value
 		"echo ${~pat}":                                 "deny", // the value becomes a pattern
 		"bash -c 'echo ${(U)x}'":                       "deny", // bash runs it, and bash can't parse it
-		"echo ${(U)x}; rm src/a.go":                    "ask",
+		"echo ${(U)x}; rm src/a.go":                    "",
 		"echo ${(U)x}; git push origin main":           "deny",
 		"function a b { echo hi }; echo ${(U)x}":       "allow",
 		"echo ${(U)x}; cat <<'EOF'\nf(x) and (y)\nEOF": "allow",

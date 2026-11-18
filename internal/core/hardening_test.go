@@ -22,7 +22,7 @@ func buildingTask(t *testing.T) *harness {
 // H1: a heredoc hid the rest of its tag line.
 func TestHeredocHidesNothing(t *testing.T) {
 	h := newHarness(t)
-	h.expect(h.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "ask", "no task is active")
+	h.expect(h.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "", "") // outside a task: Claude Code's mode decides
 	h.expect(h.bash("cat <<EOF; git push\nx\nEOF"), "deny", "pushing")
 	h.expect(h.bash("cat <<'EOF'\nx\nEOF\ngit push origin main"), "deny", "pushing")
 	h.expect(h.bash("cat <<EOF >> "+filepath.Join(DataDir(), "projects", "x", "paused")+"\nx\nEOF"), "deny", "own files")
@@ -83,7 +83,11 @@ func TestWrappersHideNothing(t *testing.T) {
 	} {
 		h.expect(h.bash(c), "deny", "can't tell")
 	}
-	// The commit rule sees a commit inside a wrapper.
+	// The commit rule sees a commit inside a wrapper (after a change, so the
+	// runs taken after approval don't prove it).
+	a := filepath.Join(h.repo, "src", "a.go")
+	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
+	h.post("Edit", map[string]any{"file_path": a}, nil)
 	h.expect(h.bash(`sh -c 'git commit -am "fix: A"'`), "deny", "proof")
 	h.expect(h.bash(`bash -c 'git commit -m "A"'`), "deny", "feat:")
 	// Normal building commands still run.
@@ -315,7 +319,7 @@ func TestSecretReadsAndSends(t *testing.T) {
 	} {
 		h.expect(h.bash(c), "ask", ".env")
 	}
-	h.expect(h.bash("set -a; . ./.env; set +a; echo ok"), "ask", "no task")
+	h.expect(h.bash("set -a; . ./.env; set +a; echo ok"), "", "") // loads the values without showing them
 }
 
 // M5, M6: what a commit holds and says.

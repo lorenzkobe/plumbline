@@ -107,11 +107,35 @@ func checkpointQ() map[string]any {
 
 func (h *harness) approve() {
 	h.t.Helper()
+	h.approveOnly()
+	h.baselines()
+}
+
+// approveOnly: the approval, without the checks' runs that follow it.
+func (h *harness) approveOnly() {
+	h.t.Helper()
 	q := checkpointQ()
 	h.expect(h.pre("AskUserQuestion", q), "", "")
 	h.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Go?": "Approve"}})
 	if h.task().Phase != PhaseBuilding {
 		h.t.Fatal("checkpoint approval not recorded")
+	}
+}
+
+// baselines runs each saved check that has no run from before the task's
+// first change, as Claude does right after approval (SEC1).
+func (h *harness) baselines() {
+	h.t.Helper()
+	s, _, _ := LoadSetup(h.repo)
+	if s == nil {
+		return
+	}
+	runs := LoadRuns(h.repo)
+	for _, k := range append([]string{KindTest}, CheckKinds...) {
+		if c := savedCommand(s, k); c != "" && len(baselineRuns(runs, h.task().ID, k)) == 0 {
+			_, err := Execute(h.repo, h.task(), k, "", c, s, io.Discard)
+			must(h.t, err)
+		}
 	}
 }
 
@@ -149,6 +173,12 @@ func TestChallengerBeforeCheckpoint(t *testing.T) {
 	h.expect(hi("Bash", map[string]any{"command": "./test.sh"}), "deny", "") // saved commands are the lead's
 	h.expect(hi("Bash", map[string]any{"command": "plumbline task replan"}), "deny", "")
 	h.expect(hi("Bash", map[string]any{"command": "cat src/a.go | grep A && git log -3 && plumbline docs-dir"}), "allow", "")
+	// RTK1: rtk is judged by what it runs
+	h.expect(hi("Bash", map[string]any{"command": "rtk git diff HEAD~1 && rtk gain --history && rtk proxy git log -3 && rtk read src/a.go"}), "allow", "")
+	h.expect(hi("Bash", map[string]any{"command": "rtk git stash"}), "deny", "")
+	h.expect(hi("Bash", map[string]any{"command": "rtk proxy rm src/a.go"}), "deny", "")
+	h.expect(hi("Bash", map[string]any{"command": "rtk run -c 'rm src/a.go'"}), "deny", "")
+	h.expect(hi("Bash", map[string]any{"command": "rtk read .env"}), "deny", "runs without the user")
 	h.expect(hi("Bash", map[string]any{"command": "cat .env"}), "deny", "runs without the user") // safety rules still apply, and helpers never ask
 	h.expect(hi("AskUserQuestion", checkpointQ()), "deny", "without the user")
 	h.expect(hi("Agent", map[string]any{"subagent_type": "Explore"}), "deny", "can't start other helpers")
