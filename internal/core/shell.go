@@ -1078,3 +1078,350 @@ func ReadsSecretFile(s Segment) string {
 	}
 	return ""
 }
+
+// Options of the line-printing commands that take the next word as their
+// value, so it isn't one of the files.
+var printerValueFlags = map[string]map[string]bool{
+	"head": set("-n -c --lines --bytes"),
+	"tail": set("-n -c -s --lines --bytes --sleep-interval --pid --max-unchanged-stats"),
+	"nl":   set("-b -d -f -h -i -l -n -s -v -w --body-numbering --section-delimiter --footer-numbering --header-numbering --line-increment --join-blank-lines --number-format --number-separator --starting-line-number --number-width"),
+	"bat":  set("-l -m -r -H --language --map-syntax --line-range --highlight-line --style --theme --tabs --wrap --terminal-width --decorations --color --paging --italic-text --pager --file-name --diff-context"),
+	"sed":  set("-e -f -l --expression --file --line-length"),
+	"awk":  set("-v -F --assign --field-separator"),
+	"grep": set("-e -f -A -B -C -m -d -D --regexp --file --after-context --before-context --context --max-count --directories --devices --include --exclude --exclude-dir --exclude-from --label --binary-files"),
+	"rg":   set("-e -f -g -t -T -A -B -C -m -M -j -E -r -d --regexp --file --glob --iglob --type --type-not --type-add --type-clear --after-context --before-context --context --max-count --max-columns --threads --encoding --replace --sort --sortr --colors --context-separator --field-context-separator --field-match-separator --max-depth --path-separator --pre-glob --max-filesize --engine --ignore-file --dfa-size-limit --regex-size-limit --hostname-bin --hyperlink-format --generate"),
+}
+
+// printerFamily maps a line-printing command to the entry for its options.
+func printerFamily(name string) string {
+	switch name {
+	case "cat", "tac", "less", "more":
+		return "cat"
+	case "gsed":
+		return "sed"
+	case "gawk", "mawk", "nawk":
+		return "awk"
+	case "egrep", "fgrep":
+		return "grep"
+	case "head", "tail", "nl", "bat", "sed", "awk", "grep", "rg":
+		return name
+	}
+	return ""
+}
+
+// PrintedFiles lists the files a line-printing command shows lines of (cat,
+// sed -n, head, grep or rg on named files): what Claude saw of them, as
+// absolute paths of existing files. A folder, a word not known until it
+// runs, and files xargs adds are left out.
+func PrintedFiles(s Segment) []string {
+	fam := printerFamily(s.Name())
+	if fam == "" || s.MoreArgs || countsOnly(s.Name(), s.Words[1:]) {
+		return nil
+	}
+	if fam == "sed" && !sedPrints(s.Words[1:]) {
+		return nil
+	}
+	values := printerValueFlags[fam]
+	// sed, awk, grep and rg take their script or pattern as the first plain
+	// word, unless an option gave it.
+	needPattern := fam == "sed" || fam == "awk" || fam == "grep" || fam == "rg"
+	var out []string
+	dashed := false
+	for i := 1; i < len(s.Words); i++ {
+		a := s.Words[i]
+		if s.dyn(i) {
+			continue
+		}
+		if !dashed {
+			if a == "--" {
+				dashed = true
+				continue
+			}
+			if strings.HasPrefix(a, "-") && a != "-" {
+				n, _, hasEq := strings.Cut(a, "=")
+				switch {
+				case n == "-e" || n == "--regexp" || n == "--expression" || n == "-f" || n == "--file":
+					needPattern = false
+				case fam == "grep" || fam == "rg":
+					if f := shortFlags(a); len(f) > 1 && strings.ContainsAny(f[:1], "ef") {
+						needPattern = false // -efoo
+					}
+				}
+				if values[n] && !hasEq && (len(n) > 2 || len(a) == 2) {
+					i++ // its value is the next word
+				}
+				continue
+			}
+		}
+		if needPattern {
+			needPattern = false
+			continue
+		}
+		if a == "-" || fam == "awk" && strings.Contains(a, "=") && !strings.Contains(a, "/") {
+			continue // standard input, or awk's var=value
+		}
+		cands := []string{a}
+		if s.glob(i) {
+			cands = expandGlob(a, s.Dir)
+		}
+		for _, c := range cands {
+			if s.Dir == "" && !filepath.IsAbs(c) {
+				continue
+			}
+			abs := Abs(c, s.Dir)
+			if fi, err := os.Stat(abs); err == nil && fi.Mode().IsRegular() {
+				out = append(out, abs)
+			}
+		}
+	}
+	return out
+}
+
+// sedPrints: sed prints its lines (by default, or with p under -n). A
+// script given by -n with no p, like sed -n '$=', prints none of them.
+func sedPrints(args []string) bool {
+	quiet := false
+	var scripts []string
+	explicit := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			i = len(args)
+		case a == "-n" || a == "--quiet" || a == "--silent":
+			quiet = true
+		case a == "-e" || a == "--expression":
+			if i+1 < len(args) {
+				scripts = append(scripts, args[i+1])
+				i++
+			}
+			explicit = true
+		case strings.HasPrefix(a, "--expression="):
+			scripts = append(scripts, strings.TrimPrefix(a, "--expression="))
+			explicit = true
+		case a == "-l" || a == "--line-length":
+			i++
+		case shortFlags(a) != "":
+			f := shortFlags(a)
+			if strings.Contains(f, "n") {
+				quiet = true
+			}
+			if j := strings.Index(f, "e"); j >= 0 {
+				if rest := f[j+1:]; rest != "" {
+					scripts = append(scripts, rest)
+				} else if i+1 < len(args) {
+					scripts = append(scripts, args[i+1])
+					i++
+				}
+				explicit = true
+			}
+		case strings.HasPrefix(a, "-"):
+		default:
+			if !explicit && len(scripts) == 0 {
+				scripts = append(scripts, a)
+			}
+		}
+	}
+	if !quiet {
+		return true
+	}
+	for _, sc := range scripts {
+		if strings.ContainsAny(sc, "pP") {
+			return true
+		}
+	}
+	return false
+}
+
+// SecretDenyRules are the Claude Code deny rules setup can add to the user
+// settings, so Claude Code itself skips these files for Read, Grep and Glob
+// (a folder-wide search too) and for the file commands it knows in Bash.
+// Rules can't make exceptions, so .env files are named one by one and
+// templates (.env.example) stay readable. Other .env.<name> files still
+// get Plumbline's own prompt.
+func SecretDenyRules() []string {
+	var out []string
+	for _, n := range strings.Fields(`.env .env.local .env.*.local .env.development .env.dev .env.test .env.staging
+		.env.production .env.prod *.pem *.key *.p12 *.pfx *.keystore *.jks id_rsa id_ed25519 id_ecdsa id_dsa
+		.npmrc .pypirc .netrc .pgpass .aws/credentials secrets.json secrets.yaml secrets.yml secrets.toml secrets.env`) {
+		out = append(out, "Read(**/"+n+")")
+	}
+	return out
+}
+
+// ReadsListedFiles: a command that reads files gets some of their names from
+// a listing (xargs, find -exec, fd -x), and that listing could name a
+// secret file. A listing narrowed to names that can't be secret is fine:
+// rg -l x -g '*.go', find . -name '*.ts', fd -e go, git ls-files '*.go'.
+func ReadsListedFiles(s Segment) bool {
+	if !s.fed || !fileReaders[s.Name()] {
+		return false
+	}
+	for _, cmd := range s.feed {
+		if passesNames(cmd) {
+			continue // sort, uniq, head, tail: the same names, fewer or reordered
+		}
+		return !listingSafe(cmd)
+	}
+	return true // nothing known makes the listing
+}
+
+// passesNames: a filter that only reorders or drops the names piped in.
+func passesNames(cmd []string) bool {
+	if len(cmd) == 0 {
+		return false
+	}
+	switch strings.ToLower(filepath.Base(cmd[0])) {
+	case "sort", "uniq", "head", "tail":
+	default:
+		return false
+	}
+	for _, a := range cmd[1:] {
+		if !strings.HasPrefix(a, "-") && strings.Trim(a, "0123456789") != "" {
+			return false // a file it reads instead
+		}
+	}
+	return true
+}
+
+// listingSafe: the command lists only names that match patterns which
+// can't match a secret file.
+func listingSafe(cmd []string) bool {
+	if len(cmd) == 0 || cmd[0] == "" {
+		return false
+	}
+	args := cmd[1:]
+	var pats []string
+	// value: the value of option opt at args[i] (attached, after =, or the
+	// next word); ok false when args[i] isn't opt.
+	value := func(i int, opts ...string) (string, int, bool) {
+		a := args[i]
+		for _, o := range opts {
+			switch {
+			case a == o && i+1 < len(args):
+				return args[i+1], i + 1, true
+			case strings.HasPrefix(o, "--") && strings.HasPrefix(a, o+"="):
+				return a[len(o)+1:], i, true
+			case !strings.HasPrefix(o, "--") && strings.HasPrefix(a, o) && len(a) > len(o):
+				return a[len(o):], i, true
+			}
+		}
+		return "", i, false
+	}
+	switch strings.ToLower(filepath.Base(cmd[0])) {
+	case "rg", "ag":
+		for i := 0; i < len(args); i++ {
+			if v, j, ok := value(i, "-g", "--glob", "--iglob", "-G", "--file-search-regex"); ok {
+				i = j
+				if !strings.HasPrefix(v, "!") {
+					pats = append(pats, v)
+				}
+			}
+		}
+	case "grep", "egrep", "fgrep":
+		for i := 0; i < len(args); i++ {
+			if v, j, ok := value(i, "--include"); ok {
+				i = j
+				pats = append(pats, v)
+			}
+		}
+	case "fd", "fdfind":
+		for i := 0; i < len(args); i++ {
+			if v, j, ok := value(i, "-e", "--extension"); ok {
+				i = j
+				pats = append(pats, "*."+strings.TrimPrefix(v, "."))
+			}
+		}
+	case "ls":
+		for _, a := range args {
+			if !strings.HasPrefix(a, "-") {
+				pats = append(pats, a)
+			}
+		}
+	case "git":
+		if len(args) == 0 || args[0] != "ls-files" {
+			return false
+		}
+		for _, a := range args[1:] {
+			if a != "--" && !strings.HasPrefix(a, "-") {
+				pats = append(pats, a)
+			}
+		}
+	case "find", "gfind":
+		// Each alternative (split at -o) must be narrowed by name; a
+		// negation could list anything.
+		named := false
+		for i := 0; i < len(args); i++ {
+			switch a := args[i]; a {
+			case "-not", "!":
+				return false
+			case "-o", "-or", ",":
+				if !named {
+					return false
+				}
+				named = false
+			case "-name", "-iname", "-path", "-ipath":
+				if i+1 >= len(args) {
+					return false
+				}
+				pats = append(pats, args[i+1])
+				named = true
+				i++
+			}
+		}
+		if !named {
+			return false
+		}
+	default:
+		return false
+	}
+	if len(pats) == 0 {
+		return false
+	}
+	for _, p := range pats {
+		if patternMaySecret(p) {
+			return false
+		}
+	}
+	return true
+}
+
+// The endings .env files are given (.env.local, .env.production). Any
+// .env.<name> counts as secret, but *.go matching a file named .env.go isn't
+// a real risk.
+var envSuffix = set(".local .development .dev .test .testing .staging .stage .production .prod .preview .qa .uat .ci .docker .backup .bak .old .orig .secret .secrets .sandbox .live .remote .server .vault")
+
+// Config formats a secrets.<ext> file is written in.
+var secretConfigExt = set(".json .yaml .yml .toml .env .ini .txt .cfg .conf .properties .xml")
+
+// patternMaySecret: a file name pattern could match a secret file. Only a
+// pattern ending in a plain extension that no secret file has is safe.
+func patternMaySecret(p string) bool {
+	if p == "" {
+		return true
+	}
+	for _, alt := range expandBraces(p) {
+		base := alt[strings.LastIndex(alt, "/")+1:]
+		dot := strings.LastIndex(base, ".")
+		if dot < 0 {
+			return true // no extension: id_rsa, credentials, .env itself
+		}
+		ext := base[dot:]
+		if ext == "." || strings.ContainsAny(ext, "*?[]{}") {
+			return true
+		}
+		if !strings.ContainsAny(base[:dot], "*?[") {
+			if IsSecretFile(base) {
+				return true
+			}
+			continue // one name
+		}
+		if IsSecretFile("x"+ext) || IsSecretFile(ext) || envSuffix[strings.ToLower(ext)] {
+			return true
+		}
+		if secretConfigExt[strings.ToLower(ext)] {
+			return true
+		}
+	}
+	return false
+}

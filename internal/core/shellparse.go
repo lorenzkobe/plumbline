@@ -29,7 +29,16 @@ type Segment struct {
 	Dir       string   // working directory when it runs; "" when not known
 	Via       string   // the wrapper it was found in, for messages
 	Opaque    string   // non-empty: what this runs can't be known, and why
-	src       []*syntax.Word
+	// Shown: its output reaches Claude: not sent to a file, captured in
+	// $(...) or piped into anything but a command that shows lines (head,
+	// grep, ...).
+	Shown bool
+	src   []*syntax.Word
+	// fed: some of its arguments are file names a listing adds (xargs, find
+	// -exec, fd -x). feed: the commands that make that listing, nearest
+	// first (nil when not known); a word not known is "".
+	fed  bool
+	feed [][]string
 	// stdinUnknown: a heredoc with expansions feeds it, so a shell reading
 	// it runs commands that can't be known.
 	stdinUnknown bool
@@ -76,7 +85,7 @@ func (s Segment) unknownArgs() bool { return s.MoreArgs || s.dynArgs() }
 // tail returns the segment's words from i on as a new segment that runs in
 // the same place (a wrapper's inner command).
 func (s Segment) tail(i int, via string) Segment {
-	in := Segment{Dir: s.Dir, Piped: s.Piped, Stdin: s.Stdin, stdinUnknown: s.stdinUnknown, Via: via, MoreArgs: s.MoreArgs, Exported: s.Exported}
+	in := Segment{Dir: s.Dir, Piped: s.Piped, Stdin: s.Stdin, stdinUnknown: s.stdinUnknown, Via: via, MoreArgs: s.MoreArgs, Exported: s.Exported, Shown: s.Shown, fed: s.fed, feed: s.feed}
 	in.Env = append(in.Env, s.Env...)
 	in.Redirects = append(in.Redirects, s.Redirects...)
 	in.Inputs = append(in.Inputs, s.Inputs...)
@@ -110,9 +119,10 @@ const maxShellDepth = 6
 // parseCtx is shared by one command line and every command string nested in
 // it (sh -c, eval), so a value set in one and used in another is still seen.
 type parseCtx struct {
-	arith      bool // arithmetic is evaluated somewhere (it can run $(...) found in a value)
-	suspicious bool // a quoted value holds $( or a backtick
-	extglob    bool // an extended glob or a zsh glob qualifier, which can run code
+	arith      bool   // arithmetic is evaluated somewhere (it can run $(...) found in a value)
+	suspicious bool   // a quoted value holds $( or a backtick
+	extglob    bool   // an extended glob or a zsh glob qualifier, which can run code
+	zsh        string // non-empty: zsh syntax the checks don't follow, and what it is
 }
 
 // Segments splits a command line into simple commands, without a working
@@ -128,6 +138,8 @@ func ParseShell(cmd, dir string) []Segment {
 	switch {
 	case pc.extglob:
 		return opaque("it uses an extended glob or a zsh glob qualifier, which can run code", dir, "")
+	case pc.zsh != "":
+		return opaque("it uses "+pc.zsh+", which Plumbline doesn't follow", dir, "")
 	case pc.arith && pc.suspicious:
 		return opaque("it does arithmetic on a value that holds $( or a backtick, which the shell would run", dir, "")
 	}
@@ -139,13 +151,33 @@ func parseShell(cmd, dir string, depth int, via string, pc *parseCtx) []Segment 
 		return opaque("it nests commands too deeply to check", dir, via)
 	}
 	f, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(cmd), "")
+	zsh := false
+	if err != nil && zshRuns(via) {
+		// macOS runs commands in zsh: a line only zsh can parse is still
+		// checked, with what the walker doesn't follow made opaque.
+		if zf, zerr := syntax.NewParser(syntax.Variant(syntax.LangZsh)).Parse(strings.NewReader(cmd), ""); zerr == nil {
+			f, err, zsh = zf, nil, true
+		}
+	}
 	if err != nil {
 		return opaque("it couldn't be parsed as a shell command ("+err.Error()+")", dir, via)
 	}
-	w := &walker{dir: dir, depth: depth, via: via, pc: pc, vars: map[string][]string{}, funcs: map[string]bool{}}
+	w := &walker{dir: dir, depth: depth, via: via, pc: pc, vars: map[string][]string{}, funcs: map[string]bool{}, zsh: zsh}
 	syntax.Walk(f, w.visit)
 	return w.segs
 }
+
+// zshRuns: the text runs in the session's own shell (zsh on macOS) or in
+// zsh: the line itself, eval, trap, emulate -c, zsh -c and zsh <<. Text
+// that bash or sh runs must parse as bash.
+func zshRuns(via string) bool {
+	return via == "" || via == "eval" || via == "trap" || strings.HasPrefix(via, "emulate") || strings.HasPrefix(via, "zsh ")
+}
+
+// Expansion flags that only change case, quoting, splitting into lines or
+// sorting: ${(U)x}. Others can evaluate the value ((e), (%)) or take
+// delimiters the checks don't read ((j:,:), (s: :)).
+const zshPlainFlags = "@CDfFikLnoOqQtuUvwWz"
 
 // walker visits every node of a parsed command line. Besides the commands,
 // it follows the working directory (cd) and the shell variables the line
@@ -164,6 +196,7 @@ type walker struct {
 	cond   int                 // inside a branch that may not run: assignments there may not happen
 	inFunc int                 // inside a function body: it runs later, with values not known now
 	export bool                // set -a: every assignment is exported
+	zsh    bool                // parsed as zsh
 }
 
 // conditional nodes may not run (if/case branches, loop bodies, the right
@@ -243,6 +276,9 @@ func (w *walker) visit(n syntax.Node) bool {
 		if n.Name != nil {
 			w.funcs[n.Name.Value] = true
 		}
+		for _, nm := range n.Names {
+			w.funcs[nm.Value] = true // zsh: function a b { ... }
+		}
 		w.inFunc++
 	case *syntax.ForClause:
 		w.forgetAssigned(n)
@@ -266,8 +302,25 @@ func (w *walker) visit(n syntax.Node) bool {
 		if n.Exp != nil && (n.Exp.Op.String() == "=" || n.Exp.Op.String() == ":=") {
 			w.forgetAll() // ${x:=v} assigns
 		}
+		switch {
+		case n.GlobSubst != syntax.OptUnset:
+			w.pc.zsh = "${~...} (the value becomes a pattern)"
+		case n.Flags != nil && strings.Trim(n.Flags.Value, zshPlainFlags) != "":
+			w.pc.zsh = "the zsh expansion flags (" + n.Flags.Value + ")"
+		}
 	case *syntax.ExtGlob:
 		w.pc.extglob = true
+	case *syntax.Word:
+		if r, ok := w.stack[len(w.stack)-2].(*syntax.Redirect); ok && r.Hdoc == n {
+			break // a heredoc's text isn't globbed
+		}
+		if w.zsh {
+			for _, p := range n.Parts {
+				if l, ok := p.(*syntax.Lit); ok && strings.Contains(l.Value, "(") {
+					w.pc.extglob = true // zsh: *(e:cmd:), (a|b).go
+				}
+			}
+		}
 	case *syntax.Lit:
 		w.suspect(n.Value)
 	case *syntax.SglQuoted:
@@ -455,6 +508,7 @@ func (w *walker) call(ce *syntax.CallExpr) {
 			w.forgetAll() // checked before unwrapping: eval's own name is gone after it
 		}
 		for _, x := range unwrap(s, w.depth, w.pc) {
+			x.Shown = x.Shown && s.Shown // sh -c '...' | wc: what runs inside isn't shown either
 			w.segs = append(w.segs, x)
 			if changesVars[x.Name()] || w.funcs[x.Name()] {
 				w.forgetAll()
@@ -502,7 +556,7 @@ func (w *walker) assign(a *syntax.Assign) {
 
 // segment builds the command's segment with these variable values.
 func (w *walker) segment(ce *syntax.CallExpr, st *syntax.Stmt, piped bool, b map[string]string) Segment {
-	s := Segment{Dir: w.dir, Via: w.via, Piped: piped, Exported: w.export}
+	s := Segment{Dir: w.dir, Via: w.via, Piped: piped, Exported: w.export, Shown: w.inFunc == 0 && w.shown()}
 	for _, a := range ce.Assigns {
 		s.Env = append(s.Env, assignText(a, w.dir, b))
 	}
@@ -521,12 +575,153 @@ func (w *walker) segment(ce *syntax.CallExpr, st *syntax.Stmt, piped bool, b map
 	if st != nil {
 		w.redirects(&s, st.Redirs, b)
 	}
+	if piped {
+		s.feed = w.upstream(b)
+	}
 	if len(s.Words) > 0 && (s.Dyn[0] || s.Glob[0]) {
 		if !knownName(ce.Args[0]) || s.Glob[0] {
 			s.Opaque = "the command name comes from a variable, substitution or pattern (" + s.Words[0] + ")"
 		}
 	}
 	return s
+}
+
+// shown: the output of the command being visited reaches Claude. Each
+// statement around it must not send its output elsewhere, and where one is
+// piped, every command it is piped into must only show lines.
+func (w *walker) shown() bool {
+	for i := len(w.stack) - 2; i >= 0; i-- {
+		switch n := w.stack[i].(type) {
+		case *syntax.CmdSubst, *syntax.ProcSubst:
+			return false
+		case *syntax.Stmt:
+			if stdoutAway(n.Redirs) {
+				return false
+			}
+			if i > 0 {
+				if b, ok := w.stack[i-1].(*syntax.BinaryCmd); ok && (b.Op == syntax.Pipe || b.Op == syntax.PipeAll) && b.X == n && !showsLines(b.Y) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// upstream lists the commands piped into the one being visited, nearest
+// first, with their words as far as they are known.
+func (w *walker) upstream(b map[string]string) [][]string {
+	var out [][]string
+	for i := len(w.stack) - 2; i >= 2; i -= 2 {
+		st, ok := w.stack[i].(*syntax.Stmt)
+		bin, isBin := w.stack[i-1].(*syntax.BinaryCmd)
+		if !ok || !isBin || (bin.Op != syntax.Pipe && bin.Op != syntax.PipeAll) {
+			break
+		}
+		if bin.Y == st {
+			cmds := w.pipeCmds(bin.X, b)
+			for j := len(cmds) - 1; j >= 0; j-- {
+				out = append(out, cmds[j])
+			}
+		}
+	}
+	return out
+}
+
+// pipeCmds: the commands of a pipeline, left to right. Anything but a
+// plain command (a subshell, a loop) is nil: what it prints isn't known.
+func (w *walker) pipeCmds(st *syntax.Stmt, b map[string]string) [][]string {
+	switch c := st.Cmd.(type) {
+	case *syntax.CallExpr:
+		var words []string
+		for _, a := range c.Args {
+			v, lit, _ := wordValue(a, w.dir, b)
+			if !lit {
+				v = ""
+			}
+			words = append(words, v)
+		}
+		return [][]string{words}
+	case *syntax.BinaryCmd:
+		if c.Op == syntax.Pipe || c.Op == syntax.PipeAll {
+			return append(w.pipeCmds(c.X, b), w.pipeCmds(c.Y, b)...)
+		}
+	}
+	return [][]string{nil}
+}
+
+// stdoutAway: a redirect sends standard output to a file (/dev/null too).
+func stdoutAway(rs []*syntax.Redirect) bool {
+	for _, r := range rs {
+		one := r.N == nil || r.N.Value == "1"
+		switch r.Op {
+		case syntax.RdrAll, syntax.AppAll, syntax.RdrAllClob, syntax.AppAllClob:
+			return true
+		case syntax.RdrOut, syntax.AppOut, syntax.RdrClob, syntax.AppClob:
+			if one {
+				return true
+			}
+		case syntax.DplOut:
+			if one && r.Word != nil && r.Word.Lit() != "2" {
+				return true // >&file, or a closed or copied descriptor
+			}
+		}
+	}
+	return false
+}
+
+// Commands that pass lines of their input through as they are.
+var lineShowers = set("cat bat head tail nl tac less more sed gsed grep egrep fgrep rg")
+
+// showsLines: a statement that its input is piped into shows lines of it:
+// a command (or pipeline of commands) from lineShowers with no flag that
+// prints only counts or names, and no redirect of its output.
+func showsLines(st *syntax.Stmt) bool {
+	if st == nil || stdoutAway(st.Redirs) {
+		return false
+	}
+	switch c := st.Cmd.(type) {
+	case *syntax.CallExpr:
+		if len(c.Args) == 0 {
+			return false
+		}
+		words := make([]string, len(c.Args))
+		for i, a := range c.Args {
+			words[i] = a.Lit()
+		}
+		name := strings.ToLower(filepath.Base(words[0]))
+		return lineShowers[name] && !countsOnly(name, words[1:])
+	case *syntax.BinaryCmd:
+		return (c.Op == syntax.Pipe || c.Op == syntax.PipeAll) && showsLines(c.X) && showsLines(c.Y)
+	}
+	return false
+}
+
+// countsOnly: grep or rg flags that print counts, file names or nothing
+// instead of the lines.
+func countsOnly(name string, args []string) bool {
+	letters := "clLqo" // grep
+	if name == "rg" {
+		letters = "clqo" // rg -L follows links
+	}
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		switch {
+		case name != "grep" && name != "egrep" && name != "fgrep" && name != "rg":
+			return false
+		case strings.HasPrefix(a, "--"):
+			n, _, _ := strings.Cut(a, "=")
+			switch n {
+			case "--count", "--count-matches", "--files-with-matches", "--files-without-match", "--files", "--quiet", "--only-matching", "--json":
+				return true
+			}
+		case shortFlags(a) != "" && strings.ContainsAny(shortFlags(a), letters):
+			return true
+		}
+	}
+	return false
 }
 
 // isBareLit: the word is written without quotes or expansions.
@@ -625,7 +820,7 @@ func (w *walker) redirects(s *Segment, rs []*syntax.Redirect, b map[string]strin
 			target, _, _ = wordValue(r.Word, w.dir, b)
 		}
 		switch r.Op {
-		case syntax.RdrOut, syntax.AppOut, syntax.ClbOut, syntax.RdrAll, syntax.AppAll, syntax.RdrInOut:
+		case syntax.RdrOut, syntax.AppOut, syntax.RdrClob, syntax.AppClob, syntax.RdrAll, syntax.RdrAllClob, syntax.AppAll, syntax.AppAllClob, syntax.RdrInOut:
 			s.Redirects = append(s.Redirects, target)
 		case syntax.DplOut:
 			if !isFD(target) {
@@ -1438,6 +1633,7 @@ func unwrapXargs(s Segment, depth int, pc *parseCtx) []Segment {
 		in.Redirects, in.Env, in.Inputs, in.Stdin, in.Piped = nil, nil, nil, nil, false
 	}
 	in.Via = "xargs"
+	in.fed, in.feed = true, s.feed
 	if repl != "" {
 		for j := range in.Words {
 			if strings.Contains(in.Words[j], repl) {
@@ -1471,7 +1667,7 @@ func unwrapFind(s Segment, depth int, pc *parseCtx) []Segment {
 		for j < len(s.Words) && s.Words[j] != ";" && s.Words[j] != "+" {
 			j++
 		}
-		in := Segment{Dir: s.Dir, Via: "find " + s.Words[i]}
+		in := Segment{Dir: s.Dir, Via: "find " + s.Words[i], fed: true, feed: [][]string{s.Words}}
 		for k := i + 1; k < j; k++ {
 			in.Words = append(in.Words, s.Words[k])
 			in.Dyn = append(in.Dyn, s.dyn(k) || strings.Contains(s.Words[k], "{}"))
@@ -1532,7 +1728,7 @@ func unwrapFd(s Segment, depth int, pc *parseCtx) []Segment {
 		}
 		keep := s
 		keep.Words, keep.Dyn, keep.Glob, keep.src = append([]string{}, s.Words[:i]...), append([]bool{}, s.Dyn[:i]...), append([]bool{}, s.Glob[:i]...), nil
-		in := Segment{Dir: s.Dir, Via: "fd -x", MoreArgs: true}
+		in := Segment{Dir: s.Dir, Via: "fd -x", MoreArgs: true, fed: true, feed: [][]string{keep.Words}}
 		if first != "" {
 			in.Words, in.Dyn, in.Glob = []string{first}, []bool{false}, []bool{false}
 		}

@@ -23,6 +23,7 @@ type undoRecord struct {
 	SettingsPath string                     `json:"settings_path"`
 	Keys         map[string]json.RawMessage `json:"keys"` // previous values; "null" means the key was absent
 	ClaudeMD     string                     `json:"claude_md,omitempty"`
+	DenyAdded    []string                   `json:"deny_added,omitempty"` // permissions.deny rules Plumbline added
 }
 
 func undoPath() string { return filepath.Join(core.DataDir(), "undo", "laptop.json") }
@@ -30,8 +31,8 @@ func undoPath() string { return filepath.Join(core.DataDir(), "undo", "laptop.js
 // setupLaptop changes your Claude Code user settings. Claude can only reach it
 // through a confirm prompt, and every change is recorded so it can be undone.
 func setupLaptop(f map[string]string) error {
-	if f["memory-off"] == "" && f["attribution-off"] == "" && f["claude-md"] == "" {
-		return errors.New("choose what to change: --memory-off, --attribution-off, --claude-md")
+	if f["memory-off"] == "" && f["attribution-off"] == "" && f["claude-md"] == "" && f["deny-secrets"] == "" {
+		return errors.New("choose what to change: --memory-off, --attribution-off, --claude-md, --deny-secrets")
 	}
 	sp := claudeSettingsPath()
 	settings := map[string]json.RawMessage{}
@@ -68,7 +69,19 @@ func setupLaptop(f map[string]string) error {
 		settings["attribution"] = json.RawMessage(`{"commit":"","pr":""}`)
 		changed = append(changed, "AI attribution on commits and PRs off (attribution: empty)")
 	}
-	if len(settings) > 0 && (f["memory-off"] != "" || f["attribution-off"] != "") {
+	if f["deny-secrets"] != "" {
+		added, err := addDenyRules(settings, core.SecretDenyRules())
+		if err != nil {
+			return fmt.Errorf("%s: %v", sp, err)
+		}
+		for _, r := range added {
+			if !contains(undo.DenyAdded, r) {
+				undo.DenyAdded = append(undo.DenyAdded, r)
+			}
+		}
+		changed = append(changed, fmt.Sprintf("Claude Code skips .env and key files for Read, Grep and Glob (%d deny rules added to permissions.deny)", len(added)))
+	}
+	if len(settings) > 0 && (f["memory-off"] != "" || f["attribution-off"] != "" || f["deny-secrets"] != "") {
 		b, _ := json.MarshalIndent(settings, "", "  ")
 		if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
 			return err
@@ -127,6 +140,11 @@ func undoLaptop() error {
 			settings[k] = v
 		}
 	}
+	if len(undo.DenyAdded) > 0 {
+		if err := removeDenyRules(settings, undo.DenyAdded); err != nil {
+			return fmt.Errorf("%s: %v", undo.SettingsPath, err)
+		}
+	}
 	out, _ := json.MarshalIndent(settings, "", "  ")
 	if err := os.WriteFile(undo.SettingsPath, append(out, '\n'), 0o644); err != nil {
 		return err
@@ -145,4 +163,84 @@ func undoLaptop() error {
 	_ = os.Remove(undoPath())
 	fmt.Println("Laptop settings restored to how they were before Plumbline.")
 	return nil
+}
+
+// addDenyRules adds the rules permissions.deny doesn't have yet, keeping
+// every other permission setting, and returns the ones it added.
+func addDenyRules(settings map[string]json.RawMessage, rules []string) ([]string, error) {
+	perms, deny, err := denyList(settings)
+	if err != nil {
+		return nil, err
+	}
+	var added []string
+	for _, r := range rules {
+		if !contains(deny, r) {
+			deny = append(deny, r)
+			added = append(added, r)
+		}
+	}
+	return added, setDenyList(settings, perms, deny)
+}
+
+// removeDenyRules takes out the rules Plumbline added. A rule the user had
+// before isn't in that list, so it stays.
+func removeDenyRules(settings map[string]json.RawMessage, rules []string) error {
+	perms, deny, err := denyList(settings)
+	if err != nil {
+		return err
+	}
+	var keep []string
+	for _, r := range deny {
+		if !contains(rules, r) {
+			keep = append(keep, r)
+		}
+	}
+	return setDenyList(settings, perms, keep)
+}
+
+func denyList(settings map[string]json.RawMessage) (map[string]json.RawMessage, []string, error) {
+	perms := map[string]json.RawMessage{}
+	if raw, ok := settings["permissions"]; ok && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &perms); err != nil {
+			return nil, nil, fmt.Errorf("permissions isn't an object: %v", err)
+		}
+	}
+	var deny []string
+	if raw, ok := perms["deny"]; ok && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &deny); err != nil {
+			return nil, nil, fmt.Errorf("permissions.deny isn't a list of rules: %v", err)
+		}
+	}
+	return perms, deny, nil
+}
+
+func setDenyList(settings, perms map[string]json.RawMessage, deny []string) error {
+	if len(deny) == 0 {
+		delete(perms, "deny")
+	} else {
+		b, err := json.Marshal(deny)
+		if err != nil {
+			return err
+		}
+		perms["deny"] = b
+	}
+	if len(perms) == 0 {
+		delete(settings, "permissions")
+		return nil
+	}
+	b, err := json.Marshal(perms)
+	if err != nil {
+		return err
+	}
+	settings["permissions"] = b
+	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

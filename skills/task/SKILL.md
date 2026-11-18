@@ -20,7 +20,7 @@ Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, s
 
 ## 3. Check the code
 - SocratiCode finds where to look and what depends on it. Serena finds every exact caller and definition. MemPalace answers "have we seen this before?" (never facts about the code).
-- Open the real files before quoting them. Every file:line you write must be a file you opened in this task; a helper's reads don't count for you.
+- Open the real files before quoting them. Every file:line you write must be a file you opened in this task (Read, or `cat`/`sed -n`/`head`/`grep -n`/`rg -n` printing it to you, not piped into `wc` or captured); a helper's reads don't count for you.
 - Big or many-part code to trace: start tracers (`subagent_type: plumbline:tracer`, several at once, one part each, in the background). Give each the part and your own file:line findings to check. Their reports (`trace-N.md`) point you to the lines; open what you quote.
 - Check the ticket against the code. Note anything outside the ticket (a bigger problem, the same bug elsewhere).
 - For library questions, Context7 for the exact versions in the lockfile, then the web. Never send company code, ticket text or names.

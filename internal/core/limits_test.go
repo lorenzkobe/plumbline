@@ -52,15 +52,16 @@ func TestSameBlockInOneMessageIsNotARepeat(t *testing.T) {
 func TestXargsAddedArgsNeedDoubleDash(t *testing.T) {
 	h := newHarness(t)
 	for cmd, want := range map[string]string{
-		"rg -l x | xargs sed -n 1p":                 "ask",
-		"rg -l x | xargs sed -n 1p --":              "allow",
-		"git ls-files | xargs git log --oneline":    "ask",
-		"git ls-files | xargs git log --oneline --": "allow",
-		"rg -l x | xargs sort":                      "ask",
-		"rg -l x | xargs sort --":                   "allow",
-		"rg -l x | xargs cat":                       "allow", // cat has no flag that writes
-		"rg -l x | xargs wc -l":                     "allow",
-		"rg -l x | xargs -I{} sed -n 1p {}":         "ask", // {} isn't known either
+		"rg -l x -g '*.go' | xargs sed -n 1p":         "ask",
+		"rg -l x -g '*.go' | xargs sed -n 1p --":      "allow",
+		"git ls-files | xargs git log --oneline":      "ask",
+		"git ls-files | xargs git log --oneline --":   "allow",
+		"rg -l x -g '*.go' | xargs sort":              "ask",
+		"rg -l x -g '*.go' | xargs sort --":           "allow",
+		"rg -l x -g '*.go' | xargs cat":               "allow", // cat has no flag that writes
+		"rg -l x | xargs cat":                         "ask",   // G11: the listing could name .env or a key
+		"rg -l x -g '*.go' | xargs wc -l":             "allow",
+		"rg -l x -g '*.go' | xargs -I{} sed -n 1p {}": "ask", // {} isn't known either
 	} {
 		if got, r := decision(h.bash(cmd)); got != want {
 			t.Errorf("%q: %q (%s), want %q", cmd, got, r, want)

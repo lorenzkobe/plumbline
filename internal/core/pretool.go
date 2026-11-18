@@ -146,7 +146,7 @@ func PreToolUse(in *HookInput) Output {
 	if errors.Is(c.taskErr, ErrTampered) {
 		switch {
 		case in.ToolName == "Edit", in.ToolName == "Write", in.ToolName == "MultiEdit", in.ToolName == "NotebookEdit",
-			in.ToolName == "Bash", in.ToolName == "Monitor", in.ToolName == "AskUserQuestion", strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
+			in.ToolName == "Bash", in.ToolName == "Monitor", in.ToolName == "AskUserQuestion", strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
 			return c.deny("tamper", "the task state was changed outside Plumbline, so its proof can't be trusted. Stop and tell the user; they can drop the task with /plumbline:cancel and start again.")
 		}
 	}
@@ -264,36 +264,85 @@ var (
 	// unless the tool's name starts by reading.
 	reMCPWriteSoft = regexp.MustCompile(`(^|_)(post|comment|reply|share|schedule|close)(_|$)`)
 	reMCPReadFirst = regexp.MustCompile(`^(get|list|search|read|fetch|find|query|lookup|view|describe|show|count)(_|$)`)
-	reCamel        = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+	// A name that says it reads, anywhere in it (pull_request_read).
+	reMCPRead = regexp.MustCompile(`(^|_)(get|list|search|read|fetch|find|query|lookup|view|describe|show|count|browse|inspect|retrieve|status|diff|info|explain)(_|$)`)
+	reCamel   = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 )
 
 // MCPKind: "shell" for a tool that runs commands, "write" for one that
-// changes files or things, "" for lookups. Judged by the tool's name.
+// changes files or things, "" for lookups. Judged by the tool's name: one
+// that says neither counts as a write (see MCPUnclear).
 func MCPKind(tool string) string {
-	if jira, read := JiraTool(tool); jira {
-		if read {
+	k, _ := mcpNameKind(tool)
+	return k
+}
+
+// MCPKindIn is MCPKind with the setup's list of read tools: a tool whose
+// name says neither read nor write is a lookup when the setup lists it.
+func MCPKindIn(tool string, s *Setup) string {
+	k, unclear := mcpNameKind(tool)
+	if unclear {
+		if server, name := mcpSplit(tool); s.MCPReadTool(server, name) || knownReadTool(server, name) {
 			return ""
 		}
-		return "write"
+	}
+	return k
+}
+
+// Read tools of servers setup installs, whose names don't say so. Serena's
+// onboarding writes memories and restart_language_server restarts a
+// process, so they aren't here.
+var mcpKnownReads = map[string][]string{
+	"serena": {"activate_project", "check_onboarding_performed", "think_about_collected_information", "think_about_task_adherence",
+		"think_about_whether_you_are_done", "get_current_config", "initial_instructions", "prepare_for_new_conversation", "summarize_changes"},
+}
+
+func knownReadTool(server, name string) bool {
+	low := strings.ToLower(server)
+	for srv, tools := range mcpKnownReads {
+		if strings.Contains(low, srv) && contains(tools, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// MCPUnclear: the tool's name says neither read nor write.
+func MCPUnclear(tool string) bool {
+	_, unclear := mcpNameKind(tool)
+	return unclear
+}
+
+func mcpNameKind(tool string) (kind string, unclear bool) {
+	if jira, read := JiraTool(tool); jira {
+		if read {
+			return "", false
+		}
+		return "write", false
 	}
 	server, name := mcpSplit(tool)
 	low := strings.ToLower(server)
 	for _, s := range mcpLookupServers {
 		if strings.Contains(low, s) {
-			return ""
+			return "", false
 		}
 	}
 	name = mcpWords(name)
 	switch {
 	case reMCPShell.MatchString(name):
-		return "shell"
+		return "shell", false
 	case reMCPWrite.MatchString(name):
-		return "write"
+		return "write", false
 	case reMCPWriteSoft.MatchString(name) && !reMCPReadFirst.MatchString(name):
-		return "write"
+		return "write", false
+	case reMCPRead.MatchString(name):
+		return "", false
 	}
-	return ""
+	return "write", true
 }
+
+// mcpKind is MCPKindIn with this project's setup.
+func (c *hookCtx) mcpKind() string { return MCPKindIn(c.in.ToolName, c.setup) }
 
 func mcpSplit(tool string) (server, name string) {
 	rest := strings.TrimPrefix(tool, "mcp__")
@@ -418,7 +467,7 @@ func (c *hookCtx) gateMCP() Output {
 	if jira, read := JiraTool(c.in.ToolName); jira && !read {
 		return c.gateJiraWrite()
 	}
-	kind := MCPKind(c.in.ToolName)
+	kind := c.mcpKind()
 	if kind == "" {
 		return nil
 	}
@@ -445,7 +494,12 @@ func (c *hookCtx) gateMCP() Output {
 		return c.ask("mcp-change", fmt.Sprintf("%s may change files or things outside the laptop, and no task is active. Allow it if that's fine now.", c.in.ToolName))
 	}
 	if c.task.Phase != PhaseBuilding {
-		return c.deny("before-approval", fmt.Sprintf("%s may change things, and the plan isn't approved yet. Use read-only tools until the checkpoint.", c.in.ToolName))
+		why := fmt.Sprintf("%s may change things, and the plan isn't approved yet. Use read-only tools until the checkpoint.", c.in.ToolName)
+		if MCPUnclear(c.in.ToolName) {
+			server, name := mcpSplit(c.in.ToolName)
+			why = fmt.Sprintf("%s's name doesn't say whether it only reads, so it counts as a change, and the plan isn't approved yet. Use read-only tools until the checkpoint. If it only reads, the user can list it in the project setup (\"mcp_read_tools\": {\"%s\": [\"%s\"]}, saved with plumbline setup save).", c.in.ToolName, server, name)
+		}
+		return c.deny("before-approval", why)
 	}
 	return nil
 }
@@ -1011,6 +1065,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		if f := ReadsSecretFile(s); f != "" {
 			v.a("secret-read", fmt.Sprintf("this shows or sends the values in %s. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).", filepath.Base(f)))
+		} else if ReadsListedFiles(s) {
+			v.a("secret-read", fmt.Sprintf("%s reads files that a listing adds (xargs, find -exec or fd -x), and that listing could include .env or key files, which would show their values here. Narrow the listing to the file types needed (rg -l x -g '*.go' | xargs cat, find . -name '*.ts' -exec cat {} +, fd -e go -x cat), or open the files with the Read tool.", s.Name()))
 		}
 		for _, t := range TreeTargets(s) {
 			abs := targetAbs(s, t)

@@ -403,7 +403,7 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		}
 	}
 	if strings.HasPrefix(in.ToolName, "mcp__") {
-		switch MCPKind(in.ToolName) {
+		switch c.mcpKind() {
 		case "shell":
 			if cmd, ok := in.Input()["command"].(string); ok && cmd != "" {
 				return c.helperBash(kind, cmd)

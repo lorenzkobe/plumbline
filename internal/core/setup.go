@@ -50,6 +50,11 @@ type Setup struct {
 	Mockups        string   `json:"mockups,omitempty"`
 	Glossary       bool     `json:"glossary,omitempty"`
 
+	// MCPReadTools: per MCP server (as its tool names show it), tools that
+	// only read although their names don't say so. A name that says write
+	// stays a write.
+	MCPReadTools map[string][]string `json:"mcp_read_tools,omitempty"`
+
 	// Parts after the core can be switched off one by one.
 	Parts map[string]bool `json:"parts,omitempty"`
 }
@@ -146,11 +151,44 @@ func LoadSetup(root string) (*Setup, bool, error) {
 				}
 			}
 			s.IgnoreChanges = both
+			s.MCPReadTools = bothReadTools(s.MCPReadTools, was.MCPReadTools)
 		} else {
 			s.IgnoreChanges = nil
+			s.MCPReadTools = nil
 		}
 	}
 	return &s, ok, nil
+}
+
+// bothReadTools keeps the read tools listed in both setups.
+func bothReadTools(now, was map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for server, tools := range now {
+		for _, t := range tools {
+			if contains(was[server], t) {
+				out[server] = append(out[server], t)
+			}
+		}
+	}
+	return out
+}
+
+// MCPReadTool: the setup lists this tool of this server as a read tool.
+func (s *Setup) MCPReadTool(server, name string) bool {
+	if s == nil {
+		return false
+	}
+	for k, tools := range s.MCPReadTools {
+		if !strings.EqualFold(k, server) {
+			continue
+		}
+		for _, t := range tools {
+			if strings.EqualFold(t, name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ConfirmSetup records the current setup content as approved by you.

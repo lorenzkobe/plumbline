@@ -129,7 +129,7 @@ func PostToolUse(in *HookInput) Output {
 		return c.withMainCheck(c.checkChanged(ParseShell(in.Str("command"), in.Cwd)))
 	case in.ToolName == "AskUserQuestion":
 		return c.afterQuestion()
-	case strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != "":
+	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
 		return c.withMainCheck(c.checkChanged(nil))
 	case strings.HasPrefix(in.ToolName, "mcp__"):
 		if c.task != nil && in.AgentID == "" { // a helper's searches aren't the lead's
@@ -198,8 +198,38 @@ func (c *hookCtx) afterBash() Output {
 			}
 		}
 		c.followBranch(segs)
+		if in.AgentID == "" {
+			c.noteShellReads(segs)
+		}
 	}
 	return c.checkChanged(segs)
+}
+
+// noteShellReads records the files a terminal command showed lines of, as
+// the Read tool does: cat, sed -n, head, grep or rg on a named file. Only a
+// command that changes nothing counts, so the file is still what was shown.
+func (c *hookCtx) noteShellReads(segs []Segment) {
+	var files []string
+	for _, s := range segs {
+		if !ReadOnly(s) {
+			return
+		}
+		if s.Shown {
+			files = append(files, PrintedFiles(s)...)
+		}
+	}
+	if len(files) == 0 {
+		return
+	}
+	if c.task.Reads == nil {
+		c.task.Reads = map[string]Read{}
+	}
+	for _, f := range files {
+		if h := fileHash(f); h != "" {
+			c.task.Reads[f] = Read{Hash: h, At: Now()}
+		}
+	}
+	_ = SaveTask(c.task)
 }
 
 // bind binds a task to this session, under that task's lock. A new task

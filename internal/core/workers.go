@@ -239,7 +239,7 @@ func (c *hookCtx) gateBuilder() Output {
 	if edit && run != nil && in.ToolName == "Write" && Abs(in.Str("file_path"), in.Cwd) == Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
 		return allow("builder notes")
 	}
-	changes := edit || in.ToolName == "Bash" || in.ToolName == "Monitor" || strings.HasPrefix(in.ToolName, "mcp__") && MCPKind(in.ToolName) != ""
+	changes := edit || in.ToolName == "Bash" || in.ToolName == "Monitor" || strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != ""
 	if run == nil || run.Worktree == "" {
 		if !changes {
 			return nil
@@ -277,7 +277,7 @@ func (c *hookCtx) gateBuilder() Output {
 			c.snapMain() // to see afterwards whether it reached the main checkout
 		}
 	case strings.HasPrefix(in.ToolName, "mcp__"):
-		switch MCPKind(in.ToolName) {
+		switch c.mcpKind() {
 		case "shell":
 			if cmd, ok := mcpCommand(in.Input()); ok {
 				if o := c.builderBash(wt, cmd); o != nil {

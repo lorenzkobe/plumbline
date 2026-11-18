@@ -1,7 +1,9 @@
 package core
 
 import (
+	"encoding/json"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -78,6 +80,16 @@ var opsTools = map[string]opsVerbs{
 	"gh":         {destroy: []string{"delete", "archive"}, write: []string{"release", "secret", "variable", "workflow", "run"}},
 	"glab":       {destroy: []string{"delete", "archive"}, write: []string{"release", "variable"}},
 	"eksctl":     {deploy: []string{"create", "upgrade", "update", "scale", "set"}, destroy: []string{"delete", "drain"}},
+	"kamal":      {deploy: []string{"deploy", "redeploy", "rollback", "setup"}, destroy: []string{"remove"}},
+	"argocd":     {deploy: []string{"sync", "rollback"}, destroy: []string{"delete"}, write: []string{"set", "patch", "create"}},
+	"skaffold":   {deploy: []string{"run", "deploy", "apply"}, destroy: []string{"delete"}},
+	"copilot":    {deploy: []string{"deploy"}, destroy: []string{"delete"}},
+	"eas":        {deploy: []string{"update", "submit"}},
+	"expo":       {deploy: []string{"publish"}},
+	"lerna":      {deploy: []string{"publish", "version"}},
+	"changeset":  {deploy: []string{"publish"}},
+	"nomad":      {deploy: []string{"run", "promote", "revert", "scale"}, destroy: []string{"stop", "purge"}},
+	"surge":      {destroy: []string{"teardown"}},
 }
 
 // Words that only look. Right after a verb they make the command a read
@@ -104,13 +116,23 @@ func dryRunOrHelp(s Segment) bool {
 var (
 	reAWSWrite   = regexp.MustCompile(`^(create|put|update|modify|start|stop|reboot|run|invoke|attach|detach|associate|disassociate|enable|disable|register|import|export|publish|send|set|tag|untag|add|restore|copy|reset|replace|execute|rotate|apply|authorize|revoke|upload|change|cancel|batch|submit|schedule|purchase|allocate|release|accept|reject|request|respond|initiate|complete|abort|confirm|resume|pause|deploy|promote|failover|reload|recover|terminate)(-|$)`)
 	reAWSDestroy = regexp.MustCompile(`^(delete|terminate|remove|deregister|destroy|purge|batch-delete|schedule-key-deletion|empty)(-|$)`)
-	reSQLWrite   = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|merge|upsert|replace|vacuum|reindex|copy|call|do|comment|lock|refresh|setval|nextval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|lo_\w+|dblink\w*)\b`)
-	reSQLRead    = regexp.MustCompile(`(?i)^\s*(select|show|explain|with|table|values|\\d|\\l|\\dt|describe|desc)\b`)
+	reSQLWrite   = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|merge|upsert|replace|vacuum|reindex|copy|call|do|comment|lock|refresh|into|setval|nextval|set_config|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|lo_\w+|dblink\w*|` +
+		// Postgres functions that change the server, its data or its state
+		`pg_(try_)?advisory\w*|pg_switch_\w+|pg_create_\w+|pg_drop_\w+|pg_copy_\w+|pg_stat\w*reset\w*|pg_notify|pg_promote|pg_(wal|xlog)_replay_\w+|pg_backup_(start|stop)|pg_(start|stop)_backup|pg_file_\w+|pg_logical_emit_message|pg_logical_slot_get_\w+|pg_replication_origin_\w+|pg_replication_slot_advance|pg_sync_replication_slots|pg_import_system_collations|pg_log_backend_memory_contexts|pg_extension_config_dump|` +
+		// MySQL's named locks
+		`get_lock|release_lock|release_all_locks)\b`)
+	reSQLRead = regexp.MustCompile(`(?i)^\s*(select|show|explain|with|table|values|\\d|\\l|\\dt|describe|desc)\b`)
 )
 
 // A deploy through the project's own scripts: npm run deploy, yarn
-// deploy:prod, make deploy, ./scripts/deploy.sh, npm publish.
-var reDeployName = regexp.MustCompile(`(?i)(^|[/:_.-])(deploy|publish|ship)([:_.-]|$)`)
+// deploy:prod, make release, ./scripts/go-live.sh, npm publish. Not one
+// that only checks or writes notes (release-notes, deploy:check).
+var (
+	reDeployName = regexp.MustCompile(`(?i)(^|[/:_.-])(deploy|publish|ship|release|rollout|go-?live)([:_.-]|$)`)
+	reNotDeploy  = regexp.MustCompile(`(?i)(^|[/:_.-])(deploy|publish|ship|release|rollout|go-?live)[:_.-](notes?|check|dry-?run|build|local|lint|changelog|plan|diff|validate|status|help)([:_.-]|$)`)
+)
+
+func deployName(w string) bool { return reDeployName.MatchString(w) && !reNotDeploy.MatchString(w) }
 
 // Flags that take a value, per tool family, so the value isn't read as the
 // script or target (npm --prefix infra run deploy, make -C deploy lint).
@@ -226,15 +248,17 @@ func scriptDeploys(s Segment) bool {
 			a = a[1:]
 		}
 		if a[0] == "run" || a[0] == "run-script" {
-			return len(a) > 1 && reDeployName.MatchString(a[1])
+			return len(a) > 1 && deployName(a[1])
 		}
 		if name == "npm" || pkgOwnCmds[a[0]] || (name == "pnpm" && a[0] == "deploy") {
 			return false // the package manager's own commands; `pnpm deploy` packs a package locally
 		}
-		return reDeployName.MatchString(a[0]) // yarn deploy:prod runs the script
-	case "make", "gmake", "just", "task", "mage", "rake":
+		return deployName(a[0]) // yarn deploy:prod runs the script
+	case "make", "gmake", "just", "task", "mage", "rake", "cap", "mina", "dep", "fab", "envoy", "invoke", "inv", "fastlane", "nx", "turbo":
+		// a target or task named for deploying (cap production deploy,
+		// nx run api:deploy, fastlane release)
 		for _, a := range args(s, makeValueFlags) {
-			if !strings.Contains(a, "=") && reDeployName.MatchString(a) {
+			if !strings.Contains(a, "=") && deployName(a) {
 				return true
 			}
 		}
@@ -249,7 +273,22 @@ func scriptDeploys(s Segment) bool {
 		}
 		return false
 	case "cargo":
-		return s.Arg(1) == "publish"
+		// cargo release only dry-runs without --execute
+		return s.Arg(1) == "publish" || s.Arg(1) == "release" && (contains(s.Words, "--execute") || contains(s.Words, "-x"))
+	case "goreleaser":
+		switch s.Arg(1) {
+		case "build", "check", "healthcheck", "init", "completion", "man", "help", "jsonschema", "-v", "--version":
+			return false
+		}
+		return !contains(s.Words, "--snapshot")
+	case "semantic-release", "release-it", "np", "gh-pages":
+		return true // they publish (their --dry-run is caught before)
+	case "surge":
+		switch s.Arg(1) {
+		case "list", "login", "logout", "whoami", "token", "help", "teardown":
+			return false
+		}
+		return true // surge <folder> <domain> publishes the folder
 	case "twine", "gem":
 		return s.Arg(1) == "upload" || s.Arg(1) == "push"
 	case "bash", "sh", "zsh", "dash", "ksh", ".", "source",
@@ -261,11 +300,11 @@ func scriptDeploys(s Segment) bool {
 		if name == "deno" && len(a) > 0 && a[0] == "run" {
 			a = a[1:]
 		}
-		return len(a) > 0 && reDeployName.MatchString(scriptBase(a[0]))
+		return len(a) > 0 && deployName(scriptBase(a[0]))
 	}
 	// a script file named for deploying
 	w := s.Words[0]
-	return (strings.Contains(w, "/") || strings.HasSuffix(w, ".sh")) && reDeployName.MatchString(scriptBase(w))
+	return (strings.Contains(w, "/") || strings.HasSuffix(w, ".sh")) && deployName(scriptBase(w))
 }
 
 func anyPrefix(words []string, p string) bool {
@@ -320,6 +359,9 @@ func OpsKind(s Segment) string {
 	case "docker", "podman":
 		if dockerPushes(s) {
 			return OpsDeploy
+		}
+		if dockerRemote(s) {
+			return OpsRemote
 		}
 		return ""
 	case "psql", "mysql", "mariadb", "mongosh", "mongo", "redis-cli", "pg_restore":
@@ -438,6 +480,124 @@ func dockerPushes(s Segment) bool {
 		return true
 	}
 	return contains(s.Words, "--push") || anyPrefix(s.Words, "--output=type=registry")
+}
+
+// Docker contexts that are this laptop's own daemon.
+var localDockerContexts = set("default desktop-linux desktop-windows colima orbstack rancher-desktop podman-machine-default")
+
+// dockerRemote: Docker (or Podman) is pointed at another machine's daemon,
+// by --context, -H/--host, DOCKER_HOST or DOCKER_CONTEXT (on the command or
+// in the environment), Docker's current context, or Podman's --remote,
+// --connection or --url. docker context use <another machine> points every
+// later command there. A value not known counts as another machine.
+func dockerRemote(s Segment) bool {
+	podman := s.Name() == "podman"
+	host := func(v string) bool {
+		if v == "" || strings.Contains(v, "$") {
+			return true
+		}
+		low := strings.ToLower(v)
+		if strings.HasPrefix(low, "unix://") || strings.HasPrefix(low, "npipe://") || strings.HasPrefix(low, "fd://") {
+			return false
+		}
+		return !localHost(hostOf(v))
+	}
+	context := func(v string) bool {
+		if v == "" || strings.Contains(v, "$") {
+			return true
+		}
+		low := strings.ToLower(v)
+		return !localDockerContexts[low] && !strings.HasPrefix(low, "colima-")
+	}
+	env := append([]string{}, s.Env...)
+	if !podman {
+		// The session's own settings, which the command inherits unless it
+		// sets its own.
+		if h := os.Getenv("DOCKER_HOST"); h != "" {
+			env = append([]string{"DOCKER_HOST=" + h}, env...)
+		} else if c := os.Getenv("DOCKER_CONTEXT"); c != "" {
+			env = append([]string{"DOCKER_CONTEXT=" + c}, env...)
+		} else if c := dockerCurrentContext(); c != "" {
+			env = append([]string{"DOCKER_CONTEXT=" + c}, env...)
+		}
+	}
+	for _, e := range env {
+		name, val, _ := strings.Cut(e, "=")
+		switch name {
+		case "DOCKER_HOST", "CONTAINER_HOST":
+			if host(val) {
+				return true
+			}
+		case "DOCKER_CONTEXT", "CONTAINER_CONNECTION":
+			if context(val) {
+				return true
+			}
+		}
+	}
+	// Global options come before the command (docker --context prod ps).
+	for i := 1; i < len(s.Words) && strings.HasPrefix(s.Words[i], "-"); i++ {
+		w := s.Words[i]
+		n, v, hasEq := strings.Cut(w, "=")
+		next := func() string {
+			if hasEq {
+				return v
+			}
+			if i+1 < len(s.Words) {
+				i++
+				if s.dyn(i) {
+					return "$"
+				}
+				return s.Words[i]
+			}
+			return ""
+		}
+		switch {
+		case podman && (n == "--remote" || n == "-r"):
+			return true
+		case n == "--context" || n == "-c" || podman && n == "--connection":
+			if context(next()) {
+				return true
+			}
+		case n == "-H" || n == "--host" || podman && n == "--url":
+			if host(next()) {
+				return true
+			}
+		case strings.HasPrefix(w, "-H") && len(w) > 2:
+			if host(w[2:]) {
+				return true
+			}
+		case n == "--config" || n == "-l" || n == "--log-level" || strings.HasPrefix(n, "--tls") && n != "--tls" && n != "--tlsverify" || n == "--identity":
+			next() // its value
+		}
+	}
+	if a := positional(s); !podman && len(a) >= 3 && a[0] == "context" && a[1] == "use" {
+		return context(a[2])
+	}
+	return false
+}
+
+// dockerCurrentContext: the context docker context use chose, from Docker's
+// config file ("" when none is set or the file can't be read).
+func dockerCurrentContext() string {
+	dir := os.Getenv("DOCKER_CONFIG")
+	if dir == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(h, ".docker")
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		CurrentContext string `json:"currentContext"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return ""
+	}
+	return cfg.CurrentContext
 }
 
 // awsKind looks at every argument, since global options with values
@@ -614,11 +774,33 @@ func dbHost(s Segment) string {
 }
 
 // dbLocal: the client connects to this laptop. A client that names no host
-// counts as outside, since PGHOST, a service file or a default can point
-// anywhere.
+// counts as outside, since the shell profile's PGHOST, a service file or a
+// default can point anywhere; a PGHOST or MYSQL_HOST given on the command
+// itself is the one it uses.
 func dbLocal(s Segment) bool {
 	h := dbHost(s)
+	if h == "" {
+		h = dbHostEnv(s)
+	}
 	return h != "" && (localHost(h) || strings.HasPrefix(h, "/")) // "/" is a socket folder
+}
+
+// dbHostEnv: the host a PGHOST or MYSQL_HOST set on the command names, or
+// "" (none, or not known until it runs).
+func dbHostEnv(s Segment) string {
+	want := "PGHOST"
+	switch s.Name() {
+	case "mysql", "mariadb", "mysqldump":
+		want = "MYSQL_HOST"
+	case "mongosh", "mongo", "redis-cli":
+		return ""
+	}
+	for _, e := range s.Env {
+		if name, val, _ := strings.Cut(e, "="); name == want && !strings.ContainsAny(val, "$`") {
+			return val
+		}
+	}
+	return ""
 }
 
 // dbKind: a database client pointed away from the laptop. A query that
