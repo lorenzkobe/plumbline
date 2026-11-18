@@ -41,7 +41,7 @@ If the task is so unclear that planning would likely be wasted, ask your questio
 - It runs without the user, so it adds no stop. Small tasks, or a project with `"parts": {"challenger": false}` in its setup, skip it.
 
 ## 6. The checkpoint
-AskUserQuestion with header `Checkpoint`, options `Approve`, `Change something` and `Drop it` (Drop it closes the task). First show the plan in chat the way rules.md's "Talking to the user" shows: a plain sentence or two, then a few short lines (risk, checks, review). No file paths, task ids or Plumbline steps. Never pre-answer it.
+AskUserQuestion with header `Checkpoint`, options `Approve`, `Change something` and `Drop it` (Drop it closes the task). First show the plan in chat the way rules.md's "Talking to the user" shows: a plain sentence or two, then a few short lines (risk, checks, review). Normal and big tasks: write `plan-for-you.md` last (the plan in plain words, format in checkpoints.md; the checkpoint is refused without it or when plan.md changed after it), show its short version, and end with "More detail: <its path>", the one path the user sees. No other paths, task ids or Plumbline steps. Never pre-answer it.
 
 ## 7. Decisions vs common sense
 - A real decision is asked right away, with options and your recommendation: a trade-off ("fixing this changes that"), a choice between approaches, anything that changes behaviour the plan didn't cover.

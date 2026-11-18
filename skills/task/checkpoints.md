@@ -107,6 +107,24 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance, failure,
 - These bugs often don't exist yet, so show the test can fail: break the guard on purpose (remove it, reorder the step), see the test fail, then put it back and check the diff shows it restored.
 Every line in the plan decides something. "TBD", "handle edge cases", "add appropriate validation" or "write tests for the above" are refused: name the cases, checks or values.
 
+## plan-for-you.md (normal and big tasks)
+The plan for the user, in plain words: no file:line, no jargon (explain a needed term in a few words), short sentences. Written last, after plan.md and the challenge note, so it matches what they approve. The chat shows its short version and the path.
+```
+# <title>, in plain words
+## What you asked for
+<the request as you understood it; say what you assumed>
+## What's happening now
+<how it works today and why that's a problem, in a few sentences>
+## What I'll change
+<each change and what the user will notice>
+## What could go wrong
+<each real risk and how it's handled; "Nothing outside X changes" when that's true>
+## How I'll check it
+<the tests and checks in plain words, and who reviews it>
+## What I need from you
+<decisions or access, or "Nothing: just Approve, Change something or Drop it">
+```
+
 ## report.md
 ```
 # Report: <title>

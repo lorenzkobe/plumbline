@@ -1669,6 +1669,9 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			}
 			pc := CheckPlanSized(text, t.Size == "small")
 			p = append(p, pc.Problems...)
+			if t.Size != "small" && !t.Hotfix() {
+				p = append(p, forYouProblems(t, fi)...)
+			}
 			if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
 				p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
 			}
@@ -1682,6 +1685,21 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 		}
 	}
 	return p
+}
+
+// forYouProblems: the user approves what they read, so plan-for-you.md
+// (the plan in plain words) must be there and written after plan.md's last
+// change (0.7.1).
+func forYouProblems(t *Task, plan os.FileInfo) []string {
+	p := filepath.Join(TaskDocsDir(t.Root, t.ID), DocForYou)
+	fi, err := os.Stat(p)
+	switch {
+	case err != nil:
+		return []string{"write " + p + ": the plan in plain words for the user (what they asked for as you understood it, what's happening now, what changes, what could go wrong and how it's handled, how it'll be checked, what you need from them), no file:line or jargon. Then show its short version in chat with the file's path, and ask"}
+	case plan != nil && fi.ModTime().Before(plan.ModTime()):
+		return []string{DocForYou + " is older than plan.md, so the user would read an old plan: update it, then ask"}
+	}
+	return nil
 }
 
 // sizeProblems: "small" means low impact, not few lines. A plan that changes

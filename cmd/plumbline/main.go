@@ -577,7 +577,7 @@ func startChecklist(size string) string {
 	if size == "small" {
 		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"). No separate understanding note, no challenger, one code review. " + ask + " " + after
 	}
-	return "Next: look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write understanding.md (with ## Reuse) and plan.md in the notes folder with the Write tool, as checkpoints.md shows. Start the challenger, then add ## Challenge note to plan.md. " + ask + " " + after
+	return "Next: look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write understanding.md (with ## Reuse) and plan.md in the notes folder with the Write tool, as checkpoints.md shows. Start the challenger, then add ## Challenge note to plan.md. Last, write plan-for-you.md (the plan in plain words for the user, as checkpoints.md shows) and show its short version in chat with the file's path. " + ask + " " + after
 }
 
 // runChecks runs every saved check in turn (test, lint, build, format,

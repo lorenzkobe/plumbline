@@ -14,7 +14,10 @@ import (
 const (
 	DocUnderstanding = "understanding.md"
 	DocPlan          = "plan.md"
-	DocReport        = "report.md"
+	// DocForYou: the plan in plain words for the user, with the detail
+	// behind the chat summary (0.7.1). Normal and big tasks.
+	DocForYou = "plan-for-you.md"
+	DocReport = "report.md"
 )
 
 // JiraCommentName: the draft comment for a Jira ticket, named for the

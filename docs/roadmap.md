@@ -153,6 +153,7 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 - [x] RP1 (0.6.16): `plumbline <subcommand> --help` ran the subcommand (a replan in the retest). Now usage only.
 - [x] PL1 (0.6.16): "test: does not apply, because ..." read as a test file named "does".
 - [x] UX1 / UX2 (0.7.0; decided 2026-11-19: before steps 9-18)
+- [x] (0.7.1) The user asked to see the plan before approving, in plain words, with detail to dig into: plan-for-you.md for normal and big tasks (a file on the laptop, chosen over a claude.ai page to avoid clutter; task notes live outside the repo and are kept as history, no cleanup).
   Decisions (user, 2026-11-19):
   - A small change gets a short plan, the checks and one code review (one round). No challenger, no plan reviewer.
   - Risky-path files (setup's risky_paths, like people.ts): Claude decides small or full and says why. Floor confirmed by the user: built-in high-impact kinds (auth, permissions, payments, migrations, deploy, dependencies, security code) and files that decide which checks run stay never-small.

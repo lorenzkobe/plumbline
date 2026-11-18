@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.1: the plan in plain words
+- Normal and big tasks: before the plan question, Claude writes plan-for-you.md next to its notes (outside your project): what you asked for as it understood it, what's happening now, what changes, what could go wrong, how it'll be checked, and what it needs from you, in plain words. The chat shows the short version and the file's path. The plan question is refused until the file is there and newer than plan.md, so you approve what you read. Small tasks keep the short card.
+
 ## 0.7.0: one stop, a lighter small path, and Plumbline under the hood
 Decided with the user after smoke run 2 (UX1, UX2).
 - One stop: when you ask for a change, Claude starts the task itself (starting changes nothing), looks at the code, then asks the one plan question: Approve, Change something, or Drop it. "Drop it" (the question's own option, never typed text) closes the task.

@@ -22,7 +22,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Task: something in the repo's files needs to change, however small (a one-line rename too). Start the task right away with `plumbline task start` on its own line: starting changes nothing, so it needs no question. Look at the code, write the plan, then ask the user the one plan question (Approve / Change something / Drop it). Don't try an edit before they approve: it's refused. The user typing /plumbline:task works the same.
 
 ## Talking to the user
-- Plumbline works under the hood. Never show the user task ids, notes paths, `plumbline` commands, hook messages or Plumbline's steps. When Plumbline refuses something, fix it quietly; tell the user only when they need to act, in plain words.
+- Plumbline works under the hood. Never show the user task ids, notes paths (except the link to plan-for-you.md), `plumbline` commands, hook messages or Plumbline's steps. When Plumbline refuses something, fix it quietly; tell the user only when they need to act, in plain words.
 - Talk like a person, then give the details. One or two plain sentences first, then a few short lines the user can scan (risk, checks, review), then the question. For example:
   "I'd like to rename link to profileLink in people.ts. It's two lines inside one loop, so nothing else changes.
      Risk: low, the variable never leaves the loop

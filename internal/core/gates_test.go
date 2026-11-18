@@ -16,6 +16,9 @@ type harness struct {
 	t    *testing.T
 	repo string
 	sid  string
+	// noForYou: plan.md is written alone. Otherwise docs() writes
+	// plan-for-you.md after it, as Claude does for a normal task (0.7.1).
+	noForYou bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -147,6 +150,9 @@ func (h *harness) docs(name, text string) string {
 	o := h.pre("Write", map[string]any{"file_path": p, "content": text})
 	h.expect(o, "allow", "")
 	write(h.t, p, text)
+	if name == DocPlan && !h.noForYou {
+		write(h.t, filepath.Join(filepath.Dir(p), DocForYou), "# The plan, in plain words\n")
+	}
 	return p
 }
 
