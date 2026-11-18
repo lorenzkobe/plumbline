@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.10: release 4 (WF3, WF4)
+- WF3: the setup can save `format`, `typecheck` and `security` commands (`prettier --check .`, `tsc --noEmit`, `npm audit --audit-level=high`). `plumbline run format|typecheck|security` runs them; they pass on exit 0, or with no more problems than before the task, like lint and build. Every commit needs each saved one, a hotfix's first commit too, and a plan that changes packages needs their before-state at the checkpoint. The tester and builders may run them.
+- A format command that rewrites files (`prettier --write`, `gofmt -w`, `black .`, `ruff format`, also behind npx or pnpm exec) is refused at `plumbline setup save`; one that rewrites anyway (a script) is named at commit.
+- WF4: the finish check needs each `[bug]` case's test seen failing before the fix: a recorded run of the saved test or related command that failed, taken while only test files (or the plan's case tests) had changed since the first approval. A named test (`test: file::name`) must be among the failing names; a file alone needs the run to have run it, with a failure that wasn't there before the task. The test file must be unchanged since that run, so a stand-in test that always fails doesn't count. A Go package's `FAIL` line now counts as naming its test files. The approval message names the `[bug]` tests to run first. When the fix came first, Claude stashes it, runs the test, and pops it; only you can waive it (`plumbline waive bug-test`).
+- The approval fingerprint follows a checkout, switch or pull that the start commit follows, in a line of nothing but git checkout, switch, pull or fetch, while nothing but tests had changed since approval (a hotfix switching to the production branch), so the failing run can still count and blind QA can still start.
+- `ruff format --check` and `ruff format --diff` are no longer read as commands that rewrite files.
+
 ## 0.6.9: release 3d, the standup (S1, S4; S2 and S3 dropped)
 - `plumbline standup` covers the time since your last standup in this project, up to now, and remembers it for the next one. Asked again within 12 hours, it keeps the same start (a redo isn't empty); the first one starts at the beginning of yesterday, and it never goes back more than 7 days. `--date` still covers one whole day and doesn't move the start. The listing prints the MemPalace `since`/`before` to use.
 - S1: a task keeps the last read of each day for every file, and the last code change of each day (up to 60 days), so a file opened Monday and again Tuesday counts for both days.

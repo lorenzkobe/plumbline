@@ -85,7 +85,7 @@ func (c *hookCtx) upgradeProblems(pc PlanCheck) []string {
 	}
 	runs := LoadRuns(c.task.Root)
 	var need []string
-	for _, k := range []string{KindTest, KindLint, KindBuild} {
+	for _, k := range append([]string{KindTest}, CheckKinds...) {
 		// Any finished run counts here, even one where everything failed:
 		// it records how the checks stood. After a replan the code has
 		// changed already, so no run can be a baseline: any finished run

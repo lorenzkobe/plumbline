@@ -762,7 +762,7 @@ func inPlace(s Segment) bool {
 	case "eslint", "stylelint":
 		return has("--fix")
 	case "ruff":
-		return s.Arg(1) == "format" || has("--fix")
+		return (s.Arg(1) == "format" && !has("--check", "--diff")) || has("--fix")
 	case "black", "isort", "rustfmt", "autoflake":
 		return !has("--check", "--diff")
 	case "clang-format", "autopep8", "shfmt":

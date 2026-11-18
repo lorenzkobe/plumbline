@@ -155,6 +155,7 @@ func builtTask(t *testing.T, files map[string]string) *harness {
 	plan += "## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
 	h.docs(DocPlan, plan)
 	h.approve()
+	h.redRun()
 	for p, content := range files {
 		abs := filepath.Join(h.repo, p)
 		write(t, abs, content)

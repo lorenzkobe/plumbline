@@ -575,6 +575,8 @@ func (c *hookCtx) afterQuestion() Output {
 			t.ApprovedCmds = pc.Approved
 			t.CaseTests = pc.CaseTests
 			t.CasesStored = true
+			t.BugTests = pc.BugTests
+			t.BugStored = true
 			t.Upgrade = upgradePlan(pc)
 			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
@@ -592,6 +594,9 @@ func (c *hookCtx) afterQuestion() Output {
 		next := "Make the plan next (plan.md), then the checkpoint."
 		if t.Phase == PhaseBuilding {
 			next = "Build and prove it to the end without stopping: a failing test first, then the fix, then the proof and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
+			if files := t.bugCaseFiles(); len(files) > 0 {
+				next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed.", strings.Join(files, ","))
+			}
 		}
 		return Context("PostToolUse", msg(fmt.Sprintf("the user approved. Task %s is now at the %s step. %s", t.ID, t.Phase, next)))
 	}

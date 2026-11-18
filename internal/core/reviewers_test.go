@@ -65,6 +65,7 @@ func riskyTask(t *testing.T, team string) *harness {
 	h.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	h.docs(DocPlan, plan+"## Team\n"+team+"\n## Challenge note\n- nothing changed\n")
 	h.approve()
+	h.redRun()
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
@@ -382,6 +383,7 @@ func TestJiraTicketTask(t *testing.T) {
 		t.Fatal("the Jira read wasn't recorded")
 	}
 	h.approve()
+	h.redRun()
 
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")

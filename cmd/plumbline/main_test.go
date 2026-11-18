@@ -189,3 +189,52 @@ func TestRelatedFilesRefuseFlags(t *testing.T) {
 		t.Fatalf("a flag in --files should be refused: %d %s", code, out)
 	}
 }
+
+// WF3: the saved format, typecheck and security commands run and are
+// recorded as their own kinds; an unsaved one says so.
+func TestRunTheSavedChecks(t *testing.T) {
+	home := t.TempDir()
+	repo := gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	s := &core.Setup{Kind: "personal"}
+	s.Commands.Test = "true"
+	s.Commands.Format = "echo formatted"
+	s.Commands.Typecheck = "echo 'error: x is a string'; exit 2"
+	if _, err := core.SaveSetup(repo, s); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := plumbline(t, repo, home, "", "run", "format"); code != 0 || !strings.Contains(out, "format recorded: PASS") {
+		t.Fatalf("format: %d %s", code, out)
+	}
+	if out, code := plumbline(t, repo, home, "", "run", "typecheck"); code != 2 || !strings.Contains(out, "typecheck recorded: FAIL") {
+		t.Fatalf("typecheck: %d %s", code, out)
+	}
+	if out, code := plumbline(t, repo, home, "", "run", "security"); code == 0 || !strings.Contains(out, "no security command is saved") {
+		t.Fatalf("security isn't saved: %d %s", code, out)
+	}
+	kinds := map[string]int{}
+	for _, r := range core.LoadRuns(repo) {
+		kinds[r.Kind]++
+	}
+	if kinds[core.KindFormat] != 1 || kinds[core.KindTypecheck] != 1 || len(kinds) != 2 {
+		t.Fatalf("recorded runs: %v", kinds)
+	}
+	// A format command that rewrites files can't be saved.
+	out, code := plumbline(t, repo, home, `{"kind": "personal", "commands": {"test": "true", "format": "npx prettier --write ."}}`, "setup", "save")
+	if code == 0 || !strings.Contains(out, "rewrites files") {
+		t.Fatalf("a rewriting format command was saved: %d %s", code, out)
+	}
+}
+
+// WF4: bug-test is a check the user may waive.
+func TestWaiveBugTest(t *testing.T) {
+	home := t.TempDir()
+	repo := gitRepo(t)
+	out, code := plumbline(t, repo, home, "", "waive", "bug-test", "--reason", "needs a card terminal")
+	if code == 0 || strings.Contains(out, "can be waived") {
+		t.Fatalf("bug-test should pass the check-name test (and fail only for having no task): %d %s", code, out)
+	}
+	if out, _ := plumbline(t, repo, home, "", "waive", "tests", "--reason", "x"); !strings.Contains(out, "bug-test") {
+		t.Fatalf("the refusal should list bug-test: %s", out)
+	}
+}

@@ -37,7 +37,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 3d, first part: 0.6.6 (commit ffbcd0e): M14.
 - Release 3d, second part: 0.6.7 (commit 67c9126): W1, M15 (found while building it).
 - Release 3d, third part: 0.6.8 (commit cfb9d24): the sandbox option (G1, P1, B1, each partly; the leftovers are in known-gaps.md).
-- Release 3d, fourth part: 0.6.9: the standup (S1, S4; S2 and S3 dropped).
+- Release 3d, fourth part: 0.6.9 (commit 1ed00e8): the standup (S1, S4; S2 and S3 dropped).
+- Release 4: 0.6.10: WF3, WF4.
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -105,9 +106,17 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] The sandbox option: G1, P1, B1 (0.6.8, each partly).
 - [x] The standup: S1, S4 (0.6.9); S2 and S3 dropped.
 
-## Release 4
-- WF3: optional saved `format`, `typecheck` and `security` commands.
-- WF4: a `[bug]` case needs a recorded failing run of its named test, taken while only test files had changed.
+## Decisions for release 4 (2026-11-18)
+- WF4, missing failing run: the finish check sends Claude back to show it (stash the fix, run the test, pop it); only the user can waive it (`plumbline waive bug-test`).
+- WF4, hotfixes: the same rule, checked at the hotfix's finish; its first commit still goes out fast.
+- WF3, hotfixes: the first commit needs every saved check, format, typecheck and security included.
+- WF4, a test edited after its failing run: the run no longer counts (a stand-in test that always fails would pass otherwise); Claude sets the fix aside and runs it again.
+- Found while building it: a hotfix switches to the production branch after its checkpoint, so the approval fingerprint now follows a move the start commit follows, in a line of only git checkout, switch, pull or fetch, while only tests had changed (else no failing run could count). Blind QA uses the same fingerprint, so it can start after such a move too.
+- Found while building it: `ruff format --check` was read as a command that rewrites files; it only checks.
+
+## Release 4 (0.6.10), shipped
+- [x] WF3: optional saved `format`, `typecheck` and `security` commands.
+- [x] WF4: a `[bug]` case needs a recorded failing run of its named test, taken while only test files had changed.
 
 ## Release 5, last
 - The smoke test, V1 to V20 (docs/smoke-test.md).

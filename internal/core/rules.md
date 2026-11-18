@@ -31,14 +31,14 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 ## The plumbline command (on PATH)
 - `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task (after the user said yes). `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
 - `plumbline status` shows the step, what's proven and what's missing. `plumbline docs-dir` prints the task's notes folder.
-- `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`: Plumbline runs the saved command and records the result. Only these runs count as proof.
+- `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`, and `plumbline run format|typecheck|security` when the setup saves them: Plumbline runs the saved command and records the result. Only these runs count as proof. Every commit needs each saved check (lint, build, format, typecheck, security) to pass.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
 - `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files (the user can keep a low-impact one small with /plumbline:size small) and always for files that decide which checks run (CI, git hooks, test and lint config, AI instructions).
 - `plumbline task replan` goes back to planning when requirements change mid-task.
 - `plumbline task finish` closes the task after the report and the user's commit decision.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
-- Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests, lint and build, with the full suite and every reviewer right after it.
+- Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests and the saved checks, with the full suite and every reviewer right after it.
 
 ## Checkpoints (Claude Code's question prompt, answered by the user)
 The user usually hands over the task and comes back later: research and plan without stopping, stop once at the checkpoint, then build and prove to the end without stopping (except for real decisions).
@@ -80,7 +80,7 @@ The user usually hands over the task and comes back later: research and plan wit
 - Draft the comment in `<TICKET>-jira-comment.md` in the notes folder (format in the task skill); the suggested status goes under "For you".
 
 ## Finishing
-- Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end. Each case's test must have run and passed on the final code (`plumbline run related --files <case tests>`). A change that reaches the frontend needs `plumbline run e2e` when the setup saves one.
+- Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end. A `[bug]` case's test must be seen failing before the fix: `plumbline run related --files <its test>` while only tests have changed since approval, and the test unchanged since (the finish check needs that run; when the fix came first, set it aside with git stash, run, and put it back; only the user can waive it, as `bug-test`). Each case's test must have run and passed on the final code (`plumbline run related --files <case tests>`). A change that reaches the frontend needs `plumbline run e2e` when the setup saves one.
 - Temporary debug logs carry the tag `[PLB-DEBUG]`, and the finish check refuses while one is left in the diff.
 - Report (`report.md`, then a short chat version, bad news first): the verdict, what changed, proof (runs and counts, every waiver), review, common-sense calls, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user, or "nothing"), and the question about committing. The finish check needs each of these:
   - `## Verdict`: Ready, Ready with noted limitations, or Not ready, with why, and a `Rollback:` line.

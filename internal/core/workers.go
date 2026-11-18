@@ -141,9 +141,9 @@ func helperMayRun(kind string, s Segment) bool {
 	case HelperQA:
 		return s.Arg(2) == "related" || s.Arg(2) == "test"
 	case HelperTester:
-		return contains([]string{"test", "related", "lint", "build", "e2e"}, s.Arg(2))
+		return contains(append([]string{KindTest, KindRelated, KindE2E}, CheckKinds...), s.Arg(2))
 	case HelperBuilder:
-		return contains([]string{"test", "related", "lint", "build"}, s.Arg(2))
+		return contains(append([]string{KindTest, KindRelated}, CheckKinds...), s.Arg(2))
 	}
 	return false
 }

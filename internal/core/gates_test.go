@@ -32,8 +32,9 @@ func newHarness(t *testing.T) *harness {
 	write(t, filepath.Join(repo, "src", "a.go"), "package src\n\nfunc A() int { return 1 }\n")
 	write(t, filepath.Join(repo, "src", "b.go"), "package src\n\nfunc B() int { return 2 }\n")
 	write(t, filepath.Join(repo, ".gitignore"), "coverage/\n")
-	// the "test suite": prints pytest-style output, fails when FAIL file exists
-	write(t, filepath.Join(repo, "test.sh"), "#!/bin/sh\nif [ -f FAIL ]; then echo 'FAILED tests/t.py::test_new'; echo '== 1 failed, 2 passed in 0.1s =='; exit 1; fi\necho 'PASS test.sh'; echo '== 3 passed in 0.1s =='\n")
+	// the "test suite": prints pytest-style output, fails when a FAIL file
+	// exists (tests/red is a test file, for a [bug] case's failing run)
+	write(t, filepath.Join(repo, "test.sh"), "#!/bin/sh\nif [ -f FAIL ] || [ -f tests/red ]; then echo 'FAILED tests/t.py::test_new'; echo '== 1 failed, 2 passed in 0.1s =='; exit 1; fi\necho 'PASS test.sh'; echo '== 3 passed in 0.1s =='\n")
 	must(t, os.Chmod(filepath.Join(repo, "test.sh"), 0o755))
 	run(t, repo, "git", "add", "-A")
 	run(t, repo, "git", "commit", "-q", "-m", "init")
@@ -246,6 +247,7 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	if h.task().Phase != PhaseBuilding {
 		t.Fatal("checkpoint 2 approval not recorded")
 	}
+	h.redRun()
 
 	// Building runs without prompts: plan files and same-change files go
 	// ahead; risky files outside the plan are refused and must be reported.

@@ -218,12 +218,34 @@ func provenTask(t *testing.T) *harness {
 	h := groundedTask(t, "small")
 	h.docs(DocPlan, goodPlan)
 	h.approve()
+	h.redRun()
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
 	_, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
 	must(t, err)
 	return h
+}
+
+// redRun records the [bug] case's test failing before the fix: a failing
+// suite while only a test file (tests/red) differs from the approved code.
+func (h *harness) redRun() {
+	h.t.Helper()
+	red := filepath.Join(h.repo, "tests", "red")
+	write(h.t, red, "x\n")
+	s, _, _ := LoadSetup(h.repo)
+	var r *Run
+	var err error
+	if s != nil && strings.Contains(s.Commands.TestRelated, "{files}") {
+		r, err = ExecuteRelated(h.repo, h.task(), strings.ReplaceAll(s.Commands.TestRelated, "{files}", "test.sh"), []string{"test.sh"}, s, io.Discard)
+	} else {
+		r, err = Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
+	}
+	must(h.t, err)
+	if r.Failed == 0 {
+		h.t.Fatal("the red run should fail")
+	}
+	must(h.t, os.RemoveAll(filepath.Join(h.repo, "tests")))
 }
 
 func (h *harness) finishMissing() string {

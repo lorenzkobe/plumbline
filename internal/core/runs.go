@@ -23,7 +23,21 @@ const (
 	KindBuild   = "build"
 	KindE2E     = "e2e"
 	KindProof   = "proof" // real-world proof: ui, api, schema (Sub)
+	// Optional checks the setup may save (WF3). Like lint and build, each
+	// passes on exit 0, or with no more problems than before the task.
+	KindFormat    = "format"
+	KindTypecheck = "typecheck"
+	KindSecurity  = "security"
 )
+
+// CheckKinds: the saved checks that every commit needs when the setup has
+// them, in the order they're reported.
+var CheckKinds = []string{KindLint, KindBuild, KindFormat, KindTypecheck, KindSecurity}
+
+// testKind: a run of tests, read for counts; the other kinds are checks.
+func testKind(kind string) bool {
+	return kind == KindTest || kind == KindRelated || kind == KindE2E
+}
 
 // Run is one recorded command run. Plumbline runs the command itself, so the
 // record shows what really happened. Output is never stored, only counts.
@@ -178,7 +192,7 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 		if r.Exit != 0 && r.Failed == 0 && r.Ran >= 0 {
 			r.Failed = 1 // non-zero exit with no failure count: treat as failing
 		}
-	case KindLint, KindBuild:
+	case KindLint, KindBuild, KindFormat, KindTypecheck, KindSecurity:
 		r.Problems = CountProblems(text)
 		r.Ran = 1
 	default:
@@ -558,7 +572,7 @@ func Judge(r *Run, baseline *Run) Verdict {
 			}
 		}
 		return Verdict{false, strconv.Itoa(r.Failed) + " failing"}
-	case KindLint, KindBuild:
+	case KindLint, KindBuild, KindFormat, KindTypecheck, KindSecurity:
 		if r.Exit == 0 {
 			return Verdict{true, ""}
 		}
@@ -658,7 +672,7 @@ func brokenBaseline(runs []*Run, taskID, kind string) bool {
 func BaselineFor(runs []*Run, taskID, kind string) *Run {
 	var best *Run
 	for _, r := range baselineRuns(runs, taskID, kind) {
-		test := kind == KindTest || kind == KindRelated || kind == KindE2E
+		test := testKind(kind)
 		if test && r.Ran > 1 && r.Failed >= r.Ran {
 			continue
 		}

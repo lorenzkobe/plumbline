@@ -151,6 +151,9 @@ type Task struct {
 	// HeadBefore: HEAD before the lead's checkout, switch, pull or commit
 	// now running; until the task's first commit, StartCommit follows a move.
 	HeadBefore string `json:"head_before,omitempty"`
+	// PrintBeforeMove: the code's fingerprint before that checkout, switch
+	// or pull, so the approval fingerprint can follow the move too.
+	PrintBeforeMove string `json:"print_before_move,omitempty"`
 	// StartTips: the local branches' commits at task start; StartCommit may
 	// follow only to one of these or to a remote-tracking branch's commit.
 	StartTips []string `json:"start_tips,omitempty"`
@@ -162,6 +165,10 @@ type Task struct {
 	// The code's fingerprint at the first approval: blind QA starts only
 	// while nothing but tests changed since.
 	ApprovalPrint string `json:"approval_print,omitempty"`
+	// BugTests: the approved plan's [bug] cases' test links, kept at
+	// approval (BugStored); tasks approved before 0.6.10 read plan.md.
+	BugTests  []string `json:"bug_tests,omitempty"`
+	BugStored bool     `json:"bug_stored,omitempty"`
 
 	LastCodeChange time.Time `json:"last_code_change,omitempty"`
 	// ChangeDays: the last code change of each earlier local day.

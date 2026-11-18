@@ -94,13 +94,13 @@ func usage() {
   plumbline task size small|normal|big --why "..."   before the plan is approved
   plumbline task tool-down serena|context7|jira --reason "..."
   plumbline task adopt <id>             continue an earlier task in this session
-  plumbline run test|related|lint|build|e2e [--files a,b] [--task id]
+  plumbline run test|related|lint|build|format|typecheck|security|e2e [--files a,b] [--task id]
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
   plumbline setup show|save|laptop|undo-laptop
   plumbline setup sandbox [--exclude psql,mysql] | undo-sandbox   Claude Code's Bash sandbox, this checkout
   plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
-  plumbline waive proof:ui|proof:api|proof:schema|e2e|qa --reason "..."
+  plumbline waive proof:ui|proof:api|proof:schema|e2e|qa|bug-test --reason "..."
   plumbline stats [--months N]
   plumbline standup [--date YYYY-MM-DD]  your work since your last standup here (or on that day), from this repo
   plumbline standup tracker [--set <path>]   this project's sprint file
@@ -411,7 +411,7 @@ func shellQuote(s string) string {
 
 func cmdRun(args []string) (int, error) {
 	if len(args) == 0 {
-		return 0, errors.New("run what? test, related, lint, build, e2e, or proof")
+		return 0, errors.New("run what? test, related, lint, build, format, typecheck, security, e2e, or proof")
 	}
 	kind := args[0]
 	f, pos, rest := flags(args[1:])
@@ -472,6 +472,12 @@ func cmdRun(args []string) (int, error) {
 		command, kind = s.Commands.Lint, core.KindLint
 	case "build":
 		command, kind = s.Commands.Build, core.KindBuild
+	case "format":
+		command, kind = s.Commands.Format, core.KindFormat
+	case "typecheck":
+		command, kind = s.Commands.Typecheck, core.KindTypecheck
+	case "security":
+		command, kind = s.Commands.Security, core.KindSecurity
 	case "e2e":
 		command, kind = s.Commands.E2E, core.KindE2E
 	case "proof":
@@ -668,13 +674,13 @@ func cmdWaive(args []string) error {
 	f, pos, _ := flags(args)
 	root := mustRoot()
 	if len(pos) == 0 {
-		return errors.New("which check? proof:ui, proof:api, proof:schema, e2e or qa")
+		return errors.New("which check? proof:ui, proof:api, proof:schema, e2e, qa or bug-test")
 	}
 	check := pos[0]
 	switch check {
-	case "proof:ui", "proof:api", "proof:schema", "e2e", "qa":
+	case "proof:ui", "proof:api", "proof:schema", "e2e", "qa", "bug-test":
 	default:
-		return errors.New("only real-world proof (proof:ui, proof:api, proof:schema), e2e or blind QA (qa) can be waived. Never tests on changed code, reviews on risky changes, or safety rules")
+		return errors.New("only real-world proof (proof:ui, proof:api, proof:schema), e2e, blind QA (qa) or a [bug] case's failing run before the fix (bug-test) can be waived. Never tests on changed code, reviews on risky changes, or safety rules")
 	}
 	if strings.TrimSpace(f["reason"]) == "" {
 		return errors.New(`say why it can't run: --reason "..."`)

@@ -1293,7 +1293,8 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision,
 		return "deny", "setup", "the project setup isn't confirmed, so its test command can't be trusted. Run /plumbline:setup."
 	}
 	final := ctx.isFinalCommit(ci, addsAll, added)
-	// A hotfix's first commit goes out on the related tests, lint and build;
+	// A hotfix's first commit goes out on the related tests and the saved
+	// checks (lint, build, and format, typecheck, security when saved);
 	// the full suite comes right after it (W1).
 	hotfix := ctx.task.Hotfix() && ctx.task.Commits == 0
 	missing := ProofMissing(ctx.task, ctx.setup, final && !hotfix)
@@ -1303,7 +1304,7 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision,
 	kind := "slice commit, related tests passed"
 	switch {
 	case hotfix:
-		kind = "hotfix commit, related tests, lint and build passed; the full suite and every reviewer run right after it"
+		kind = "hotfix commit, related tests and the saved checks passed; the full suite and every reviewer run right after it"
 	case final:
 		kind = "last commit of the task, full suite passed"
 	}
@@ -1404,17 +1405,35 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 			}
 		}
 	}
-	if s.Commands.Lint != "" {
-		if v := Judge(LatestFor(runs, t.ID, KindLint, "", s.Commands.Lint, fp), BaselineFor(runs, t.ID, KindLint)); !v.OK {
-			miss = append(miss, "lint: "+v.Reason+" (run: plumbline run lint)")
+	// Every saved check: lint and build, and format, typecheck and security
+	// when the setup has them (WF3).
+	for _, k := range CheckKinds {
+		cmd := savedCommand(s, k)
+		if cmd == "" {
+			continue
 		}
-	}
-	if s.Commands.Build != "" {
-		if v := Judge(LatestFor(runs, t.ID, KindBuild, "", s.Commands.Build, fp), BaselineFor(runs, t.ID, KindBuild)); !v.OK {
-			miss = append(miss, "build: "+v.Reason+" (run: plumbline run build)")
+		if v := Judge(LatestFor(runs, t.ID, k, "", cmd, fp), BaselineFor(runs, t.ID, k)); !v.OK {
+			why := v.Reason
+			if k == KindFormat && formatRewrote(runs, t.ID, cmd, fp) {
+				why += "; the saved format command rewrote files, and it must only check (prettier --check, ruff format --check): ask the user to change it with /plumbline:setup"
+			}
+			miss = append(miss, k+": "+why+" (run: plumbline run "+k+")")
 		}
 	}
 	return miss
+}
+
+// formatRewrote: the task's newest run of the saved format command left the
+// code as it is now, changed from where it started: the command rewrote
+// files instead of checking them.
+func formatRewrote(runs []*Run, taskID, cmd, fp string) bool {
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if r.TaskID == taskID && r.Kind == KindFormat && r.Command == cmd && !r.Finished.IsZero() {
+			return r.PrintAfter == fp && r.PrintAfter != r.PrintBefore
+		}
+	}
+	return false
 }
 
 var reCheckpoint = regexp.MustCompile(`(?i)checkpoint\s*([12])?`)

@@ -64,6 +64,7 @@ func approvedHotfix(t *testing.T) *harness {
 	h := hotfixTask(t)
 	h.docs(DocPlan, hotfixPlan)
 	h.approve()
+	h.redRun()
 	return h
 }
 

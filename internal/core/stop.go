@@ -30,6 +30,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 		changed = append(changed, f.Path)
 	}
 	miss = append(miss, caseRunMissing(t, s, fp, runs, report)...)
+	miss = append(miss, bugRedMissing(t, s, fp, runs)...)
 	miss = append(miss, e2eMissing(t, s, fp, runs, changed)...)
 	miss = append(miss, debugMissing(changes)...)
 	for _, k := range t.ProofKinds {

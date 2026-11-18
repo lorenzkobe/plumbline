@@ -218,6 +218,9 @@ type PlanCheck struct {
 	Files     []string
 	Cases     int
 	CaseTests []string // test files the cases link to
+	// BugTests: the [bug] cases' test links ("file" or "file::name"), whose
+	// test must be seen failing before the fix (WF4).
+	BugTests []string
 	// SharedTests: named tests (file::name) that are the proof for more than
 	// one case, for the challenger and reviewers to check.
 	SharedTests []string
@@ -251,6 +254,9 @@ func CheckPlan(text string) PlanCheck {
 		if m := reTestLink.FindStringSubmatch(b); m != nil {
 			ref := strings.TrimSpace(m[1] + strings.TrimRight(m[2], ").,;"))
 			pc.CaseTests = append(pc.CaseTests, strings.SplitN(ref, "::", 2)[0])
+			if strings.HasPrefix(b, "[bug]") {
+				pc.BugTests = append(pc.BugTests, ref)
+			}
 			if strings.Contains(ref, "::") {
 				refs[ref]++
 			}

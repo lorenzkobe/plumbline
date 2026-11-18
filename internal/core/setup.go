@@ -30,6 +30,11 @@ type Setup struct {
 		App         string `json:"app,omitempty"`
 		DBUp        string `json:"db_up,omitempty"`
 		E2E         string `json:"e2e,omitempty"`
+		// Optional checks (WF3): when saved, every commit needs them to
+		// pass. Format only checks (prettier --check), never rewrites.
+		Format    string `json:"format,omitempty"`
+		Typecheck string `json:"typecheck,omitempty"`
+		Security  string `json:"security,omitempty"`
 		// BuilderSetup runs in each new builder copy, so it has its own
 		// dependencies (pnpm install --frozen-lockfile --prefer-offline).
 		BuilderSetup string `json:"builder_setup,omitempty"`
@@ -244,6 +249,9 @@ func SaveSetup(root string, s *Setup) (string, error) {
 	if s.Kind != "company" && s.Kind != "personal" {
 		return "", errors.New(`kind must be "company" or "personal"`)
 	}
+	if formatRewrites(s.Commands.Format) {
+		return "", errors.New("the format command rewrites files (" + s.Commands.Format + "); save one that only checks and fails when a file isn't formatted: prettier --check ., ruff format --check, black --check ., test -z \"$(gofmt -l .)\"")
+	}
 	s.Version = 1
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -264,13 +272,30 @@ func SaveSetup(root string, s *Setup) (string, error) {
 	return p, ConfirmSetup(root)
 }
 
+// formatRewrites: the format command changes the files it checks (prettier
+// --write, gofmt -w, black without --check), also when a package runner
+// starts it (npx prettier --write). A check that rewrites passes whatever
+// the code looks like.
+func formatRewrites(cmd string) bool {
+	for _, s := range Segments(cmd) {
+		if inPlace(s) {
+			return true
+		}
+		if t, ok := runnerTarget(s); ok && inPlace(t) {
+			return true
+		}
+	}
+	return false
+}
+
 // SavedCommands are the exact commands Claude may run before approval.
 func (s *Setup) SavedCommands() []string {
 	if s == nil {
 		return nil
 	}
 	var out []string
-	for _, c := range []string{s.Commands.Test, s.Commands.Lint, s.Commands.Build, s.Commands.App, s.Commands.DBUp, s.Commands.E2E} {
+	for _, c := range []string{s.Commands.Test, s.Commands.Lint, s.Commands.Build, s.Commands.App, s.Commands.DBUp, s.Commands.E2E,
+		s.Commands.Format, s.Commands.Typecheck, s.Commands.Security} {
 		if strings.TrimSpace(c) != "" {
 			out = append(out, strings.TrimSpace(c))
 		}

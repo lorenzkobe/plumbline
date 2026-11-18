@@ -40,11 +40,15 @@ func (t *Task) caseTestFiles() []string {
 	return out
 }
 
-var reGoOKPkg = regexp.MustCompile(`(?m)^ok\s+(\S+)\s`)
+// A Go package that ran: "ok  pkg 0.2s", or "FAIL pkg 0.2s" when a test in
+// it failed (a failing run of a [bug] case's test, WF4). A passing run has
+// no FAIL line, so a case test seen there still ran and passed.
+var reGoOKPkg = regexp.MustCompile(`(?m)^(?:ok|FAIL)[ \t]+(\S+)[ \t]+(?:\(cached\)|[\d.]+s)`)
 
 // CaseTestsSeen: the case test files a run's output names. A file counts
 // when its path shows (or its last parts do, for a runner started in a
-// subfolder), or, for a Go test file, when its package has an "ok" line.
+// subfolder), or, for a Go test file, when its package has an "ok" line
+// (or a "FAIL" line, in a failing run).
 func CaseTestsSeen(root, text string, tests []string) []string {
 	if len(tests) == 0 || text == "" {
 		return nil
@@ -136,6 +140,12 @@ func savedCommand(s *Setup, kind string) string {
 		return s.Commands.Lint
 	case KindBuild:
 		return s.Commands.Build
+	case KindFormat:
+		return s.Commands.Format
+	case KindTypecheck:
+		return s.Commands.Typecheck
+	case KindSecurity:
+		return s.Commands.Security
 	}
 	return ""
 }

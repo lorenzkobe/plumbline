@@ -103,6 +103,7 @@ Bullets straight under "## Directions", at least 3.
 Labels: normal, edge, refused, boundary, repeat-safe, bug, performance, failure, concurrent. Every case gets `test: <file>`, better `test: <file>::<test name>` (in backticks when the name has spaces), or `does not apply, because ...`. Naming the test lets the reviewers see when one test is the proof for several cases. Each case is one a plausible wrong version of the code would fail.
 - `failure`: a dependency is down, slow or returns garbage, or the run crashes halfway. Say what's left behind and how a retry treats it (a write sent outside after the database commit has nothing to roll back).
 - `concurrent`: two requests or jobs at once. Say what stops both doing the same work. The test releases both from one barrier so they really overlap; a mock that answers instantly hides the race.
+- `bug`: name the test (`test: <file>::<test name>`), so its failing run before the fix is matched by name. The finish check needs a recorded run in which it failed while only tests had changed since approval, with the test file as it is at the end.
 - These bugs often don't exist yet, so show the test can fail: break the guard on purpose (remove it, reorder the step), see the test fail, then put it back and check the diff shows it restored.
 Every line in the plan decides something. "TBD", "handle edge cases", "add appropriate validation" or "write tests for the above" are refused: name the cases, checks or values.
 
@@ -119,7 +120,7 @@ Rollback: <how to undo it: revert the commit, the down migration> / <why it can'
 - <file>: <what and why>
 
 ## Proof
-- Full suite: <ran>, <failed> (<new failures: none>); lint, build: pass
+- Full suite: <ran>, <failed> (<new failures: none>); lint, build (and format, typecheck, security when saved): pass
 - Real-world: <the api call and what the response shows changed / clicks / query>
 - <check>: couldn't run, because <why>; run later: `<exact command>`
 - Weakened tests: <each file the diff weakens (skipped, removed or loosened tests, silenced checks, a CI step allowed to fail), with why, or "none">

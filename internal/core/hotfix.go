@@ -31,7 +31,7 @@ func hotfixNote(t *Task) string {
 	if t.HotfixCommitted() {
 		return ". Hotfix committed: run the full suite and every reviewer now, before anything else"
 	}
-	return ". Hotfix: one checkpoint, the smallest fix that stops the damage, a \"## Root cause\" in plan.md; its first commit needs the related tests, lint and build"
+	return ". Hotfix: one checkpoint, the smallest fix that stops the damage, a \"## Root cause\" in plan.md; its first commit needs the related tests and the saved checks (lint, build, and format, typecheck, security when saved)"
 }
 
 // NewTask starts the task t describes (title, ticket, size, kind, and the
@@ -108,7 +108,7 @@ func userHotfix(c *hookCtx, args string) string {
 	if ticket != "" {
 		tk = ", ticket " + ticket
 	}
-	return fmt.Sprintf("hotfix task %s \"%s\" started by the user (small%s, branch %s). Notes folder: %s. One combined checkpoint; plan.md needs \"## Root cause\". The first commit needs the related tests, lint and build; the full suite and every reviewer run right after it, before anything else.", t.ID, t.Title, tk, t.Branch, TaskDocsDir(t.Root, t.ID))
+	return fmt.Sprintf("hotfix task %s \"%s\" started by the user (small%s, branch %s). Notes folder: %s. One combined checkpoint; plan.md needs \"## Root cause\". The first commit needs the related tests and the saved checks (lint, build, and format, typecheck, security when saved); the full suite and every reviewer run right after it, before anything else.", t.ID, t.Title, tk, t.Branch, TaskDocsDir(t.Root, t.ID))
 }
 
 const hotfixTitleMax = 100
@@ -218,6 +218,10 @@ func (c *hookCtx) noteHeadBefore() {
 		return
 	}
 	t.HeadBefore = HeadCommit(t.Root)
+	t.PrintBeforeMove = ""
+	if t.ApprovalPrint != "" && t.Commits == 0 && movesHead(segs, t.Root) {
+		t.PrintBeforeMove, _ = Fingerprint(t.Root, c.ignore())
+	}
 	_ = SaveTask(t)
 }
 
@@ -237,8 +241,8 @@ func (c *hookCtx) followHead(segs []Segment, failed bool) {
 	if !moves && !commits {
 		return // another call running beside it: leave its note
 	}
-	before := t.HeadBefore
-	t.HeadBefore = ""
+	before, printBefore := t.HeadBefore, t.PrintBeforeMove
+	t.HeadBefore, t.PrintBeforeMove = "", ""
 	now := HeadCommit(t.Root)
 	switch {
 	case now == "" || now == before:
@@ -250,8 +254,42 @@ func (c *hookCtx) followHead(segs []Segment, failed bool) {
 	case t.Commits == 0 && followable(t, now):
 		c.log("task", "start-commit-moved", abbrev(t.StartCommit)+" -> "+abbrev(now))
 		t.StartCommit = now
+		c.followApproval(segs, printBefore)
 	}
 	_ = SaveTask(t)
+}
+
+// followApproval: the approval fingerprint follows the start commit's move
+// (a hotfix switches to the production branch right after its checkpoint)
+// while nothing but tests had changed since approval, so blind QA can
+// still start and a [bug] case's test can still be seen failing before the
+// fix. Once code changed, it stays: those then need the user's waiver.
+// Only a line of nothing but git checkout, switch, pull or fetch counts, so
+// an edit in the same line (git checkout main && sed -i ...) isn't taken
+// in as approved code.
+func (c *hookCtx) followApproval(segs []Segment, printBefore string) {
+	t := c.task
+	if t.ApprovalPrint == "" || printBefore == "" {
+		return
+	}
+	for _, s := range segs {
+		if sub, _ := GitSub(s); !contains([]string{"checkout", "switch", "pull", "fetch"}, sub) {
+			return
+		}
+	}
+	changed, err := treeChanges(t.Root, t.ApprovalPrint, printBefore)
+	if err != nil {
+		return
+	}
+	cases := t.caseTestFiles()
+	for _, f := range changed {
+		if !c.isTestFile(f) && !contains(cases, f) {
+			return
+		}
+	}
+	if now, err := Fingerprint(t.Root, c.ignore()); err == nil {
+		t.ApprovalPrint = now
+	}
 }
 
 func abbrev(commit string) string {
