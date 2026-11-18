@@ -112,7 +112,7 @@ The user's answers on how to handle the list:
 - [x] W3. (0.6.11: `/plumbline:setup` asks for the project's own risky files beyond the built-in ones, with suggestions from the repo, and saves the picks as `risky_paths`; an edit outside the confirm prompt still can't drop one the user confirmed) There's no setup question for each project's risky files; `risky_paths` in the setup file can only be set by hand. Add a question if the logs show a risky file slipping through. (1a decisions)
 
 ## Not verified against Claude Code yet (smoke test, after phase 3)
-Confirm these before fixing the list above, since some fixes depend on how Claude Code behaves. Full text is in the handoff-3.md section named in brackets. Steps 1 to 13 of docs/smoke-test.md cover them.
+Confirm these before fixing the list above, since some fixes depend on how Claude Code behaves. Full text is in the handoff-3.md section named in brackets. Steps 1 to 18 of docs/smoke-test.md cover them (the standup's V20 is in step 17).
 - [ ] V1. The AskUserQuestion `tool_response` shape (`PLUMBLINE_DEBUG=1` saves the real one). Settles L6 too. (1a)
 - [ ] V2. A PreToolUse deny holds in auto mode. (1a)
 - [ ] V3. `command_name` in UserPromptExpansion is `plumbline:pause`. (1a)

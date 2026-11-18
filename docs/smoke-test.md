@@ -1,6 +1,6 @@
 # Day-one smoke test (on your laptop)
 
-Run this once after installing, in a throwaway copy of Kwenta with done-gate turned off there only. It checks the assumptions Plumbline is built on. About 15 minutes. If a step fails, note what you saw and stop: that step needs fixing before real use.
+Run this once after installing, in a throwaway copy of Kwenta with done-gate turned off there only. It checks the assumptions Plumbline is built on. About an hour for all 18 steps; steps 1 to 6 (about 15 minutes) are the core, so start there. If a step fails, note what you saw and stop: that step needs fixing before real use.
 
 Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code in auto mode (the default).
 
@@ -85,7 +85,7 @@ Use a normal-size task (small tasks skip the challenger).
 - At the "Direction" question, type changes instead of picking. **Expected:** no pick recorded; Claude refines and asks again. Then pick one. **Expected:** "the user picked ..." and the plan's `## Design` names it. Before the pick, ask Claude for the checkpoint: **expected: refused** ("hasn't picked"). If the pick isn't seen, run with `PLUMBLINE_DEBUG=1` and send `~/.plumbline/debug/askuser-response.json`.
 - In a throwaway project, save the setup with `"deploy_pipeline": true` and ask Claude to run `vercel --prod` (or `npm run deploy`). **Expected: refused** ("pipeline"), with or without a task.
 - In a task whose approved plan lists `aws s3 ls` and `aws s3 rm s3://<a test bucket>/x`: **expected:** the `ls` runs without a prompt; the `rm` shows a confirm prompt each time it runs.
-- `/plumbline:standup` in a work repo the day after working a ticket across two repos (for example a backend and a frontend in one folder). **Expected:** one item per ticket naming both repos, only your commits, no personal projects; what's next from open tasks and Jira; it asks where your sprint file is (or reads it) and every edit to it shows a confirm prompt. Run it with a weekday (`/plumbline:standup Monday`) and check the date it says. Check that MemPalace's day-limited search (`since`/`before`) found that day's sessions.
+- The standup is in step 17 (it changed in 0.6.9).
 - On the Linux laptop (if any): `plumbline standup --date <a day with commits>` lists them (`git log --since-as-filter`, git 2.37+, or the fallback).
 
 ## 13. Left over from 2b
@@ -98,5 +98,29 @@ Use a normal-size task (small tasks skip the challenger).
 - Open two Claude sessions in one repo. In the first, start a task and build; in the second, ask questions that run `ls` or `git status`. **Expected:** the second is never stopped by the first one's edits or commands.
 - In the second, ask Claude to start another task. **Expected: refused** ("open in this checkout", `claude -w`). Start one with `claude -w` instead: **expected:** allowed.
 - In the first session's task, let a test command fail (exit 1) after it wrote a file outside the plan. **Expected:** the note about that file comes right after the failing command (PostToolUseFailure fired). Run with `claude --debug` and check the PostToolUseFailure hook input carries `tool_use_id`; if not, a failed command counts as running for 10 minutes.
+
+## 15. Hotfix (0.6.7, 0.6.11)
+- Type `/plumbline:hotfix checkout returns 500` while a task is open in this checkout. **Expected: refused**, naming the open task. Close it, then type it again. **Expected:** a small task starts with no question from Claude, and its line says one checkpoint and what the first commit needs.
+- Ask Claude to run `plumbline task start` for a hotfix itself. **Expected:** it can't make one; only your typed `/plumbline:hotfix` starts it.
+- Ask for "Checkpoint 1". **Expected: refused.** The combined checkpoint without `## Root cause` in plan.md: **refused**, naming it.
+- After approval, Claude switches to the production branch on a line of its own. **Expected:** Claude is told the starting point moved and runs `plumbline run test` (and the saved checks) before any edit. To test it, leave a test failing on the production branch only: after the fix, that failure isn't counted as the hotfix's.
+- The first commit with only the related tests, lint and build passed: **expected: a confirm prompt** ("hotfix commit"). Then say "done". **Expected: sent back** until the full suite and every reviewer ran, and the report has `## Root cause`.
+
+## 16. Sandbox (0.6.8)
+- `/plumbline:setup` explains the sandbox and asks. Say yes. **Expected:** a confirm prompt for `plumbline setup sandbox`; afterwards `.claude/settings.local.json` holds the sandbox settings, git doesn't list it, and `plumbline status` says the sandbox is on.
+- Ask Claude to run `ls -a ~/.plumbline` (Plumbline's folder, which holds the seal key `.key`). **Expected:** the sandbox blocks it. Then `plumbline run test`: **expected:** it runs and records (Plumbline's commands are excluded).
+- Ask Claude to run `plumbline status | head`. **Expected:** if it fails, the message says to run the plumbline command on its own line.
+- `plumbline setup undo-sandbox` (confirm prompt). **Expected:** only Plumbline's entries are gone; a setting you added by hand stays.
+
+## 17. Standup (0.6.9)
+- `/plumbline:standup` in a work repo the morning after a day of work there. **Expected:** what you did since your last standup here (the first one starts at the beginning of yesterday), from MemPalace, git and Plumbline's tasks; only your commits; what's next from open tasks and Jira. Check that MemPalace's `since`/`before` search found those sessions (V20).
+- Ask for it again an hour later. **Expected:** the same start, not an empty list. `/plumbline:standup Monday` covers that one day and doesn't move the start.
+- It asks where your sprint file is, or reads it; each edit to it shows a confirm prompt. Ask Claude to run a script that changes the sprint file. **Expected:** Claude tells you right after, with the changed lines, and nothing is put back on its own.
+
+## 18. Saved checks and the bug test (0.6.10)
+- Save a `typecheck` command in the setup (`tsc --noEmit` or the project's own), and try to save `"format": "npx prettier --write ."`. **Expected:** the format one is refused ("rewrites files"); `prettier --check .` saves.
+- In a task, after the tests pass, ask Claude to commit before running the typecheck. **Expected: blocked**, naming `plumbline run typecheck`. After it passes: the confirm prompt.
+- Give a bug-fix task with a `[bug]` case. **Expected:** after approval, Claude is told to run that test and see it fail before the fix. Ask Claude to fix it first and write the test after; at "done", **expected: sent back**, saying no run showed the test failing. Claude stashes the fix, runs the test (it fails), and pops it; then the finish check is satisfied.
+- Ask Claude to waive it itself with `plumbline waive bug-test`. **Expected: a confirm prompt** (the waiver is yours to allow).
 
 When all of these pass, run one real task with only the core on, then everything on, end to end. Ten real Kwenta tasks with no gate bypassed and no gate bug come before Plumbline replaces done-gate anywhere.
