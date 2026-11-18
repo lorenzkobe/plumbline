@@ -152,7 +152,13 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 - [x] FR2 (0.6.15): `brew --prefix` (and list, info, deps, leaves, config, --version) only read.
 - [x] RP1 (0.6.16): `plumbline <subcommand> --help` ran the subcommand (a replan in the retest). Now usage only.
 - [x] PL1 (0.6.16): "test: does not apply, because ..." read as a test file named "does".
-- [ ] UX1 / UX2 (decided 2026-11-19: before steps 9-18): too much ceremony for small changes, and Plumbline should work under the hood with plain, well-laid-out messages for the user.
+- [x] UX1 / UX2 (0.7.0; decided 2026-11-19: before steps 9-18)
+  Decisions (user, 2026-11-19):
+  - A small change gets a short plan, the checks and one code review (one round). No challenger, no plan reviewer.
+  - Risky-path files (setup's risky_paths, like people.ts): Claude decides small or full and says why. Floor confirmed by the user: built-in high-impact kinds (auth, permissions, payments, migrations, deploy, dependencies, security code) and files that decide which checks run stay never-small.
+  - A small change stops once: Claude researches first, then one question with the plan; "Approve" starts and approves the task.
+  - What the user sees: conversational cards. A plain sentence first, then a few short detail lines (risk, checks, review), then the question. No task ids, notes paths or plumbline commands.
+  - Under the hood: tell Claude each step's needs up front (checklist at start, one command for every check, refusal texts that name the right tool) so refusals are rare.: too much ceremony for small changes, and Plumbline should work under the hood with plain, well-laid-out messages for the user.
 - [x] SR10 again (0.6.15): Claude tried the edit before asking 3 of 3 times (the gate held). The per-message note and the rules now lead with "your first step is to ask" and "don't try the edit first".
 
 ## Release 5, last

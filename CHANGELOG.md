@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0: one stop, a lighter small path, and Plumbline under the hood
+Decided with the user after smoke run 2 (UX1, UX2).
+- One stop: when you ask for a change, Claude starts the task itself (starting changes nothing), looks at the code, then asks the one plan question: Approve, Change something, or Drop it. "Drop it" (the question's own option, never typed text) closes the task.
+- Small path: a small task writes only plan.md (what changes with file:line, Files, Cases; proof and "Needs your OK" only when they apply), has no challenger, and gets one code review (plus the security reviewer for security code). Files it changes outside its plan still get the specialists a normal task would.
+- Size: the setup's own risky_paths (shared helpers like people.ts) no longer force a normal task; Claude decides and says why. The floor stays: auth, permissions, payments, migrations, deploy, dependencies, security code and files that decide which checks run are never small (unless you type /plumbline:size small).
+- `plumbline run checks` runs and records every saved check (test, lint, build, format, typecheck, security) in one go, so none is forgotten; the refusal before the first change and the message after approval point to it.
+- A new task started in the same session closes the earlier one if it never got past planning (you moved on without answering its plan question; nothing was changed for it). A task that is building stays open.
+- Fewer refusals: `plumbline task start` prints what the plan question will need for that size; a terminal write into the notes folder is told to use the Write or Edit tool; the no-task refusal says to start the task, not to ask.
+- What you see: the rules tell Claude to keep Plumbline out of your view (no task ids, notes paths, `plumbline` commands, hook messages or Plumbline's steps; no "Mode:" line) and to talk like a person: a plain sentence or two, a few short detail lines, then the question. The closing message keeps its "For you" line ("For you: want me to commit it?").
+- The laptop rule in your global CLAUDE.md (`plumbline setup laptop`) now says to start the task workflow without asking; run setup laptop again to update an older copy.
+
 ## 0.6.16: --help does nothing, and "test: does not apply"
 - RP1: `--help` or `-h` on a plumbline subcommand printed nothing useful and ran the command: `plumbline task replan --help` sent a smoke-run task back to planning and made the user approve the plan again (`task finish --help` would have finished a task). Now it prints the usage and changes nothing. After `--` a `-h` belongs to the command being run.
 - PL1: a plan case reading "test: does not apply, because ..." was read as a test file named "does", so the finish check waited for a file that can't exist. It now counts as a case with no test, like "does not apply, because ...".

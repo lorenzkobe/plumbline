@@ -29,8 +29,11 @@ func TestReviewersFor(t *testing.T) {
 		{"small", []string{"src/services/AuthService.ts"}, "code-reviewer,security-reviewer"},
 		{"small", []string{"app/Http/UserController.php"}, "code-reviewer,security-reviewer"},
 		{"small", []string{"src/stripeWebhook.ts", "lib/passwordReset.rb"}, "code-reviewer,security-reviewer"},
-		{"small", []string{"src/OrderRepository.cs"}, "code-reviewer,data-reviewer"},
-		{"small", []string{"PaymentService.java"}, "code-reviewer,security-reviewer,data-reviewer"},
+		{"normal", []string{"src/OrderRepository.cs"}, "plan-reviewer,code-reviewer,data-reviewer"},
+		{"normal", []string{"PaymentService.java"}, "plan-reviewer,code-reviewer,security-reviewer,data-reviewer"},
+		// 0.7.0 (UX1): a small change gets one review, plus security for security code.
+		{"small", []string{"src/OrderRepository.cs"}, "code-reviewer"},
+		{"small", []string{"PaymentService.java"}, "code-reviewer,security-reviewer"},
 		{"small", []string{"/Users/kobz/repo/src/a.go"}, "code-reviewer"},
 	}
 	for _, c := range cases {

@@ -691,7 +691,7 @@ func (c *hookCtx) gateEdit(path string) Output {
 		return c.ask("outside-project", fmt.Sprintf("%s is outside this project.", abs))
 	}
 	if c.task == nil {
-		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, ask in one line whether to start the task workflow, then run: plumbline task start --title \"...\". To try something out, use a throwaway copy in the scratchpad instead."+c.unboundHint())
+		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, start the task (plumbline task start --title \"...\" on its own line, no question needed), look at the code, write the plan, then ask the plan question. To try something out, use a throwaway copy in the scratchpad instead."+c.unboundHint())
 	}
 	if c.task.Phase != PhaseBuilding {
 		return c.deny("before-approval", fmt.Sprintf("task %s is at the %s step. Code changes wait until the user approves the plan at the checkpoint.", c.task.ID, c.task.Phase))
@@ -943,6 +943,10 @@ func protectedBase(t string) bool {
 	return false
 }
 
+// ownFilesFromShell: a terminal write into Plumbline's data folder. Task
+// notes have their own way in (UX2: the refusal names it).
+const ownFilesFromShell = "Plumbline's own files can't be changed from the terminal. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool; anything else goes through the plumbline command."
+
 // buildFile is the building-phase rule for one file outside the plan, shared
 // by edits, terminal commands and MCP tools. pending counts other new
 // outside-plan files in the same command. It returns the rule and the reason
@@ -952,7 +956,7 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		if c.in.AgentID != "" {
 			return "baseline-first", fmt.Sprintf("the lead hasn't recorded how the saved checks stand before any change (%s), so %s waits. Stop and tell the lead in your notes.", strings.Join(need, ", "), rel)
 		}
-		return "baseline-first", fmt.Sprintf("before the first change, record how the saved checks stand on the approved code: run %s now, each on its own line. A problem they show was there before the task, so it won't block the finish; without them it would. Then make the change.", strings.Join(need, ", "))
+		return "baseline-first", fmt.Sprintf("before the first change, record how the saved checks stand on the approved code: run plumbline run checks now (it runs and records every saved check; still missing: %s). A problem they show was there before the task, so it won't block the finish; without them it would. Then make the change.", strings.Join(need, ", "))
 	}
 	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
 		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
@@ -1241,7 +1245,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case abs == "" && strings.Contains(strings.ToLower(t), "plumbline"):
 				v.d("own-files", "Plumbline's own files can't be changed from the terminal, and this writes in a folder Plumbline can't work out.")
 			case abs != "" && isInsideFold(abs, DataDir()):
-				v.d("own-files", "Plumbline's own files can't be changed from the terminal. Use the plumbline command.")
+				v.d("own-files", ownFilesFromShell)
 			case abs != "" && c.root != "" && foldPath(abs) == foldPath(filepath.Join(ProjectRoot(c.root), RepoSetupFile)):
 				v.a("setup-change", "this changes Plumbline's saved project setup from the terminal. Until the user confirms it again with /plumbline:setup, its saved commands don't run and nothing in it switches a rule off.")
 			case abs != "" && c.root != "" && TrackerPath(c.root) != "" && foldPath(abs) == foldPath(TrackerPath(c.root)):
@@ -1264,7 +1268,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 		}
 		if !quiet && !isPlumblineBin(name) && mentionsDataDir(s) {
-			v.d("own-files", "Plumbline's own files can't be changed from the terminal. Use the plumbline command.")
+			v.d("own-files", ownFilesFromShell)
 		}
 		if !quiet && mentionsProtectedConfig(s, c.in.Cwd) {
 			v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
@@ -1639,9 +1643,13 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 	if cp == 1 || combined {
 		p = append(p, c.groundingProblems()...)
 		text, _, err := ReadDoc(t, DocUnderstanding)
-		if err != nil {
+		switch {
+		case err != nil && combined && t.Size == "small" && !t.Hotfix():
+			// A small task's plan says what's happening; no separate
+			// understanding.md (UX1). Its file:line refs are checked below.
+		case err != nil:
 			p = append(p, "write the understanding to "+filepath.Join(TaskDocsDir(t.Root, t.ID), DocUnderstanding))
-		} else {
+		default:
 			if len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
 				p = append(p, "the understanding needs file:line references to the real code")
 			}
@@ -1659,8 +1667,11 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			if !combined && fi.ModTime().Before(t.Checkpoint1At) {
 				p = append(p, "plan.md is older than checkpoint 1; update it")
 			}
-			pc := CheckPlan(text)
+			pc := CheckPlanSized(text, t.Size == "small")
 			p = append(p, pc.Problems...)
+			if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
+				p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
+			}
 			p = append(p, CheckRefs(t, text)...)
 			p = append(p, c.challengeProblems(text)...)
 			p = append(p, c.teamProblems(text, pc.Files)...)
@@ -1698,9 +1709,13 @@ func (c *hookCtx) sizeProblems(files []string) []string {
 		if c.task.SizeByUser {
 			continue
 		}
-		hit := RiskyPath(filepath.ToSlash(f), c.setup)
+		// The floor: the built-in high-impact kinds (auth, permissions,
+		// payments, migrations, deploy, dependencies) and security code
+		// are never small. The setup's own risky_paths are Claude's call,
+		// with the reason in --why (UX1).
+		hit := RiskyPath(filepath.ToSlash(f), nil)
 		for _, k := range ReviewersFor("small", c.task.Root, []string{f}) {
-			hit = hit || k == HelperSecurity || k == HelperData
+			hit = hit || k == HelperSecurity
 		}
 		if hit {
 			risky = append(risky, f)

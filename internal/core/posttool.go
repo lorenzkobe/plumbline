@@ -369,6 +369,16 @@ func oneID(re *regexp.Regexp, out string) string {
 // bind binds a task to this session, under that task's lock. A new task
 // must not be bound to another session already.
 func (c *hookCtx) bind(id string, mustBeNew bool) {
+	if prev := c.task; mustBeNew && prev != nil && prev.ID != id && prev.Open() && prev.SessionID == c.in.SessionID &&
+		(prev.Phase == PhaseUnderstanding || prev.Phase == PhasePlanning) {
+		// One stop (UX1): the user moved on without answering this task's
+		// plan question. Nothing was changed for it yet, so the new task
+		// replaces it instead of leaving it open in the checkout.
+		prev.Phase = PhaseCancelled
+		_ = SaveTask(prev)
+		LogEvent(Event{Type: "phase", Task: prev.ID, Rule: PhaseCancelled, Size: prev.Size, Project: c.projectKey()})
+		LogTokens(prev, c.projectKey())
+	}
 	if c.task == nil || c.task.ID != id {
 		c.close() // the lock held belongs to another task
 		c.unlock = LockTask(c.root, id)
@@ -634,6 +644,19 @@ func isApproval(answer string, q question) bool {
 	return false
 }
 
+// isDrop: the answer is the question's own option starting with "Drop"
+// (one stop, UX1). Free text never drops a task.
+func isDrop(answer string, q question) bool {
+	a := strings.TrimSpace(answer)
+	for _, o := range q.Options {
+		l := strings.TrimSpace(o.Label)
+		if a == l && strings.HasPrefix(strings.ToLower(l), "drop") {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *hookCtx) afterQuestion() Output {
 	if c.task == nil {
 		return nil
@@ -652,6 +675,14 @@ func (c *hookCtx) afterQuestion() Output {
 		ans := findAnswer(c.in.ToolResponse, q.Question)
 		if os.Getenv("PLUMBLINE_DEBUG") != "" {
 			_ = writeFileAtomic(filepath.Join(DataDir(), "debug", "askuser-response.json"), c.in.ToolResponse)
+		}
+		if isDrop(ans, q) {
+			t := c.task
+			t.Phase = PhaseCancelled
+			_ = SaveTask(t)
+			LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: c.projectKey()})
+			LogTokens(t, c.projectKey())
+			return Context("PostToolUse", msg("the user dropped this task at the plan question, so it's closed. Any changes it made stay in the working tree; nothing was undone. Tell the user in one plain line, without the task id."))
 		}
 		if !isApproval(ans, q) {
 			c.log("checkpoint", fmt.Sprintf("checkpoint%d-not-approved", cp), "")
@@ -703,7 +734,7 @@ func (c *hookCtx) afterQuestion() Output {
 		RefreshSnapshot(c.snapID(), c.root)
 		next := "Make the plan next (plan.md), then the checkpoint."
 		if t.Phase == PhaseBuilding {
-			next = "Build and prove it to the end without stopping: a failing test first, then the fix, then the proof and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
+			next = "First run plumbline run checks (it records every saved check on the approved code; the first edit waits for it). Then build and prove it to the end without stopping: a failing test first where there's a bug, then the change, plumbline run checks again at the end, the review and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
 			if files := t.bugCaseFiles(); len(files) > 0 {
 				next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed.", strings.Join(files, ","))
 			}

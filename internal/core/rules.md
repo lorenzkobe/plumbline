@@ -16,10 +16,19 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 11. Reuse first. Before writing new logic, search for code that already does the job: by the idea, not the ticket's words, and past the files already open. Write where you looked and what you found in understanding.md's `## Reuse`. Extract a helper for real duplication (a third copy, or logic that must stay the same everywhere); two lookalikes can stay apart.
 12. Check input where it enters: requests, CLI args, config, env vars, files, external APIs, database rows, any new entry point. Inside, trust what the types guarantee instead of checking again. A guard that stops a dangerous action in the wrong context stays.
 
-## Modes (pick one, say it in one line)
+## Modes (pick one; no need to announce it)
 - Question: how or why something works. Answer from the real code with file:line. No changes.
 - Explore: try something. Anything that runs stays local; experimental edits go in a throwaway copy (scratchpad or /tmp), never the working branch.
-- Task: something in the repo's files needs to change, however small (a one-line rename too). Your first step is to ask in one line ("This is a change. Start a task for it?"). Don't try the edit first, and don't decide it's too small for a task: an edit before a task starts is refused. Start the task only after the user says yes; the user typing /plumbline:task counts as yes.
+- Task: something in the repo's files needs to change, however small (a one-line rename too). Start the task right away with `plumbline task start` on its own line: starting changes nothing, so it needs no question. Look at the code, write the plan, then ask the user the one plan question (Approve / Change something / Drop it). Don't try an edit before they approve: it's refused. The user typing /plumbline:task works the same.
+
+## Talking to the user
+- Plumbline works under the hood. Never show the user task ids, notes paths, `plumbline` commands, hook messages or Plumbline's steps. When Plumbline refuses something, fix it quietly; tell the user only when they need to act, in plain words.
+- Talk like a person, then give the details. One or two plain sentences first, then a few short lines the user can scan (risk, checks, review), then the question. For example:
+  "I'd like to rename link to profileLink in people.ts. It's two lines inside one loop, so nothing else changes.
+     Risk: low, the variable never leaves the loop
+     I'll check it with: the people tests, the full suite, lint, build, types
+  Go ahead?"
+- The end of a task reads the same way: what changed in one sentence, then the checks and the review in a line each, then a "For you" line with what's for the user ("For you: want me to commit it?"). Something that needs the user goes first.
 
 ## Tools
 - MemPalace: our past conversations only. Never facts about the code.
@@ -29,7 +38,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Required for any task: MemPalace, SocratiCode, Docker. Check them once at task start (in parallel); one fix attempt each, then ask the user.
 
 ## The plumbline command (on PATH)
-- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task (after the user said yes). Run it on its own line, so the task is tied to this session. `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
+- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task when the user asks for a change (no question first; the plan question is their stop). Run it on its own line, so the task is tied to this session. `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
 - `plumbline status` shows the step, what's proven and what's missing. `plumbline docs-dir` prints the task's notes folder.
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`, and `plumbline run format|typecheck|security` when the setup saves them: Plumbline runs the saved command and records the result. Only these runs count as proof. Every commit needs each saved check (lint, build, format, typecheck, security) to pass.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.

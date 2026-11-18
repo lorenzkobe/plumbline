@@ -212,8 +212,10 @@ func ReviewersFor(size, root string, files []string) []string {
 		need[HelperPlanReviewer] = need[HelperPlanReviewer] || GateFile(f)
 		f = reCamel.ReplaceAllString(filepath.ToSlash(f), "${1}_${2}")
 		need[HelperSecurity] = need[HelperSecurity] || reSecuritySignal.MatchString(f)
-		need[HelperData] = need[HelperData] || reDataSignal.MatchString(f)
-		need[HelperUX] = need[HelperUX] || reUXSignal.MatchString(f)
+		if size != "small" { // a small change gets one review, plus security where it reaches security code (UX1)
+			need[HelperData] = need[HelperData] || reDataSignal.MatchString(f)
+			need[HelperUX] = need[HelperUX] || reUXSignal.MatchString(f)
+		}
 	}
 	var out []string
 	for _, k := range ReviewerKinds {
@@ -257,10 +259,28 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 		}
 	}
 	need := ReviewersFor(t.Size, t.Root, files)
+	if t.Size == "small" && len(t.OutsidePlan) > 0 {
+		// The change grew past its small plan: the files outside it get the
+		// specialists a normal task would (UX1 keeps one review only for
+		// what was planned).
+		var outside []string
+		for p := range t.OutsidePlan {
+			outside = append(outside, p)
+		}
+		for _, k := range ReviewersFor("normal", t.Root, outside) {
+			if k != HelperPlanReviewer {
+				need = append(need, k)
+			}
+		}
+	}
 	// What the change adds counts too (R1): SQL, auth or money code in a
 	// plainly named file still gets its specialist.
 	if changes, err := taskChanges(t, s.IgnoreChanges); err == nil {
-		need = append(need, ContentReviewers(changes, s)...)
+		for _, k := range ContentReviewers(changes, s) {
+			if t.Size != "small" || k == HelperSecurity || k == HelperCodeReviewer {
+				need = append(need, k)
+			}
+		}
 	}
 	var out []string
 	for _, k := range ReviewerKinds {

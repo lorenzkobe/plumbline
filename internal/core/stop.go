@@ -327,7 +327,7 @@ var (
 // what needs the user is the bad news that comes first.
 func finalMessageMissing(m, report string) string {
 	if !reForYou.MatchString(m) {
-		return `final message: end the task with the short report in chat: bad news first, what changed, the proof, the review, and a "For you" line (or "For you: nothing"), then the commit question`
+		return `final message: end the task with the short report in chat: one plain sentence on what changed (a failure first), the checks and the review in a line each, and a "For you" line ("For you: want me to commit it?")`
 	}
 	if forYouHasItems(report) && !reForYou.MatchString(firstLine(m)) {
 		return `final message: the report's "For you" needs the user, so open the message with the "For you" line (what they must do or decide), then what changed, the proof, the review and the commit question`

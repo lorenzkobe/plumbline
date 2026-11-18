@@ -265,3 +265,45 @@ func TestSubcommandHelpDoesNothing(t *testing.T) {
 		t.Fatalf("-h after -- was read as Plumbline's: %s", out)
 	}
 }
+
+// UX2: one command runs every saved check (not related or e2e), each
+// recorded as if run on its own, and keeps going past a failing one.
+func TestRunChecksRunsEverySavedCheck(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	setup := `{"kind": "personal", "commands": {"test": "echo tests-ran", "lint": "echo lint-ran; exit 1", "typecheck": "echo types-ran", "e2e": "echo e2e-ran"}}`
+	if out, code := plumbline(t, dir, home, setup, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	out, code := plumbline(t, dir, home, "", "run", "checks")
+	for _, want := range []string{"tests-ran", "lint-ran", "types-ran"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%s didn't run: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "e2e-ran") {
+		t.Fatalf("e2e needs the app running; run checks must not start it: %s", out)
+	}
+	if code == 0 {
+		t.Fatalf("a failing check must fail the whole run: %s", out)
+	}
+	if !strings.Contains(out, "lint: FAIL") || !strings.Contains(out, "test: PASS") {
+		t.Fatalf("no summary line per check: %s", out)
+	}
+}
+
+// UX2: task start tells Claude what the plan question will need, by size.
+func TestTaskStartChecklist(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	if out, code := plumbline(t, dir, home, `{"kind": "personal", "commands": {"test": "true"}}`, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	out, _ := plumbline(t, dir, home, "", "task", "start", "--title", "x", "--size", "small", "--why", "one local rename")
+	for _, want := range []string{"plan.md", "Write tool", "Drop it", "plumbline run checks"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("small checklist lacks %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "understanding.md") || strings.Contains(out, "Start the challenger") {
+		t.Fatalf("small checklist asks for what small skips: %s", out)
+	}
+}

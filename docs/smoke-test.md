@@ -15,15 +15,16 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 - After saving: `plumbline run test` records a run and says how many tests ran. If it says it couldn't tell, setup needs a `tests_ran_pattern`.
 
 ## 3. No code before approval (auto mode)
-- Say: "Rename the variable x in some file." Claude should ask whether to start the task workflow before trying any edit. Say yes. **Expected: `plumbline task start` runs on its own line**, and `plumbline status` and the hooks agree on the task.
+- Say: "Rename the variable x in some file." (0.7.0) **Expected: Claude asks which x if it's unclear, then starts the task itself, with no "start a task?" question and no edit attempt**: `plumbline task start` runs on its own line, and `plumbline status` and the hooks agree on the task.
 - Before the checkpoint, ask Claude to just make the edit anyway. **Expected: the edit is blocked** (deny holds in auto mode).
 - Ask Claude to run the saved test command. **Expected: it runs without asking.**
 - Ask Claude to run `node -e "1"`. **Expected: refused, no prompt** (so nothing waits on you during a task).
 - Outside any task, ask Claude to run `touch foo.txt`. **Expected: no Plumbline prompt** (Claude Code's own mode decides). **Expected: right after, the work stops** with "a terminal command changed files before any plan was approved", naming foo.txt. Delete foo.txt.
 
 ## 4. The checkpoint, then hands-off building
-- Give a small real task and walk away. **Expected: one question prompt (your terminal sound), showing the understanding and the plan, with "Approve" / "Change something".** Pick "Change something" first: the task stays where it is.
-- Ask again and pick "Approve". **Expected: Claude is told the user approved**, runs every saved check once before its first edit (an edit before that is refused, naming the checks), then builds without any more prompts.
+- Give a small real task and walk away. **Expected: one question prompt (your terminal sound): a plain sentence or two, then a few short lines (risk, checks, review), with "Approve" / "Change something" / "Drop it". No task ids, notes paths or `plumbline` commands in what you read.** Pick "Change something" first: the task stays where it is. (Another time, pick "Drop it": the task closes.)
+- (0.7.0) A small task: no understanding note, no challenger, one code review. A small change in a setup risky path (people.ts) may stay small; one in auth, payments, migrations or CI config never does.
+- Ask again and pick "Approve". **Expected: Claude is told the user approved**, runs `plumbline run checks` before its first edit (an edit before that is refused, naming the command), then builds without any more prompts.
 - If Claude says Plumbline couldn't read the approval, run Claude with `PLUMBLINE_DEBUG=1`, answer once more, and send `~/.plumbline/debug/askuser-response.json`. The answer shape needs fixing.
 - While it builds, check: an edit to a file not in the plan but part of the change goes through; an edit to an auth, migration or package file not in the plan is refused and shows up under "For you" in the report.
 

@@ -16,7 +16,7 @@ const mdEnd = "<!-- plumbline:end -->"
 
 const globalRule = mdStart + `
 ## Plumbline
-- If my message looks like a task (a ticket id, a bug, a feature, a design request), ask in one line before starting Plumbline's task workflow. Questions and chat get a normal answer, checked against the real code.
+- If my message asks for a change (a ticket id, a bug, a feature, a design request), start Plumbline's task workflow without asking; I approve at its plan question. Questions and chat get a normal answer, checked against the real code.
 ` + mdEnd + "\n"
 
 type undoRecord struct {

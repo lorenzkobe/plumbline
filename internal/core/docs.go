@@ -232,7 +232,12 @@ type PlanCheck struct {
 	Problems    []string
 }
 
-func CheckPlan(text string) PlanCheck {
+func CheckPlan(text string) PlanCheck { return CheckPlanSized(text, false) }
+
+// CheckPlanSized: a small plan may leave out "## Real-world proof" and
+// "## Needs your OK" (left out means none); everything it does write is
+// read the same way (UX1).
+func CheckPlanSized(text string, small bool) PlanCheck {
 	var pc PlanCheck
 	for _, l := range Section(text, "files") {
 		if b, ok := bullet(l); ok {
@@ -278,7 +283,7 @@ func CheckPlan(text string) PlanCheck {
 	}
 	sort.Strings(pc.SharedTests)
 	proof := Section(text, "real-world proof")
-	if len(proof) == 0 {
+	if len(proof) == 0 && !small {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Real-world proof" section: ui / api / schema, or "does not apply, because ..."`)
 	}
 	for _, l := range proof {
@@ -291,7 +296,7 @@ func CheckPlan(text string) PlanCheck {
 			pc.ProofKinds = append(pc.ProofKinds, m[1])
 		}
 	}
-	if !strings.Contains(strings.ToLower(text), "## needs your ok") {
+	if !small && !strings.Contains(strings.ToLower(text), "## needs your ok") {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Needs your OK" section: packages to install and commands that reach outside the laptop, each in backticks, or "none"`)
 	}
 	for _, l := range Section(text, "needs your ok") {

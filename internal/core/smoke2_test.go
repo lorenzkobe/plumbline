@@ -156,12 +156,13 @@ func TestNoTaskNoteSaysAskFirst(t *testing.T) {
 	h := newHarness(t)
 	h.setup()
 	note := contextOf(UserPromptSubmit(&HookInput{SessionID: h.sid, Cwd: h.repo, Prompt: "rename x"}))
-	for _, want := range []string{"first step is to ask", "one-line", "Don't try the edit first"} {
+	// 0.7.0 (UX1): the task starts without a question; the plan question is the one stop.
+	for _, want := range []string{"start it right away", "one-line", "Don't try the edit first", "one plan question"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("no-task note lacks %q: %s", want, note)
 		}
 	}
-	for _, want := range []string{"Your first step is to ask", "too small for a task", "ask the user whether to commit first"} {
+	for _, want := range []string{"Start the task right away", "however small", "Don't try an edit before they approve", "ask the user whether to commit first", "Never show the user task ids"} {
 		if !strings.Contains(coreRules, want) {
 			t.Fatalf("rules.md lacks %q", want)
 		}

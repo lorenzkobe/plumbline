@@ -113,6 +113,7 @@ func usage() {
   plumbline task tool-down serena|context7|jira --reason "..."
   plumbline task adopt <id>             continue an earlier task in this session
   plumbline run test|related|lint|build|format|typecheck|security|e2e [--files a,b] [--task id]
+  plumbline run checks                  every saved check above (not related or e2e), each recorded
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
   plumbline setup show|save|laptop|undo-laptop
@@ -310,7 +311,7 @@ func cmdTask(args []string) error {
 			fmt.Println("Next (design task): read the task, check the tools, trace the code, find the brand kit, make at least 3 mockup directions and list them in design.md, ask the user to pick one (header \"Direction\"), then write understanding.md and plan.md (with ## Design) and ask the checkpoint.")
 			return nil
 		}
-		fmt.Println("Next: read the task, check the tools, trace the code (SocratiCode, Serena, MemPalace), write understanding.md and plan.md, then the checkpoint.")
+		fmt.Println(startChecklist(size))
 		return nil
 	case "show", "list":
 		for _, t := range core.ListTasks(root) {
@@ -437,6 +438,9 @@ func cmdRun(args []string) (int, error) {
 		return 0, errors.New("run what? test, related, lint, build, format, typecheck, security, e2e, or proof")
 	}
 	kind := args[0]
+	if kind == "checks" {
+		return runChecks(args[1:])
+	}
 	f, pos, rest := flags(args[1:])
 	root := mustRoot()
 	s, ok, err := core.LoadSetup(root)
@@ -563,6 +567,57 @@ func cmdRun(args []string) (int, error) {
 	}
 	fmt.Printf("\nplumbline: %s recorded: %s.%s\n", args[0], status, detail)
 	return r.Exit, nil
+}
+
+// startChecklist: what the plan question will need, said up front so
+// Claude meets it instead of being refused (UX2).
+func startChecklist(size string) string {
+	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). Show the user a short plain summary first, without task ids, notes paths or plumbline commands.`
+	after := "After Approve: plumbline run checks before the first edit, build, run it again at the end, then the review and a short report."
+	if size == "small" {
+		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"). No separate understanding note, no challenger, one code review. " + ask + " " + after
+	}
+	return "Next: look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write understanding.md (with ## Reuse) and plan.md in the notes folder with the Write tool, as checkpoints.md shows. Start the challenger, then add ## Challenge note to plan.md. " + ask + " " + after
+}
+
+// runChecks runs every saved check in turn (test, lint, build, format,
+// typecheck, security; not related or e2e), each recorded as if run on its
+// own, so none is forgotten (UX2). It goes on past a failing one, so each
+// gets its run, and exits with the first failure's code.
+func runChecks(args []string) (int, error) {
+	root := mustRoot()
+	s, ok, err := core.LoadSetup(root)
+	if err != nil || !ok {
+		return cmdRun(append([]string{"test"}, args...)) // the same setup errors as a single run
+	}
+	saved := []struct{ name, cmd string }{
+		{"test", s.Commands.Test}, {"lint", s.Commands.Lint}, {"build", s.Commands.Build},
+		{"format", s.Commands.Format}, {"typecheck", s.Commands.Typecheck}, {"security", s.Commands.Security},
+	}
+	exit := 0
+	var summary []string
+	for _, c := range saved {
+		if strings.TrimSpace(c.cmd) == "" {
+			continue
+		}
+		code, err := cmdRun(append([]string{c.name}, args...))
+		if err != nil {
+			return 1, err
+		}
+		status := "PASS"
+		if code != 0 {
+			status = "FAIL"
+			if exit == 0 {
+				exit = code
+			}
+		}
+		summary = append(summary, c.name+": "+status)
+	}
+	if len(summary) == 0 {
+		return 0, errors.New("no checks are saved for this project (run /plumbline:setup)")
+	}
+	fmt.Printf("\nplumbline: checks: %s\n", strings.Join(summary, ", "))
+	return exit, nil
 }
 
 func cmdStatus(args []string) error {
