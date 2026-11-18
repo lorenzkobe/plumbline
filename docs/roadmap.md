@@ -150,6 +150,8 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 - [x] FR1 (0.6.15): lookups made in the same session just before `task start` don't count for the checkpoint, so Claude searches twice.
 - [x] CM2 (0.6.15): Claude picked `finish --uncommitted` without the user saying they'd commit; the rules should make it ask.
 - [x] FR2 (0.6.15): `brew --prefix` (and list, info, deps, leaves, config, --version) only read.
+- [x] RP1 (0.6.16): `plumbline <subcommand> --help` ran the subcommand (a replan in the retest). Now usage only.
+- [x] PL1 (0.6.16): "test: does not apply, because ..." read as a test file named "does".
 - [ ] UX1 / UX2 (decided 2026-11-19: before steps 9-18): too much ceremony for small changes, and Plumbline should work under the hood with plain, well-laid-out messages for the user.
 - [x] SR10 again (0.6.15): Claude tried the edit before asking 3 of 3 times (the gate held). The per-message note and the rules now lead with "your first step is to ask" and "don't try the edit first".
 

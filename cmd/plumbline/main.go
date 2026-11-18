@@ -27,6 +27,10 @@ func main() {
 		os.Exit(2)
 	}
 	args := os.Args[2:]
+	if os.Args[1] != "hook" && asksHelp(args) {
+		usage() // --help on a subcommand must not run it (RP1)
+		return
+	}
 	var err error
 	switch os.Args[1] {
 	case "hook", "version", "--version", "-v", "help", "--help", "-h":
@@ -83,6 +87,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "plumbline:", err)
 		os.Exit(1)
 	}
+}
+
+// asksHelp: -h or --help before any "--" (after it, the words belong to
+// the command plumbline runs).
+func asksHelp(args []string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
+		if a == "-h" || a == "--help" || a == "-help" {
+			return true
+		}
+	}
+	return false
 }
 
 func usage() {

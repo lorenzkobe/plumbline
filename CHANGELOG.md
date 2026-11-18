@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.16: --help does nothing, and "test: does not apply"
+- RP1: `--help` or `-h` on a plumbline subcommand printed nothing useful and ran the command: `plumbline task replan --help` sent a smoke-run task back to planning and made the user approve the plan again (`task finish --help` would have finished a task). Now it prints the usage and changes nothing. After `--` a `-h` belongs to the command being run.
+- PL1: a plan case reading "test: does not apply, because ..." was read as a test file named "does", so the finish check waited for a file that can't exist. It now counts as a case with no test, like "does not apply, because ...".
+
 ## 0.6.15: small fixes from smoke run 2
 - SR10: the note on each message while no task is open, and the rules, now say a change of any size starts with asking the user to start a task, and not to try the edit first. In the run Claude tried the edit before asking 3 times out of 3 (the block always held).
 - CM2: when finish is refused because the change isn't committed, Claude asks whether to commit first or whether you'll commit, instead of guessing `--uncommitted`.

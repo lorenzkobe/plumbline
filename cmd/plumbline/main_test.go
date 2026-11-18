@@ -238,3 +238,30 @@ func TestWaiveBugTest(t *testing.T) {
 		t.Fatalf("the refusal should list bug-test: %s", out)
 	}
 }
+
+// RP1: --help or -h on a subcommand prints the usage and does nothing:
+// `plumbline task replan --help` sent a smoke-run task back to planning.
+func TestSubcommandHelpDoesNothing(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	if out, code := plumbline(t, dir, home, `{"kind": "personal", "commands": {"test": "true"}}`, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	out, code := plumbline(t, dir, home, "", "task", "start", "--title", "x")
+	if code != 0 {
+		t.Fatalf("start: %d %s", code, out)
+	}
+	for _, args := range [][]string{{"task", "replan", "--help"}, {"task", "finish", "-h"}, {"task", "start", "--title", "y", "--help"}, {"pause", "--help"}, {"setup", "save", "-h"}} {
+		out, code := plumbline(t, dir, home, "", args...)
+		if code != 0 || !strings.Contains(out, "plumbline task start") {
+			t.Fatalf("%v: exit %d, no usage: %s", args, code, out)
+		}
+	}
+	out, _ = plumbline(t, dir, home, "", "status")
+	if !strings.Contains(out, "understanding step") || strings.Contains(out, "paused") {
+		t.Fatalf("a --help call changed the task: %s", out)
+	}
+	// After "--" a -h belongs to the command being run.
+	if out, _ := plumbline(t, dir, home, "", "run", "proof", "api", "--", "true", "-h"); strings.Contains(out, "plumbline task start --title") {
+		t.Fatalf("-h after -- was read as Plumbline's: %s", out)
+	}
+}

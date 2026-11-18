@@ -184,3 +184,17 @@ func TestHelperShellWriteSaysUseEdit(t *testing.T) {
 		t.Fatalf("python3 message lacks the Edit/Write hint: %s", r)
 	}
 }
+
+// PL1: "test: does not apply, because ..." is a case with no test, not a
+// test file named "does".
+func TestTestDoesNotApplyIsNotALink(t *testing.T) {
+	pc := CheckPlan("## Files\n- src/a.go\n## Cases\n- [edge] a typo leaves an undefined name -> test: does not apply, because tsc refuses it\n- [normal] A works -> test: `src/a_test.go::TestA`\n")
+	for _, p := range pc.Problems {
+		if strings.Contains(p, "case") {
+			t.Fatalf("case problem: %v", p)
+		}
+	}
+	if len(pc.CaseTests) != 1 || pc.CaseTests[0] != "src/a_test.go" {
+		t.Fatalf("case tests: %v", pc.CaseTests)
+	}
+}

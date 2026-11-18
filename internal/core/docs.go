@@ -213,6 +213,9 @@ var reTestLink = regexp.MustCompile("(?i)\\btest:\\s*(?:`([^`]+)`|([^\\s`]+))")
 
 const notApply = "does not apply, because"
 
+// "test: does not apply, because ..." names no test file (PL1).
+var reTestNotApply = regexp.MustCompile(`(?i)\btest:\s*(does not apply)`)
+
 // PlanCheck is what the checkpoint needs from plan.md.
 type PlanCheck struct {
 	Files     []string
@@ -250,6 +253,7 @@ func CheckPlan(text string) PlanCheck {
 		if !reCaseLabel.MatchString(b) {
 			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs a label: %s", short(b), caseLabelList()))
 		}
+		b = reTestNotApply.ReplaceAllString(b, "$1")
 		lower := strings.ToLower(b)
 		if m := reTestLink.FindStringSubmatch(b); m != nil {
 			ref := strings.TrimSpace(m[1] + strings.TrimRight(m[2], ").,;"))

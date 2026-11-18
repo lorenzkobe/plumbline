@@ -58,3 +58,13 @@ Retest after 0.6.12: steps 3 and 5, then step 8 onward. Setup as in [smoke-run-1
 
 ## Decision (user, 2026-11-19)
 Fix what run 2 found before steps 9-18, including UX1 and UX2, so steps 9-18 run once on the flow the user will actually use. The small fixes are 0.6.15 (SR10, CM2, HR1, FR1, FR2); UX1/UX2 next, designed with the user.
+
+## Retest of 0.6.15 (session log retest615.log, 2026-11-19)
+- SR10: "rename the loop variable link to profileLink": Claude asked first (AskUserQuestion "Plumbline blocks edits until a task is open. Should I start a task ...?"), no edit attempt. PASS.
+- FR1: SocratiCode and MemPalace searched just before `task start` counted; the checkpoint was refused only for Serena (not run) and a cited file not opened. PASS.
+- Still 3 red boxes (UX2, the user: "can we like remove the red stuff ... i want it like kinda smooth"):
+  1. Notes written with `cat > $D/understanding.md <<EOF`: refused "Plumbline's own files can't be changed from the terminal. Use the plumbline command." (wrong advice: notes go through Write).
+  2. Checkpoint refused: Serena callers not looked up, src/db/operations.ts:1818 cited but not opened.
+  3. First edit refused: typecheck had no baseline run (Claude ran test, lint, build, not typecheck).
+  Each could be avoided by telling Claude up front what's needed (a checklist at task start and at approval), one command for all baseline checks, and refusal text that names the right tool.
+- The rest of the retest: plan reviewer and code reviewer ran; Stop said "case test does doesn't exist yet" (**PL1**: the plan's "-> test: does not apply, because ..." read as a test file "does"). Claude reworded the case, then ran `plumbline task replan --help` to read the help, which **ran the replan (RP1)**: the task went back to planning and the user had to approve again. Commit d015074 (prompt, no trailer), finish: PASS. Both bugs fixed in 0.6.16.
