@@ -57,11 +57,34 @@ type HelperRun struct {
 	Merged     bool   `json:"merged,omitempty"`
 	Dropped    bool   `json:"dropped,omitempty"`
 	Error      string `json:"error,omitempty"`
+	Setup      string `json:"setup,omitempty"` // what went wrong running builder_setup in the copy
 	// Blind QA: the test files it wrote.
 	Wrote []string `json:"wrote,omitempty"`
+	// Blind QA: each test file's hash when it stopped; a copy of each is
+	// kept in qa-N-tests/ in the notes folder (N22).
+	WroteHash map[string]string `json:"wrote_hash,omitempty"`
 	// Builders and QA: the last tool call, so a run that works long still
 	// counts as running and one that died stops counting.
 	LastSeen time.Time `json:"last_seen,omitempty"`
+
+	// Reviewers: the files this run opened (absolute), so a withdrawn
+	// finding is known to have looked at the guard the lead cited (N5).
+	Opened []string `json:"opened,omitempty"`
+	// What the findings file said when the run stopped: what's still wrong
+	// with it (such a run doesn't count), what the reviewer set aside as
+	// outside the plan (N6), and the changed files the code reviewer didn't
+	// cover (N4).
+	Problems   []string `json:"problems,omitempty"`
+	SetAside   []string `json:"set_aside,omitempty"`
+	NotCovered []string `json:"not_covered,omitempty"`
+	// Builders: how the run ended, from its notes' "## Status" (N10).
+	Status string `json:"status,omitempty"`
+}
+
+// Counts: a run that finished on unchanged code with a findings file that
+// passed its checks.
+func (t *Task) counts(r HelperRun) bool {
+	return r.Complete() && t.findingsExist(r) && len(r.Problems) == 0
 }
 
 // Complete: the run finished and the code didn't change while it ran.
@@ -125,6 +148,42 @@ var (
 	reDataSignal     = regexp.MustCompile(`(?i)((^|[/._-])(migrations?|migrate|schemas?|models?|repositor(y|ies)|quer(y|ies)|sql|db|database|seeds?|prisma|drizzle|knex|sequelize|typeorm|money|currency|prices?|pricing|amounts?|ledger|payments?|billing|invoices?)([/._-]|$))`)
 	reUXSignal       = regexp.MustCompile(`(?i)(\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less|html?|hbs|erb|ejs|njk|liquid)$|\.blade\.php$|(^|/)(components?|pages|views|screens|layouts?|styles?|templates?|ui)/)`)
 )
+
+// Risk signals in what a change adds, in any file (R1). SQL keywords count
+// in capitals only, so "select a file from the list" in a comment doesn't.
+var (
+	reSecurityContent = regexp.MustCompile(`(?i)\b(bcrypt|argon2|scrypt|pbkdf2|jwt|jsonwebtoken|oauth2?|openid|saml|csrf|xsrf|passwords?|passwd|set-cookie|httponly|samesite|authori[sz]ation|authenticat(e|ed|ion)|authori[sz]e[ds]?|permissions?|is_?admin|api[_-]?keys?|private[_-]?keys?|access[_-]?tokens?|refresh[_-]?tokens?|hmac|stripe|paypal|braintree|adyen|dangerouslySetInnerHTML|innerHTML|child_process|subprocess|os\.system|shell\s*=\s*True|eval\s*\()`)
+	reDataContent     = regexp.MustCompile(`\b(SELECT\s+(DISTINCT\s+)?[\w*.,\s()"]+?\s+FROM|INSERT\s+INTO|UPDATE\s+["\w.]+\s+SET|DELETE\s+FROM|CREATE\s+(UNIQUE\s+)?(TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(TABLE|INDEX|COLUMN)|TRUNCATE\s+TABLE)\b|(?i)\b(findMany|findUnique|findFirst|updateMany|deleteMany|upsert|bulkCreate|bulk_create|bulk_update|select_related|prefetch_related|objects\.(filter|update|create|delete|get)|\$queryRaw|\$executeRaw|queryRaw|executeRaw|knex\(|createQueryBuilder|beginTransaction|transaction\s*\()`)
+	reMoneyContent    = regexp.MustCompile(`(?i)\b(prices?|pricing|currenc(y|ies)|cents|subtotal|refunds?|payouts?|invoices?|ledger|stripe|paypal|braintree|adyen|BigDecimal|toFixed\(2\))\b`)
+)
+
+// ContentReviewers: the specialists what a change adds calls for, read from
+// its added lines in files other than tests, prose and lockfiles.
+func ContentReviewers(changes []fileDiff, s *Setup) []string {
+	var out []string
+	add := func(k string) {
+		if !contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	for _, f := range changes {
+		if TestFile(f.Path, s) || reProse.MatchString(f.Path) || reDepFile.MatchString(filepath.Base(f.Path)) {
+			continue
+		}
+		for _, l := range f.Lines {
+			if !l.Add {
+				continue
+			}
+			if reSecurityContent.MatchString(l.Text) {
+				add(HelperSecurity)
+			}
+			if reDataContent.MatchString(l.Text) || reMoneyContent.MatchString(l.Text) {
+				add(HelperData)
+			}
+		}
+	}
+	return out
+}
 
 var signalWhy = map[string]string{
 	HelperSecurity: "auth, permissions, payments, user data or secrets",
@@ -194,6 +253,11 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 		}
 	}
 	need := ReviewersFor(t.Size, t.Root, files)
+	// What the change adds counts too (R1): SQL, auth or money code in a
+	// plainly named file still gets its specialist.
+	if changes, err := taskChanges(t, s.IgnoreChanges); err == nil {
+		need = append(need, ContentReviewers(changes, s)...)
+	}
 	var out []string
 	for _, k := range ReviewerKinds {
 		if (contains(need, k) || contains(t.Reviewers, k)) && s.PartOn(k) {
@@ -344,8 +408,53 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if n := len(t.helperRuns(kind)); n >= MaxReviews {
 			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times (the first review plus 2 fix rounds). Stop and bring what's left to the user, with your suggestion.", kind, n))
 		}
+		if why := c.disputeProblem(kind); why != "" {
+			return c.deny("dispute-evidence", why)
+		}
+	}
+	if prompt, _ := c.in.Input()["prompt"].(string); prompt != "" {
+		if why := c.promptProblem(kind, prompt); why != "" {
+			return c.deny("helper-prompt", why)
+		}
 	}
 	return nil
+}
+
+// disputeProblem: the lead's disputes of a reviewer's findings, written
+// since its last run began, each cite the evidence (the guard, the caller,
+// the test) with a file:line the lead opened and that hasn't changed since
+// (N5). A dispute without evidence is an opinion.
+func (c *hookCtx) disputeProblem(kind string) string {
+	t := c.task
+	p := filepath.Join(TaskDocsDir(t.Root, t.ID), DisputesName(kind))
+	fi, err := os.Stat(p)
+	if err != nil || fi.Size() == 0 {
+		return ""
+	}
+	if last := t.lastFinished(kind); last != nil && !fi.ModTime().After(last.Started) {
+		return "" // answered already
+	}
+	b, _ := os.ReadFile(p)
+	var bare, bad []string
+	for _, item := range bullets(string(b)) {
+		refs := Refs(item)
+		if len(refs) == 0 {
+			bare = append(bare, short(plainLine(item)))
+			continue
+		}
+		for _, r := range refs {
+			if !isNotesDoc(r.Path) { // the plan and the understanding are the lead's own
+				bad = append(bad, CheckRefs(t, fmt.Sprintf(" %s:%d", r.Path, r.Line))...)
+			}
+		}
+	}
+	switch {
+	case len(bare) > 0:
+		return fmt.Sprintf("each dispute in %s cites its evidence: the file:line of the guard, caller or test that shows the finding is wrong (open it first). These cite none: %s", DisputesName(kind), strings.Join(bare, "; "))
+	case len(bad) > 0:
+		return fmt.Sprintf("the disputes in %s cite lines Plumbline can't check: %s", DisputesName(kind), strings.Join(bad, "; "))
+	}
+	return ""
 }
 
 // gateHelper keeps the helpers to their job. Most are read-only: they read
@@ -446,6 +555,7 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 			dir = c.in.Cwd
 		}
 		recursive := reSearchTool.MatchString(s.Name())
+		c.searchSkipsCopies = kind == HelperQA && qaSearchSkipsCopies(s)
 		if kind == HelperQA {
 			if o := c.qaCommand(s); o != nil {
 				return o
@@ -482,6 +592,7 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 			}
 		}
 	}
+	c.searchSkipsCopies = false
 	// Text fed to xargs or a read loop (heredocs, here-strings) names files
 	// too, and isn't kept on the commands inside a loop: check every word of
 	// the command as written.
@@ -502,6 +613,8 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 	}
 	return nil
 }
+
+var reQATestsDir = regexp.MustCompile(`^qa-[0-9]+-tests$`)
 
 // Commands that search a folder tree: given a folder above the notes, they
 // read every reviewer's findings.
@@ -544,6 +657,10 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 		if foldPath(filepath.Dir(abs)) == foldPath(docs) && (base == DocUnderstanding || base == DocPlan || own) {
 			return nil
 		}
+		// Blind QA's tests as it wrote them are tests, not findings (N22).
+		if rel, err := filepath.Rel(docs, abs); err == nil && !climbsOut(rel) && reQATestsDir.MatchString(strings.Split(filepath.ToSlash(rel), "/")[0]) {
+			return nil
+		}
 	}
 	return c.deny("reviewer-own-notes", fmt.Sprintf("each review stays independent: in the notes folder the %s reads only %s, %s and its own earlier findings, not other reviewers' findings or the report. Read the code and the diff for the rest.", kind, DocUnderstanding, DocPlan))
 }
@@ -575,7 +692,7 @@ func SubagentStart(in *HookInput) Output {
 		SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan)}
 	run.PrintBefore, _ = Fingerprint(t.Root, c.ignore())
 	if kind == HelperBuilder {
-		run.Worktree, run.BaseCommit, run.Error = made.path, made.base, made.err
+		run.Worktree, run.BaseCommit, run.Error, run.Setup = made.path, made.base, made.err, made.setup
 		if made.path != "" {
 			run.PrintBefore = made.tree
 		}
@@ -601,6 +718,12 @@ func SubagentStart(in *HookInput) Output {
 			base = "HEAD"
 		}
 		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is run %d of at most %d for the %s. Other reviewers check the change on their own: in the notes folder read only %s, %s and your own earlier findings.", DocPlan, base, n, MaxReviews, kind, DocUnderstanding, DocPlan)
+		if kind == HelperCodeReviewer {
+			b.WriteString(` List every changed file under "## Coverage" as "- <path>: covered" or "- <path>: not covered, <why>"; a file not covered makes the verdict Not ready.`)
+		}
+		if changed := qaTestsChanged(t); len(changed) > 0 {
+			fmt.Fprintf(&b, " Blind QA's tests changed after it wrote them (%s); its versions are under %s/qa-<n>-tests/. Compare them (diff) and flag any change to what a test expects: only its setup may change.", listSome(changed, 8), docs)
+		}
 	}
 	if n > 1 && !isWorker(kind) {
 		// A fresh pass first: a reviewer who reads its earlier verdict first
@@ -620,7 +743,7 @@ func SubagentStart(in *HookInput) Output {
 		fmt.Fprintf(&b, " The lead disputes some of your findings in %s: answer each one under ## Disputes in your findings file (withdrawn, or upheld with your evidence).", filepath.Join(docs, DisputesName(kind)))
 	}
 	if !isWorker(kind) {
-		fmt.Fprintf(&b, " The shared checklist, scoring and findings format: %s. Write your findings to %s as you go: it is the only file you can write. Terminal commands must only read.", ChecklistPath(), filepath.Join(docs, run.Findings))
+		fmt.Fprintf(&b, " The shared checklist, scoring and findings format: %s. Write your findings to %s as you go: it is the only file you can write. Terminal commands must only read. Plumbline checks the file when you stop: each cited file:line needs a backticked quote from within %d lines of it.", ChecklistPath(), filepath.Join(docs, run.Findings), quoteWindow)
 	}
 	return Context("SubagentStart", msg(b.String()))
 }
@@ -642,17 +765,36 @@ func SubagentStop(in *HookInput) Output {
 	if run == nil || !run.Finished.IsZero() {
 		return nil
 	}
+	out := filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)
 	if !t.findingsExist(*run) && !in.StopHookActive {
-		return Output{"decision": "block", "reason": msg(fmt.Sprintf("write your findings to %s before you stop (if you found nothing, say so there, with what you checked).", filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)))}
+		return Output{"decision": "block", "reason": msg(fmt.Sprintf("write your findings to %s before you stop (if you found nothing, say so there, with what you checked).", out))}
 	}
+	var problems []string
+	switch {
+	case kind == HelperChallenger || isReviewer(kind):
+		problems = c.findingsProblems(run)
+	case kind == HelperBuilder:
+		if run.Status = builderStatus(t.findingsText(*run)); run.Status == "" && t.findingsExist(*run) {
+			problems = []string{fmt.Sprintf(`end your notes with "## Status" and one of: %s (blocked or needs context when you couldn't finish: bad work is worse than none)`, strings.Join(BuilderStatuses, ", "))}
+		}
+	}
+	if len(problems) > 0 && !in.StopHookActive {
+		_ = SaveTask(t) // what the checks read from the file
+		return Output{"decision": "block", "reason": msg(fmt.Sprintf("fix your findings file (%s) before you stop: %s.", out, strings.Join(problems, "; ")))}
+	}
+	run.Problems = problems
 	run.Finished = Now()
 	run.PrintAfter, _ = Fingerprint(t.Root, c.ignore())
 	detail := ""
 	switch kind {
 	case HelperBuilder:
-		detail = c.stopBuilder(run)
+		detail = strings.TrimSpace(c.stopBuilder(run) + " " + run.Status)
 	case HelperQA:
+		c.keepQATests(run)
 		detail = fmt.Sprintf("%d test files", len(run.Wrote))
+	}
+	if len(problems) > 0 {
+		detail = strings.TrimSpace(fmt.Sprintf("%s %d findings problems", detail, len(problems)))
 	}
 	t.recordTokens("agent:"+in.AgentID, in.AgentTranscript)
 	_ = SaveTask(t)
@@ -672,8 +814,12 @@ func (c *hookCtx) challengeProblems(plan string) []string {
 	}
 	var p []string
 	ok := false
-	for _, r := range t.helperRuns(HelperChallenger) {
-		if r.Complete() && r.SawDocs && t.findingsExist(r) {
+	runs := t.helperRuns(HelperChallenger)
+	for _, r := range runs {
+		// The last round counts even when its file failed the checks: no
+		// round is left to fix it, so it goes in the challenge note.
+		last := len(runs) >= MaxChallengeRounds && r.Complete() && t.findingsExist(r)
+		if (t.counts(r) || last) && r.SawDocs {
 			ok = true
 		}
 	}
@@ -681,6 +827,8 @@ func (c *hookCtx) challengeProblems(plan string) []string {
 	case ok:
 	case t.HelperRunning():
 		p = append(p, "the challenger is still running; wait for its findings")
+	case t.lastFinished(HelperChallenger) != nil && len(t.lastFinished(HelperChallenger).Problems) > 0:
+		p = append(p, "the challenger's last findings file failed Plumbline's checks ("+strings.Join(t.lastFinished(HelperChallenger).Problems, "; ")+"); run the challenger again (plumbline:challenger)")
 	default:
 		p = append(p, "the challenger hasn't attacked the understanding and the plan yet: start the Agent tool with subagent_type plumbline:challenger (it needs both files written first, and must finish with a findings file)")
 	}
@@ -712,7 +860,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 			notRun = append(notRun, name)
 		case runs[len(runs)-1].alive():
 			running = append(running, name)
-		case last == nil || !last.Complete() || last.PrintAfter != fp || !t.findingsExist(*last):
+		case last == nil || !t.counts(*last) || last.PrintAfter != fp:
 			if len(runs) >= MaxReviews {
 				capped = append(capped, name)
 			} else {
@@ -738,7 +886,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		miss = append(miss, "review: still running, wait for their findings: "+strings.Join(running, ", "))
 	}
 	if len(again) > 0 {
-		miss = append(miss, "review: the code changed after the last review (or during it, or a run never finished or left no findings file); run these again to check the fixes: "+strings.Join(again, ", "))
+		miss = append(miss, "review: the code changed after the last review (or during it, or a run never finished, left no findings file or one that failed Plumbline's checks); run these again to check the fixes: "+strings.Join(again, ", "))
 	}
 	if len(capped) > 0 {
 		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used (the first plus 2 fix rounds) for %s; stop and ask the user how to go on", MaxReviews, strings.Join(capped, ", ")))

@@ -153,7 +153,7 @@ func TestBuilderWorksInItsOwnCopy(t *testing.T) {
 	if o := h.stopHelper(id, HelperBuilder); !strings.Contains(fmtOut(o), "block") {
 		t.Fatalf("a builder without notes should be sent back: %v", o)
 	}
-	write(t, h.findingsPath(id), "# Build 1\n- src/a.go: returns 3\n")
+	write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build 1\n- src/a.go: returns 3\n"))
 	if o := h.stopHelper(id, HelperBuilder); o != nil {
 		t.Fatalf("stop: %v", o)
 	}
@@ -192,7 +192,7 @@ func TestBuilderMergeRefusesOverlaps(t *testing.T) {
 	id, _ := h.startHelper(HelperBuilder)
 	wt := h.run(HelperBuilder, id).Worktree
 	write(t, filepath.Join(wt, "src", "a.go"), "package src\n\nfunc A() int { return 3 }\n")
-	write(t, h.findingsPath(id), "# Build 1\n")
+	write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build 1\n"))
 	h.stopHelper(id, HelperBuilder)
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 4 }\n")
@@ -222,7 +222,7 @@ func TestBuilderWithNoChangesLeavesNoCopy(t *testing.T) {
 	h := buildingTask(t)
 	id, _ := h.startHelper(HelperBuilder)
 	wt := h.run(HelperBuilder, id).Worktree
-	write(t, h.findingsPath(id), "# Build 1\nnothing to change\n")
+	write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build 1\nnothing to change\n"))
 	h.stopHelper(id, HelperBuilder)
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Fatal("a copy with no changes is removed at stop")
@@ -390,7 +390,7 @@ func TestTwoBuildersAndMergeKinds(t *testing.T) {
 	must(t, os.Chmod(filepath.Join(w1, "run.sh"), 0o755))
 	write(t, filepath.Join(w2, "src", "a.go"), "package src\n\nfunc A() int { return 9 }\n")
 	for _, id := range []string{id1, id2} {
-		write(t, h.findingsPath(id), "# Build\n")
+		write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build\n"))
 		h.stopHelper(id, HelperBuilder)
 	}
 	tk := h.task()
@@ -502,7 +502,7 @@ func TestMergeKeepsFiltersModesAndFolders(t *testing.T) {
 	must(t, os.Chmod(filepath.Join(wt, "run.sh"), 0o644))
 	must(t, os.RemoveAll(filepath.Join(wt, "lib")))
 	write(t, filepath.Join(wt, "lib"), "now a file\n")
-	write(t, h.findingsPath(id), "# Build 1\n")
+	write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build 1\n"))
 	h.stopHelper(id, HelperBuilder)
 	tk := h.task()
 	if _, _, err := MergeBuilder(tk, 1, nil); err != nil {
@@ -529,7 +529,7 @@ func TestMergeRefusesUpFront(t *testing.T) {
 	write(t, filepath.Join(wt, "aaa.go"), "package a\n")
 	must(t, os.RemoveAll(filepath.Join(wt, "lib")))
 	write(t, filepath.Join(wt, "lib"), "a file\n")
-	write(t, h.findingsPath(id), "# Build 1\n")
+	write(t, h.findingsPath(id), h.complete(HelperBuilder, "# Build 1\n"))
 	h.stopHelper(id, HelperBuilder)
 	// Meanwhile an ignored file sits in lib/ in the main checkout.
 	write(t, filepath.Join(h.repo, "lib", "coverage", "out.txt"), "x\n")

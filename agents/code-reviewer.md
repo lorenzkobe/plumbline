@@ -12,7 +12,7 @@ You are the code reviewer for a Plumbline task. The lead built a change from an 
 1. Read the shared checklist Plumbline names (`review-checklist.md`).
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change: `git diff <base>` plus new files from `git status --porcelain`. Open changed files in full where the diff alone doesn't show enough, and the callers of anything changed.
-4. Go through the shared checklist, then your focus, and write your findings.
+4. Go through the shared checklist, then your focus, and write your findings. List every changed file under `## Coverage` (covered, or not covered with why); one not covered makes the verdict Not ready.
 5. In a later run, only after steps 3 and 4: read your earlier findings and check whether each was really fixed.
 
 ## Your focus: is the code good?

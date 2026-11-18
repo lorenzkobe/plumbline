@@ -21,6 +21,9 @@ type hookCtx struct {
 	setupOK  bool
 	setupErr error
 	unlock   func()
+	// searchSkipsCopies: the search being checked skips what git ignores,
+	// so it doesn't reach the builders' copies (B7).
+	searchSkipsCopies bool
 }
 
 func newCtx(in *HookInput) *hookCtx {
@@ -157,7 +160,11 @@ func PreToolUse(in *HookInput) Output {
 		}
 		return c.noAsk(kind, c.gateTool())
 	}
-	return c.gateTool()
+	o := c.gateTool()
+	if d, _ := decisionOf(o); d != "deny" {
+		c.noteLeadBusy()
+	}
+	return o
 }
 
 // noAsk: a helper runs without the user, so a question the gates would put
@@ -898,6 +905,10 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 	if RiskyPath(rel, c.setup) {
 		c.hold(rel, "risky file outside the plan")
 		return "risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel)
+	}
+	if gateOutsidePlan(rel) {
+		c.hold(rel, "a file that decides which checks run, outside the plan")
+		return "gate-outside-plan", fmt.Sprintf("%s isn't in the approved plan and decides which checks run (CI, git hooks, test or lint config, AI instructions, plugin parts): one line there can switch a check off. Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why; to change it, the plan must list it (plumbline task replan).", rel)
 	}
 	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount()+pending >= OutsidePlanCap {
 		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, c.task.OutsideCount()+pending+1)

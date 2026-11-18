@@ -21,12 +21,19 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - N13: a test run whose database or service settings point off the laptop is refused. One that would use the dev database asks the user once per task, and stays quiet for Django, Rails and Laravel (they switch to a test database on their own). Values are never shown, only setting names.
 - From Claude Code's docs (checked 2026-11-18): hooks get `transcript_path`, SubagentStop also gets `agent_transcript_path`, and the transcript format is internal and may change, so P5 counts what it can read and marks the rest unknown. After compaction an invoked skill is re-attached capped at 5,000 tokens (25,000 for all of them), and SKILL.md should stay under 500 lines (N12).
 
+## Decisions for release 3c (2026-11-18)
+- B2: an optional saved `builder_setup` command (for example `pnpm install --frozen-lockfile --prefer-offline`) runs in each new builder copy, so the copy has its own dependencies. Without one, copies stay as they are. Not chosen: cloning or linking `node_modules`/`.venv` (links make workspace packages and editable installs test the main checkout's code).
+- N4: a changed file the code reviewer marks "not covered" makes the verdict Not ready.
+- N5: every withdrawn finding cites a file:line with a quote Go checks, whatever its kind. The lead's dispute cites its evidence, and the reviewer opens each file the disputes cite before withdrawing.
+- The 3b open question: a file that decides which checks run (N8's list, except `.plumbline.json`, which has its own confirm prompt), changed outside the plan, is refused like a risky file.
+
 ## Done
 - Release 1: 0.6.1 (commit 95c298f): L5, G9, G7, G8, G2, G10, L3, B9, B10, D2, P6, G5, L1, G12, B4.
 - Release 3a: 0.6.2 (commit ac01882): L2, G3, G4, G6, G11, O1, O2. It moved mvdan.cc/sh to v3.14.1, which needs Go 1.26 to build (go.mod's `go` line went from 1.24.7 to 1.26.0; users run the prebuilt binaries).
 - Reference repo study: [repo-study.md](repo-study.md).
 - Release 2: 0.6.3 (commit 89a2845): WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
-- Release 3b: 0.6.4: P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
+- Release 3b: 0.6.4 (commit a4c7f2c): P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
+- Release 3c: 0.6.5: R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -53,16 +60,17 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] N13: before `plumbline run test|related|e2e` or a test runner typed directly, settings for a database, queue, cache or mail server (set, exported or loaded from an env file on the command line, the session's environment, then `.env.test.local`, `.env.test`, `.env.testing`, `.env` in the folder the command runs in and the root) pointing off the laptop refuse the run; a test database equal to the dev one asks once per task (quiet for Django, Rails, Laravel's phpunit.xml and Phoenix). A migration aimed off the laptop, read with the development settings, asks. `test_targets_ok` in the setup lists settings the tests never connect to. Left: values made at runtime (a config file, a secrets manager, a script that sets them) aren't seen.
 - [x] N21: a plan that changes packages needs the suite, lint and build baselines before the checkpoint, and the report names every test file the task changed.
 
-## Next: release 3c, helpers and builders
-- R1 (specialists by content), R3 (findings pasted into a reviewer's prompt), B2, B3, B5, B7, B8, D1.
-- N3: findings carry a short quote that Go checks near the cited file:line.
-- N4: the code reviewer marks every changed file covered or not; any file not covered means not Ready.
-- N5: withdrawing a security, data, compatibility or concurrency finding needs a refuting file:line, and a dispute's cited guard is opened before a finding is dropped.
-- N6: reviewers list what they set aside as out of scope, one line each.
-- N10: builders end with a fixed status (done, done with concerns, blocked, needs context) that SubagentStop reads.
-- N22: blind QA setup fixes, as decided above.
+### Release 3c items (0.6.5), shipped
+- [x] R1, R3, B2, B3, B5, B7, B8, D1: ticked in known-gaps.md with what was built and what's left.
+- [x] N3: every file:line in a challenger's or reviewer's findings carries a backticked quote that Go finds within 3 lines of it, in the file now or at the task's start; a file that fails is sent back once, and a run whose file still fails doesn't count (the challenger's last round still does, with no round left).
+- [x] N4: the code reviewer's `## Coverage` lists every changed file covered or not; a missing file sends it back, and one not covered makes the verdict Not ready.
+- [x] N5: each of the lead's disputes cites a file:line it opened (else the reviewer isn't started); a withdrawal cites the refuting code with a quote, after the reviewer opened every file the disputes cite (Read, or a printing command). For every finding, as decided.
+- [x] N6: reviewers' `## Set aside` (or "- none"); the report's `## Review` needs a "Set aside:" line when any reviewer set something aside.
+- [x] N10: builders' `## Status` (done, done with concerns, blocked, needs context), sent back once without it; blocked and needs context aren't merged; `plumbline builder list` shows it, and a merge of "done with concerns" points to the notes.
+- [x] N22: QA's tests are kept in `qa-N-tests/` with their hashes; one changed later must be on the Weakened tests line, and reviewers are told and may read QA's version. Go can't tell a setup fix from a changed expectation; the reviewers compare.
+- [x] The 3b open question: gate files outside the plan are refused and held (not `.plumbline.json`, which has its own prompt, nor Claude Code's `.claude/settings*.json`).
 
-## Release 3d, bigger pieces (each its own release)
+## Next: release 3d, bigger pieces (each its own release)
 - M14: two sessions in one repo.
 - W1: the hotfix flow.
 - The sandbox option: G1, P1, B1.

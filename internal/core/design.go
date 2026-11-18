@@ -184,3 +184,33 @@ func (c *hookCtx) designProblems(planText string, pc PlanCheck) []string {
 	}
 	return p
 }
+
+// designReminder: once per normal task, when the lead's plan.md first
+// names screen files, a reminder that a design task mocks them up first
+// (D1). A reminder, not a gate: a small visual fix needs no mockups.
+func (c *hookCtx) designReminder(abs string) Output {
+	t := c.task
+	if t == nil || c.in.AgentID != "" || t.Kind == KindDesign || t.DesignNoted || t.Phase == PhaseBuilding || !c.setup.PartOn(designPartName) {
+		return nil
+	}
+	if foldPath(abs) != foldPath(Abs(filepath.Join(TaskDocsDir(t.Root, t.ID), DocPlan), "/")) {
+		return nil
+	}
+	plan, _, err := ReadDoc(t, DocPlan)
+	if err != nil {
+		return nil
+	}
+	var screens []string
+	for _, f := range CheckPlan(plan).Files {
+		if reUXSignal.MatchString(f) && !TestFile(f, c.setup) && !strings.HasSuffix(f, "/") {
+			screens = append(screens, f)
+		}
+	}
+	if len(screens) == 0 {
+		return nil
+	}
+	t.DesignNoted = true
+	_ = SaveTask(t)
+	c.log("design", "design-reminder", "")
+	return Context("PostToolUse", msg(fmt.Sprintf("the plan changes screens (%s). If what users see changes in a way they'd want to choose, say so at the checkpoint: a design task (/plumbline:design) mocks up %d directions first. For a small visual fix, say in the plan why no mockups are needed.", listSome(screens, 5), MinDirections)))
+}

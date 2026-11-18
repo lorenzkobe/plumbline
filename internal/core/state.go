@@ -58,7 +58,10 @@ type Task struct {
 	SizeByUser bool `json:"size_by_user,omitempty"`
 	// Kind is "design" for a design task (mockups and the user's pick of a
 	// direction before the plan), "" for the usual task.
-	Kind        string    `json:"kind,omitempty"`
+	Kind string `json:"kind,omitempty"`
+	// DesignNoted: the lead was reminded once that the plan changes
+	// screens and a design task would mock them up first (D1).
+	DesignNoted bool      `json:"design_noted,omitempty"`
 	Direction   string    `json:"direction,omitempty"` // the direction the user picked
 	DirectionAt time.Time `json:"direction_at,omitempty"`
 	Root        string    `json:"root"`
@@ -96,6 +99,9 @@ type Task struct {
 	// files Claude was refused (must be under "For you" in the report).
 	OutsidePlan map[string]string `json:"outside_plan,omitempty"`
 	Held        map[string]string `json:"held,omitempty"`
+	// LeadBusy: the lead's tool calls in flight while builders run, by
+	// tool use id, so a builder isn't blamed for what they change (B5).
+	LeadBusy map[string]LeadTouch `json:"lead_busy,omitempty"`
 
 	// Commit the task started from: the reviewer diffs against it, so slice
 	// commits made during the task are reviewed too.
@@ -411,11 +417,23 @@ func (t *Task) Approved(words []string) bool {
 // so it goes to the user instead of being Claude's call.
 const OutsidePlanCap = 3
 
-// OutsideCount counts files changed outside the plan that still exist.
+// OutsideCount counts files changed outside the plan that still exist, in
+// the main checkout or as a change in a builder's copy not merged yet (B3).
 func (t *Task) OutsideCount() int {
+	inCopies := map[string]bool{}
+	for _, r := range t.helperRuns(HelperBuilder) {
+		if r.Worktree == "" || r.Merged || r.Dropped {
+			continue
+		}
+		for _, p := range worktreeChanges(r.Worktree, nil, r.PrintBefore) {
+			if !gone(r.Worktree, p) {
+				inCopies[p] = true
+			}
+		}
+	}
 	n := 0
 	for p := range t.OutsidePlan {
-		if !gone(t.Root, p) {
+		if inCopies[p] || !gone(t.Root, p) {
 			n++
 		}
 	}

@@ -18,7 +18,7 @@ func e2eMissing(t *Task, s *Setup, fp string, runs []*Run, changed []string) []s
 	}
 	why := ""
 	for _, f := range changed {
-		if reUXSignal.MatchString(f) && !reTestFile.MatchString(f) {
+		if reUXSignal.MatchString(f) && !TestFile(f, s) {
 			why = "the task changes frontend files (" + f + ")"
 			break
 		}
@@ -47,7 +47,7 @@ func projectHasFrontend(root string, s *Setup) bool {
 		return false
 	}
 	for _, p := range strings.Split(out, "\x00") {
-		if p != "" && reUXSignal.MatchString(p) && !reTestFile.MatchString(p) && !reProse.MatchString(p) {
+		if p != "" && reUXSignal.MatchString(p) && !TestFile(p, s) && !reProse.MatchString(p) {
 			return true
 		}
 	}
@@ -112,13 +112,13 @@ func anyComplete(runs []*Run, taskID, kind string) bool {
 
 // upgradeMissing (N21): after a package change, the report names every
 // test file the task changed, so a test edited to fit the upgrade is seen.
-func upgradeMissing(t *Task, changes []fileDiff, report string) []string {
+func upgradeMissing(t *Task, s *Setup, changes []fileDiff, report string) []string {
 	if !t.Upgrade {
 		return nil
 	}
 	var unlisted []string
 	for _, f := range changes {
-		if reTestFile.MatchString(f.Path) && !strings.Contains(report, f.Path) {
+		if TestFile(f.Path, s) && !strings.Contains(report, f.Path) {
 			unlisted = append(unlisted, f.Path)
 		}
 	}

@@ -1,12 +1,16 @@
 package core
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Builders work in their own copy of the repo (a git worktree), so two
@@ -422,6 +426,8 @@ func MergeBuilder(t *Task, n int, ignore []string) (changed, conflicts []string,
 		return nil, nil, errors.New("blind QA is running and must not see the new code; merge once it has stopped")
 	case r.alive():
 		return nil, nil, fmt.Errorf("builder %d is still running; wait for it to stop", n)
+	case r.Status == "blocked" || r.Status == "needs context":
+		return nil, nil, fmt.Errorf("builder %d stopped as %q, so its work isn't finished (its notes, %s, say why). Drop it (plumbline builder drop %d) and give the part to a new builder with what it needed, do it yourself, or ask the user", n, r.Status, r.Findings, n)
 	}
 	if _, err := os.Stat(r.Worktree); err != nil {
 		return nil, nil, fmt.Errorf("builder %d's copy is gone (%s)", n, r.Worktree)
@@ -471,5 +477,55 @@ func (r HelperRun) BuilderState(ignore []string) string {
 		return "stopped without a record (treat as finished)"
 	}
 	files := worktreeChanges(r.Worktree, ignore, r.PrintBefore)
-	return fmt.Sprintf("finished, %d files changed, not merged yet", len(files))
+	status := r.Status
+	if status == "" {
+		status = "no status in its notes"
+	}
+	return fmt.Sprintf("finished (%s), %d files changed, not merged yet", status, len(files))
+}
+
+// BuilderSetupTime: how long the setup's builder_setup command may run in a
+// new copy. SubagentStart's hook timeout (hooks.json) leaves room for it and
+// for making the copy.
+const BuilderSetupTime = 150 * time.Second
+
+// RunBuilderSetup runs the setup's builder_setup command in a new builder
+// copy, so the copy has its own dependencies (B2). It returns what the
+// builder should know: "" when it went well. The command may install into
+// ignored folders only: tracked or new files it changes are put back, so
+// they can't be merged as the builder's work.
+func RunBuilderSetup(path, command string, ignore []string, tree string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), BuilderSetupTime)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	cmd.Dir = path
+	cmd.Env = os.Environ()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 5 * time.Second
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	err := cmd.Run()
+	var notes []string
+	switch {
+	case ctx.Err() != nil:
+		notes = append(notes, fmt.Sprintf("the setup's builder_setup (%s) didn't finish in %s, so the copy may lack its dependencies", command, BuilderSetupTime))
+	case err != nil:
+		notes = append(notes, fmt.Sprintf("the setup's builder_setup (%s) failed (%v): %s", command, err, lastLines(buf.String(), 3)))
+	}
+	if now, ferr := Fingerprint(path, ignore); ferr == nil && now != tree {
+		changed, _ := treeChanges(path, tree, now)
+		_, _ = gitIn(path, nil, "reset", "-q", "--hard")
+		_, _ = gitIn(path, nil, "clean", "-q", "-fd")
+		notes = append(notes, fmt.Sprintf("the setup's builder_setup (%s) changed files git tracks or would track (%s); Plumbline put them back, so fix the command (a frozen lockfile flag)", command, listSome(changed, 5)))
+	}
+	return strings.Join(notes, "; ")
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " / ")
 }

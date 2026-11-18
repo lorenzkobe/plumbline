@@ -48,6 +48,7 @@ var reRef = regexp.MustCompile("(?:^|[\\s(\\[`'\"])((?:[\\w.@+-]+/)*[\\w@+-][\\w
 type Ref struct {
 	Path string
 	Line int
+	End  int // the last line of a range (file:10-14), or 0
 }
 
 // Refs finds every file:line reference in a document.
@@ -64,7 +65,7 @@ func Refs(text string) []Ref {
 			continue
 		}
 		seen[k] = true
-		out = append(out, Ref{Path: p, Line: atoi(m[2])})
+		out = append(out, Ref{Path: p, Line: atoi(m[2]), End: atoi(m[3])})
 	}
 	return out
 }

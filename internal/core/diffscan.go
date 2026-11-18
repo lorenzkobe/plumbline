@@ -213,7 +213,10 @@ var (
 // deleted test files, fewer assertions, lowered thresholds, snapshots or
 // golden files changed without their test, and product code that branches
 // on CI or NODE_ENV=test. Each is for the report to name, with why.
-func WeakenedTests(changes []fileDiff) []Weakening {
+func WeakenedTests(changes []fileDiff) []Weakening { return weakenedTests(changes, nil) }
+
+// weakenedTests is WeakenedTests with the setup's test_files counted.
+func weakenedTests(changes []fileDiff, s *Setup) []Weakening {
 	var out []Weakening
 	changed := map[string]bool{}
 	for _, f := range changes {
@@ -221,7 +224,7 @@ func WeakenedTests(changes []fileDiff) []Weakening {
 	}
 	for _, f := range changes {
 		p := filepath.ToSlash(f.Path)
-		isTest := reTestFile.MatchString(p)
+		isTest := TestFile(p, s)
 		if f.Deleted && isTest {
 			out = append(out, Weakening{File: p, What: "a test file is deleted"})
 			continue
@@ -332,6 +335,18 @@ var reGateFile = regexp.MustCompile(`(?i)(^|/)(\.github/workflows/|\.circleci/|\
 // GateFile: rel is a file that decides which checks run (see reGateFile).
 func GateFile(rel string) bool { return reGateFile.MatchString(filepath.ToSlash(rel)) }
 
+// gateOutsidePlan: a gate file that is refused outside the plan. The
+// project setup is left out (its own confirm prompt guards it), and so are
+// Claude Code's settings in .claude/, which Claude can't edit (config-protect)
+// and Claude Code itself writes when you allow a tool for good.
+func gateOutsidePlan(rel string) bool {
+	low := strings.ToLower(filepath.ToSlash(rel))
+	if low == RepoSetupFile || strings.HasSuffix("/"+low, "/.claude/settings.json") || strings.HasSuffix("/"+low, "/.claude/settings.local.json") {
+		return false
+	}
+	return GateFile(rel)
+}
+
 var reCIFile = regexp.MustCompile(`(?i)(^|/)(\.github/workflows/|\.circleci/|\.buildkite/)|(^|/)(\.gitlab-ci\.ya?ml|jenkinsfile|azure-pipelines\.ya?ml|bitbucket-pipelines\.ya?ml|\.travis\.ya?ml)$`)
 
 func ciFile(rel string) bool { return reCIFile.MatchString(rel) }
@@ -385,12 +400,12 @@ func debugMissing(changes []fileDiff) []string {
 
 // weakenedMissing (P3): every file the diff weakens is named on the
 // report's Weakened tests line.
-func weakenedMissing(changes []fileDiff, report string) []string {
+func weakenedMissing(changes []fileDiff, report string, s *Setup) []string {
 	var miss []string
 	listed := weakenedLine(report)
 	var unlisted []string
 	seen := map[string]bool{}
-	for _, w := range WeakenedTests(changes) {
+	for _, w := range weakenedTests(changes, s) {
 		if !strings.Contains(listed, w.File) {
 			unlisted = append(unlisted, w.String())
 			seen[w.File] = true

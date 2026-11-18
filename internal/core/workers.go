@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -18,13 +19,22 @@ import (
 // Test files, by the usual naming of each ecosystem: a tests folder, or a
 // test file name (Go, JS/TS, Python, Ruby, and JVM/PHP/.NET/Swift classes
 // ending in Test or Tests, so Latest.swift or Contest.java aren't).
-var reTestFile = regexp.MustCompile(`((^|/)(tests?|__tests__|testdata)/|(^|/)[^/]+\.Tests?/|_test\.go$|\.(test|spec|cy)\.[a-z0-9]+$|(^|/)test_[^/]*\.py$|_test\.py$|(^|/)conftest\.py$|_spec\.rb$|_(unit)?test\.(c|cc|cpp|cxx|h|hpp)$|[A-Za-z0-9]Tests?\.(java|kt|kts|php|cs|swift)$)`)
+// Also: Rust test modules kept beside the code (src/foo/tests.rs,
+// foo_tests.rs, included with #[cfg(test)] mod tests;), Elixir, Dart,
+// Clojure, Lua and other *_test / *_spec files, and
+// Scala, Kotlin, Groovy and Haskell *Spec classes. Anything else a project
+// names its tests by goes in the setup's test_files (B8).
+var reTestFile = regexp.MustCompile(`((^|/)(tests?|__tests__|testdata)/|(^|/)[^/]+\.Tests?/|_test\.(go|py|rs|exs|dart|clj|cljs|cljc|lua|cr|jl|nim|zig|ml|erl|c|cc|cpp|cxx|h|hpp)$|_tests\.rs$|(^|/)tests\.rs$|\.(test|spec|cy)\.[a-z0-9]+$|(^|/)test_[^/]*\.py$|(^|/)conftest\.py$|_spec\.(rb|lua|cr|exs)$|_unittest\.(c|cc|cpp|cxx|h|hpp)$|[A-Za-z0-9]Tests?\.(java|kt|kts|php|cs|swift|scala|groovy)$|[A-Za-z0-9]Spec\.(scala|kt|kts|groovy|hs|swift)$)`)
 
-// isTestFile: rel is a test file by its name. A plan's case can name any
-// file as its test, so that alone doesn't make it one.
-func (c *hookCtx) isTestFile(rel string) bool {
-	return reTestFile.MatchString(filepath.ToSlash(rel))
+// TestFile: rel is a test file by its name, or by a test_files pattern in
+// the setup. A plan's case can name any file as its test, so that alone
+// doesn't make it one.
+func TestFile(rel string, s *Setup) bool {
+	rel = filepath.ToSlash(rel)
+	return reTestFile.MatchString(rel) || (s != nil && MatchAny(s.TestFiles, rel))
 }
+
+func (c *hookCtx) isTestFile(rel string) bool { return TestFile(rel, c.setup) }
 
 // qaRunning: blind QA is writing tests right now (it stopped, went quiet
 // for helperAlive, or the user waived it: no longer).
@@ -152,7 +162,7 @@ func taskByAgent(root, agentID string) *Task {
 	return nil
 }
 
-type builderCopy struct{ path, base, tree, err string }
+type builderCopy struct{ path, base, tree, err, setup string }
 
 // makeBuilderCopy makes the builder's copy of the repo from the lead's code.
 // It lets go of the task lock while git checks the copy out, then takes it
@@ -164,8 +174,16 @@ func (c *hookCtx) makeBuilderCopy() builderCopy {
 	}
 	root, id, ignore := t.Root, t.ID, c.ignore()
 	path := BuilderWorktree(root, id, c.in.AgentID)
+	setup := ""
+	if c.setupOK && c.setup != nil {
+		setup = strings.TrimSpace(c.setup.Commands.BuilderSetup)
+	}
 	c.close()
 	base, tree, err := MakeWorktree(root, ignore, path)
+	note := ""
+	if err == nil && setup != "" {
+		note = RunBuilderSetup(path, setup, ignore, tree)
+	}
 	c.unlock = LockTask(root, id)
 	c.task, c.taskErr = LoadTask(root, id)
 	if c.taskErr != nil {
@@ -174,7 +192,7 @@ func (c *hookCtx) makeBuilderCopy() builderCopy {
 	if err != nil {
 		return builderCopy{err: "couldn't make the copy: " + err.Error()}
 	}
-	return builderCopy{path: path, base: base, tree: tree}
+	return builderCopy{path: path, base: base, tree: tree, setup: note}
 }
 
 // workerStartNote is what a tracer, builder, QA or tester is told at start.
@@ -194,7 +212,13 @@ func (c *hookCtx) workerStartNote(b *strings.Builder, run HelperRun, n int) {
 			fmt.Fprintf(b, " Plumbline couldn't make your copy of the repo (%s), so you can't change code. Stop and tell the lead.", run.Error)
 			return
 		}
-		fmt.Fprintf(b, " Your own copy of the repo: %s, made from the lead's code as it is now. Build only the part of %s the lead gave you, and only in your copy: edit files under that folder, and start every terminal command with `cd %s && `. The plan's rules apply as for the lead (files outside the plan are listed, risky ones refused). Don't commit, switch branches or stash: the lead merges your copy. Run the related tests in your copy if they run there (plumbline run related --files <files>). Write to %s: what you changed and why, the tests you ran and their results, and anything left or uncertain.", run.Worktree, filepath.Join(docs, DocPlan), run.Worktree, out)
+		switch {
+		case run.Setup != "":
+			fmt.Fprintf(b, " Setting up the copy's dependencies went wrong: %s. Tests may not run in the copy; say so in your notes.", run.Setup)
+		case c.setupOK && c.setup != nil && c.setup.Commands.BuilderSetup != "":
+			fmt.Fprintf(b, " The copy's dependencies are set up (%s), so its tests should run there.", c.setup.Commands.BuilderSetup)
+		}
+		fmt.Fprintf(b, " Your own copy of the repo: %s, made from the lead's code as it is now. Build only the part of %s the lead gave you, and only in your copy: edit files under that folder, and start every terminal command with `cd %s && `. The plan's rules apply as for the lead (files outside the plan are listed, risky ones refused). Don't commit, switch branches or stash: the lead merges your copy. Run the related tests in your copy if they run there (plumbline run related --files <files>). Write to %s: what you changed and why, the tests you ran and their results, and anything left or uncertain, then end with \"## Status\" and one of: %s. Blocked or needs context is the honest end when you couldn't finish: bad work is worse than none.", run.Worktree, filepath.Join(docs, DocPlan), run.Worktree, out, strings.Join(BuilderStatuses, ", "))
 	}
 	if n > 1 {
 		if prev := t.helperRuns(run.Kind); len(prev) >= n-1 {
@@ -466,8 +490,8 @@ func (c *hookCtx) qaBlind(abs string, tree, pattern bool) Output {
 	if !tree && !pattern || !copiesExist(c.root) {
 		return nil
 	}
-	if tree && !pattern && c.in.ToolName == "Grep" && !worktreesUnignored(ProjectRoot(c.root)) && foldPath(abs) != foldPath(dir) {
-		return nil // ripgrep skips the ignored copies' folder when it searches above it
+	if tree && !pattern && (c.in.ToolName == "Grep" || c.searchSkipsCopies) && !worktreesUnignored(ProjectRoot(c.root)) && foldPath(abs) != foldPath(dir) {
+		return nil // ripgrep and fd skip the ignored copies' folder when they search above it
 	}
 	if isInsideFold(dir, abs) || foldPath(abs) == foldPath(dir) {
 		return c.deny("qa-blind", fmt.Sprintf("while builders work, a search or pattern from %s would reach into their copies of the repo (%s), and blind QA mustn't see the new code. Search a folder below it (src/, tests/ ...), or use the Grep tool.", abs, dir))
@@ -491,9 +515,11 @@ func (c *hookCtx) builderReachedMain() string {
 		return ""
 	}
 	saveSnap(c.snapID(), t.Root, now)
+	// The lead's own edits in flight aren't the builder's.
+	leads, leadCommand := t.leadTouching()
 	var changed []string
 	for _, p := range Changed(prev, now) {
-		if c.setup == nil || !MatchAny(c.setup.IgnoreChanges, p) {
+		if (c.setup == nil || !MatchAny(c.setup.IgnoreChanges, p)) && !leads[p] {
 			changed = append(changed, p)
 		}
 	}
@@ -501,6 +527,9 @@ func (c *hookCtx) builderReachedMain() string {
 		return ""
 	}
 	why := "changed in the main checkout while a builder's command ran"
+	if leadCommand {
+		why += " and a command of the lead's ran too, so it may be the lead's"
+	}
 	if t.qaRunning() {
 		why += ", during blind QA"
 	}
@@ -597,13 +626,37 @@ func (c *hookCtx) snapMain() {
 
 // absorbIntoBuilders: after the lead's own change to the main checkout,
 // the running builders' "before" snapshots take it in, so the lead's edits
-// and merges aren't reported as a builder's.
+// and merges aren't reported as a builder's. An edit takes in only its own
+// file, so a builder's write landing at the same moment is still seen; a
+// terminal command can change anything, so it takes in the whole state.
 func (c *hookCtx) absorbIntoBuilders() {
 	t := c.task
 	if t == nil || c.in.AgentID != "" {
 		return
 	}
+	if len(t.LeadBusy) > 0 {
+		delete(t.LeadBusy, c.in.ToolUseID)
+		for id, b := range t.LeadBusy {
+			if Now().Sub(b.At) > leadBusyFor {
+				delete(t.LeadBusy, id) // refused later, or its hook never ran
+			}
+		}
+		_ = SaveTask(t)
+	}
 	var m map[string]string
+	only := ""
+	switch c.in.ToolName {
+	case "Edit", "Write", "MultiEdit", "NotebookEdit":
+		p := c.in.Str("file_path")
+		if p == "" {
+			p = c.in.Str("notebook_path")
+		}
+		abs := Abs(p, c.in.Cwd)
+		if !IsInside(abs, t.Root) {
+			return // a notes file: nothing in the main checkout changed
+		}
+		only = c.rel(abs)
+	}
 	for _, r := range t.helperRuns(HelperBuilder) {
 		if !r.alive() || r.Worktree == "" || r.Merged || r.Dropped {
 			continue
@@ -614,8 +667,94 @@ func (c *hookCtx) absorbIntoBuilders() {
 				return
 			}
 		}
-		saveSnap(c.in.SessionID+"-"+r.AgentID, t.Root, m)
+		id := c.in.SessionID + "-" + r.AgentID
+		if only == "" {
+			saveSnap(id, t.Root, m)
+			continue
+		}
+		snap := loadSnap(id, t.Root)
+		if snap == nil {
+			continue
+		}
+		if v, ok := m[only]; ok {
+			snap[only] = v
+		} else {
+			delete(snap, only)
+		}
+		saveSnap(id, t.Root, snap)
 	}
+}
+
+// LeadTouch: one of the lead's tool calls in flight: the files it names,
+// or Any for a command that can change files it doesn't name.
+type LeadTouch struct {
+	Paths []string  `json:"paths,omitempty"`
+	Any   bool      `json:"any,omitempty"`
+	At    time.Time `json:"at"`
+}
+
+// A lead tool call older than this no longer counts as in flight.
+const leadBusyFor = 10 * time.Minute
+
+// buildersRunning: some builder of this task is working in its copy now.
+func (t *Task) buildersRunning() bool {
+	for _, r := range t.helperRuns(HelperBuilder) {
+		if r.alive() && r.Worktree != "" && !r.Merged && !r.Dropped {
+			return true
+		}
+	}
+	return false
+}
+
+// noteLeadBusy records the lead's tool call before it runs, while builders
+// work, so a builder's command that ends first isn't blamed for it (B5).
+func (c *hookCtx) noteLeadBusy() {
+	t := c.task
+	if t == nil || c.in.AgentID != "" || c.in.ToolUseID == "" || !t.buildersRunning() {
+		return
+	}
+	var touch LeadTouch
+	switch c.in.ToolName {
+	case "Edit", "Write", "MultiEdit", "NotebookEdit":
+		p := c.in.Str("file_path")
+		if p == "" {
+			p = c.in.Str("notebook_path")
+		}
+		abs := Abs(p, c.in.Cwd)
+		if !IsInside(abs, t.Root) {
+			return
+		}
+		touch.Paths = []string{c.rel(abs)}
+	case "Bash", "Monitor":
+		touch.Any = true
+	default:
+		if !strings.HasPrefix(c.in.ToolName, "mcp__") || c.mcpKind() == "" {
+			return
+		}
+		touch.Any = true
+	}
+	touch.At = Now()
+	if t.LeadBusy == nil {
+		t.LeadBusy = map[string]LeadTouch{}
+	}
+	t.LeadBusy[c.in.ToolUseID] = touch
+	_ = SaveTask(t)
+}
+
+// leadTouching: the files the lead's tool calls in flight name, and whether
+// one of them could change files it doesn't name.
+func (t *Task) leadTouching() (map[string]bool, bool) {
+	paths, anyFile := map[string]bool{}, false
+	for _, b := range t.LeadBusy {
+		if Now().Sub(b.At) > leadBusyFor {
+			continue
+		}
+		anyFile = anyFile || b.Any
+		for _, p := range b.Paths {
+			paths[p] = true
+		}
+	}
+	return paths, anyFile
 }
 
 // qaCommand: blind QA's terminal commands run in a known folder, don't read
@@ -637,7 +776,7 @@ func (c *hookCtx) qaCommand(s Segment) Output {
 			}
 		}
 	}
-	if !reSearchTool.MatchString(s.Name()) || !copiesExist(c.root) {
+	if !reSearchTool.MatchString(s.Name()) || !copiesExist(c.root) || (qaSearchSkipsCopies(s) && !worktreesUnignored(ProjectRoot(c.root))) {
 		return nil
 	}
 	dir := copiesDir(c.root)
@@ -655,4 +794,155 @@ func (c *hookCtx) qaCommand(s Segment) Output {
 		}
 	}
 	return c.deny("qa-blind", fmt.Sprintf("%s with no folder named searches %s, which holds the builders' copies (%s). Name the folders to search (src/, tests/ ...), or use the Grep tool.", s.Name(), here, dir))
+}
+
+// BuilderStatuses: how a builder's run ends, in its notes' "## Status"
+// (N10). Builders can't ask the user, so blocked and needs context are
+// their way out; the lead doesn't merge those.
+var BuilderStatuses = []string{"done with concerns", "done", "blocked", "needs context"}
+
+// builderStatus reads the status from a builder's notes, or "".
+func builderStatus(notes string) string {
+	for _, l := range Section(notes, "status") {
+		t := strings.ToLower(strings.Trim(plainLine(strings.TrimSpace(l)), " .:"))
+		if t == "" {
+			continue
+		}
+		for _, s := range BuilderStatuses { // longest first: "done with concerns" isn't "done"
+			if t == s || strings.HasPrefix(t, s+":") || strings.HasPrefix(t, s+",") || strings.HasPrefix(t, s+" ") {
+				return s
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// QATestsDir: where blind QA's tests are kept as it wrote them, in the
+// notes folder, so the reviewers can see what changed in them since.
+func QATestsDir(n int) string { return fmt.Sprintf("qa-%d-tests", n) }
+
+// keepQATests copies blind QA's test files into the notes folder and
+// records their hashes, when its run stops (N22).
+func (c *hookCtx) keepQATests(run *HelperRun) {
+	t := c.task
+	n := 0
+	for i := range t.Helpers {
+		if t.Helpers[i].Kind == HelperQA {
+			n++
+		}
+		if &t.Helpers[i] == run {
+			break
+		}
+	}
+	dir := filepath.Join(TaskDocsDir(t.Root, t.ID), QATestsDir(n))
+	run.WroteHash = map[string]string{}
+	for _, rel := range run.Wrote {
+		b, err := os.ReadFile(filepath.Join(t.Root, filepath.FromSlash(rel)))
+		if err != nil {
+			run.WroteHash[rel] = "" // written, then removed
+			continue
+		}
+		run.WroteHash[rel] = sha256Hex(b)
+		dst := filepath.Join(dir, filepath.FromSlash(rel))
+		if os.MkdirAll(filepath.Dir(dst), 0o700) == nil {
+			_ = writeFileAtomic(dst, b)
+		}
+	}
+}
+
+// qaTestsChanged: blind QA's test files that changed after it wrote them.
+// The lead may fix a test's setup when the code's shape moved, never what
+// it expects, and names each one on the report's Weakened tests line.
+func qaTestsChanged(t *Task) []string {
+	latest := map[string]string{}
+	for _, r := range t.helperRuns(HelperQA) {
+		for rel, h := range r.WroteHash {
+			latest[rel] = h
+		}
+	}
+	var out []string
+	for rel, was := range latest {
+		now := ""
+		if b, err := os.ReadFile(filepath.Join(t.Root, filepath.FromSlash(rel))); err == nil {
+			now = sha256Hex(b)
+		}
+		if now != was {
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// qaTestsMissing: the report names every blind QA test changed since QA
+// wrote it on the Weakened tests line.
+func qaTestsMissing(t *Task, report string) []string {
+	listed := weakenedLine(report)
+	var unlisted []string
+	for _, f := range qaTestsChanged(t) {
+		if !strings.Contains(listed, f) {
+			unlisted = append(unlisted, f)
+		}
+	}
+	if len(unlisted) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf(`qa: blind QA's tests changed after it wrote them: %s. Change only a test's setup when the code's shape moved, never what it expects, and name each file on the "Weakened tests:" line under ## Proof with what changed`, listSome(unlisted, 8))}
+}
+
+// qaSearchSkipsCopies: a search that leaves out what git ignores, so from
+// the repo root it doesn't reach the builders' copies (their folder is in
+// git's exclude file): rg and fd without the flags that search ignored or
+// hidden files or add globs that override the ignores, and grep -r told to
+// skip the copies' folder (B7).
+func qaSearchSkipsCopies(s Segment) bool {
+	var unsafeLong, unsafeShort []string
+	switch s.Name() {
+	case "rg":
+		unsafeLong = []string{"--unrestricted", "--no-ignore", "--hidden", "--glob", "--iglob", "--files-from", "--follow"}
+		unsafeShort = []string{"u", "g", ".", "L"}
+	case "fd", "fdfind":
+		unsafeLong = []string{"--unrestricted", "--no-ignore", "--hidden", "--follow"}
+		unsafeShort = []string{"u", "I", "H", "L"}
+	case "grep", "egrep", "fgrep":
+		for _, w := range s.Words[1:] {
+			if v, ok := strings.CutPrefix(w, "--exclude-dir="); ok {
+				v = strings.Trim(strings.TrimSuffix(v, "/"), `"'`)
+				if v == ".claude" || v == "worktrees" || v == ".claude/worktrees" {
+					return true
+				}
+			}
+		}
+		return false
+	default:
+		return false
+	}
+	for i, w := range s.Words {
+		if i == 0 {
+			continue
+		}
+		if i < len(s.Dyn) && s.Dyn[i] {
+			return false // a flag Plumbline can't read
+		}
+		if w == "--" {
+			break
+		}
+		if strings.HasPrefix(w, "--") {
+			for _, u := range unsafeLong {
+				if w == u || strings.HasPrefix(w, u+"=") || strings.HasPrefix(w, u+"-") {
+					return false
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(w, "-") && len(w) > 1 {
+			for _, u := range unsafeShort {
+				if strings.Contains(w[1:], u) {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }

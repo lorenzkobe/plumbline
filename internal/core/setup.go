@@ -30,6 +30,9 @@ type Setup struct {
 		App         string `json:"app,omitempty"`
 		DBUp        string `json:"db_up,omitempty"`
 		E2E         string `json:"e2e,omitempty"`
+		// BuilderSetup runs in each new builder copy, so it has its own
+		// dependencies (pnpm install --frozen-lockfile --prefer-offline).
+		BuilderSetup string `json:"builder_setup,omitempty"`
 	} `json:"commands"`
 	// Extra commands that may run before approval (for reproducing a bug).
 	ExtraAllowed []string `json:"extra_allowed,omitempty"`
@@ -41,7 +44,10 @@ type Setup struct {
 	// the laptop but that the tests never connect to, so a test run isn't
 	// refused for them. Only the user adds these.
 	TestTargetsOK []string `json:"test_targets_ok,omitempty"`
-	SuiteSeconds  int      `json:"suite_seconds,omitempty"`
+	// TestFiles: globs for test files named in a way Plumbline doesn't know
+	// (blind QA writes only test files). Only the user adds these.
+	TestFiles    []string `json:"test_files,omitempty"`
+	SuiteSeconds int      `json:"suite_seconds,omitempty"`
 
 	FrontendRepo string `json:"frontend_repo,omitempty"`
 	DeployNotes  string `json:"deploy_notes,omitempty"`
@@ -163,10 +169,22 @@ func LoadSetup(root string) (*Setup, bool, error) {
 				}
 			}
 			s.TestTargetsOK = ok
+			var tests []string
+			for _, g := range s.TestFiles {
+				if contains(was.TestFiles, g) {
+					tests = append(tests, g)
+				}
+			}
+			s.TestFiles = tests
+			if s.Commands.BuilderSetup != was.Commands.BuilderSetup {
+				s.Commands.BuilderSetup = "" // a command runs only as you confirmed it
+			}
 		} else {
 			s.IgnoreChanges = nil
 			s.MCPReadTools = nil
 			s.TestTargetsOK = nil
+			s.TestFiles = nil
+			s.Commands.BuilderSetup = ""
 		}
 	}
 	return &s, ok, nil

@@ -85,8 +85,9 @@ func FinishMissing(t *Task, s *Setup) []string {
 		}
 		miss = append(miss, reportShapeMissing(t, report)...)
 		miss = append(miss, verdictMissing(t, s, fp, report)...)
-		miss = append(miss, weakenedMissing(changes, report)...)
-		miss = append(miss, upgradeMissing(t, changes, report)...)
+		miss = append(miss, weakenedMissing(changes, report, s)...)
+		miss = append(miss, upgradeMissing(t, s, changes, report)...)
+		miss = append(miss, qaTestsMissing(t, report)...)
 	}
 	return miss
 }
@@ -107,6 +108,7 @@ var (
 	reSkipped        = regexp.MustCompile(`(?i)\bskip(?:ped|s)?\b`)
 	reSkippedCount   = regexp.MustCompile(`(?i)\b\d+\s+(?:tests?\s+)?skipped\b`) // a suite's count, not a check
 	reShouldFix      = regexp.MustCompile(`(?i)\bshould-fix\b`)
+	reSetAside       = regexp.MustCompile(`(?i)^set aside\b`)
 	reShouldNotFixed = regexp.MustCompile(`(?i)\bshould[- ]fix(?:es)?\b[^\n]*\bnot fixed\b|\bnot fixed\b[^\n]*\bshould[- ]fix`)
 	reLeadingMarkup  = regexp.MustCompile(`^[\s>*_#+-]+`)
 	reInlineEmphasis = regexp.MustCompile("[*_]")
@@ -144,6 +146,7 @@ func plainLine(l string) string {
 // common-sense calls, and the should-fix findings left unfixed.
 func verdictMissing(t *Task, s *Setup, fp, report string) []string {
 	var miss []string
+	kinds := RequiredReviewers(t, s)
 	verdict := ""
 	lines := Section(report, "verdict")
 	if !reVerdictHeading.MatchString(report) || len(lines) == 0 {
@@ -213,7 +216,7 @@ func verdictMissing(t *Task, s *Setup, fp, report string) []string {
 				break
 			}
 		}
-		for _, k := range RequiredReviewers(t, s) {
+		for _, k := range kinds {
 			if last := t.lastFinished(k); last != nil && t.upheld(*last) {
 				why = append(why, "a reviewer upheld a finding you disputed")
 				break
@@ -226,6 +229,28 @@ func verdictMissing(t *Task, s *Setup, fp, report string) []string {
 
 	if !reCommonHeading.MatchString(report) || len(Section(report, "common")) == 0 {
 		miss = append(miss, `report: add a "## Common-sense calls" section: each call you made without asking (a test helper, formatting a file you touched, a generated file) and what it costs if it's wrong, or "- none"`)
+	}
+
+	// N4: a changed file the code reviewer didn't cover means the change
+	// isn't known to be good.
+	if last := t.lastFinished(HelperCodeReviewer); last != nil && contains(kinds, HelperCodeReviewer) && len(last.NotCovered) > 0 && verdict != "" && verdict != "not ready" {
+		miss = append(miss, fmt.Sprintf("report: the code reviewer didn't cover %s, so the verdict is Not ready (or run the code reviewer again to cover them)", listSome(last.NotCovered, 8)))
+	}
+	// N6: what reviewers set aside as outside the plan gets the lead's call.
+	var aside []string
+	for _, k := range kinds {
+		if last := t.lastFinished(k); last != nil {
+			aside = append(aside, last.SetAside...)
+		}
+	}
+	if len(aside) > 0 {
+		found := false
+		for _, l := range Section(report, "review") {
+			found = found || reSetAside.MatchString(plainLine(strings.TrimSpace(l)))
+		}
+		if !found {
+			miss = append(miss, fmt.Sprintf(`report: reviewers set aside %d thing(s) as outside the plan; add a "Set aside:" line under ## Review with your call on each (a follow-up, under For you, or not needed and why): %s`, len(aside), strings.Join(aside, "; ")))
+		}
 	}
 
 	if anyShouldFix(t) {

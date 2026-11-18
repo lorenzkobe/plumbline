@@ -125,7 +125,7 @@ func TestWeakenedLineListsEachFile(t *testing.T) {
 		{"## Proof\n- Weakened tests:\n  - src/a.test.ts: waits on the provider fix\n- Full suite: pass\n", ""},
 	}
 	for _, c := range cases {
-		m := strings.Join(weakenedMissing(changes, c.report), "; ")
+		m := strings.Join(weakenedMissing(changes, c.report, nil), "; ")
 		if (c.want == "") != (m == "") || !strings.Contains(m, c.want) {
 			t.Errorf("report %q: want %q, got %q", c.report, c.want, m)
 		}
@@ -622,14 +622,14 @@ func TestUpgradePlan(t *testing.T) {
 func TestUpgradeNamesEditedTests(t *testing.T) {
 	changes := []fileDiff{file("package.json", false, "+  \"zod\": \"^3\""), file("src/a.test.ts", false, "+  expect(x).toBe(1)"), file("src/a.ts", false, "+x")}
 	tk := &Task{Upgrade: true}
-	if m := upgradeMissing(tk, changes, "## What changed\n- package.json: zod 3"); len(m) == 0 || !strings.Contains(m[0], "src/a.test.ts") || strings.Contains(m[0], "src/a.ts;") {
+	if m := upgradeMissing(tk, nil, changes, "## What changed\n- package.json: zod 3"); len(m) == 0 || !strings.Contains(m[0], "src/a.test.ts") || strings.Contains(m[0], "src/a.ts;") {
 		t.Errorf("edited test not named: %v", m)
 	}
-	if m := upgradeMissing(tk, changes, "## What changed\n- src/a.test.ts: the error text changed in zod 3"); m != nil {
+	if m := upgradeMissing(tk, nil, changes, "## What changed\n- src/a.test.ts: the error text changed in zod 3"); m != nil {
 		t.Errorf("named: %v", m)
 	}
 	tk.Upgrade = false
-	if m := upgradeMissing(tk, changes, ""); m != nil {
+	if m := upgradeMissing(tk, nil, changes, ""); m != nil {
 		t.Errorf("not an upgrade: %v", m)
 	}
 }
@@ -848,11 +848,11 @@ func TestWeakenedLineFormats(t *testing.T) {
 		"## Proof\n- Full suite: pass\n### Weakened tests\n- src/a.test.ts: waits on ticket 12\n## Review\n",
 	}
 	for _, r := range ok {
-		if m := weakenedMissing(changes, r); len(m) != 0 {
+		if m := weakenedMissing(changes, r, nil); len(m) != 0 {
 			t.Errorf("report %q lists the file: %v", r, m)
 		}
 	}
-	if m := weakenedMissing(changes, "## Proof\n- Weakened tests: none\n- Full suite: pass\n## Review\n- src/a.test.ts looked fine\n"); len(m) == 0 {
+	if m := weakenedMissing(changes, "## Proof\n- Weakened tests: none\n- Full suite: pass\n## Review\n- src/a.test.ts looked fine\n", nil); len(m) == 0 {
 		t.Error("named outside the weakened tests text")
 	}
 }

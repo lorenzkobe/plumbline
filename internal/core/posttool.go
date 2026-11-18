@@ -82,6 +82,9 @@ func PostToolUse(in *HookInput) Output {
 	}
 	switch {
 	case in.ToolName == "Read":
+		if in.AgentID != "" {
+			c.noteHelperOpened(Abs(in.Str("file_path"), in.Cwd))
+		}
 		// Only the lead's own reads count: every file:line in its notes must
 		// come from a file it opened, not from a helper's report.
 		if c.task != nil && in.AgentID == "" {
@@ -121,6 +124,9 @@ func PostToolUse(in *HookInput) Output {
 			_ = SaveTask(c.task)
 		}
 		RefreshSnapshot(c.snapID(), c.root)
+		if o := c.designReminder(abs); o != nil {
+			return o
+		}
 	case in.ToolName == "Bash":
 		return c.withMainCheck(c.afterBash())
 	case in.ToolName == "Monitor" && in.Str("command") != "":
@@ -201,6 +207,8 @@ func (c *hookCtx) afterBash() Output {
 		c.followBranch(segs)
 		if in.AgentID == "" {
 			c.noteShellReads(segs)
+		} else {
+			c.noteHelperOpened(shellReadFiles(segs)...)
 		}
 	}
 	return c.checkChanged(segs)
@@ -210,15 +218,7 @@ func (c *hookCtx) afterBash() Output {
 // the Read tool does: cat, sed -n, head, grep or rg on a named file. Only a
 // command that changes nothing counts, so the file is still what was shown.
 func (c *hookCtx) noteShellReads(segs []Segment) {
-	var files []string
-	for _, s := range segs {
-		if !ReadOnly(s) {
-			return
-		}
-		if s.Shown {
-			files = append(files, PrintedFiles(s)...)
-		}
-	}
+	files := shellReadFiles(segs)
 	if len(files) == 0 {
 		return
 	}
@@ -231,6 +231,42 @@ func (c *hookCtx) noteShellReads(segs []Segment) {
 		}
 	}
 	_ = SaveTask(c.task)
+}
+
+// shellReadFiles: the files a command that changes nothing showed lines of.
+func shellReadFiles(segs []Segment) []string {
+	var files []string
+	for _, s := range segs {
+		if !ReadOnly(s) {
+			return nil
+		}
+		if s.Shown {
+			files = append(files, PrintedFiles(s)...)
+		}
+	}
+	return files
+}
+
+// noteHelperOpened records the files a reviewer opened in this run, so a
+// withdrawn finding is known to have looked at what the lead cited (N5).
+func (c *hookCtx) noteHelperOpened(files ...string) {
+	if c.task == nil || len(files) == 0 {
+		return
+	}
+	run := c.task.runByAgent(c.in.AgentID)
+	if run == nil || !isReviewer(run.Kind) || !run.Finished.IsZero() {
+		return
+	}
+	added := false
+	for _, f := range files {
+		if f != "" && !contains(run.Opened, f) {
+			run.Opened = append(run.Opened, f)
+			added = true
+		}
+	}
+	if added {
+		_ = SaveTask(c.task)
+	}
 }
 
 // bind binds a task to this session, under that task's lock. A new task
@@ -334,6 +370,11 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 			held(p, "a terminal command changed this risky file outside the plan")
 			continue
 		}
+		if gateOutsidePlan(p) {
+			risky = append(risky, p)
+			held(p, "a terminal command changed a file that decides which checks run, outside the plan")
+			continue
+		}
 		outside = append(outside, p)
 		c.task.NoteOutside(p, "changed by a terminal command")
 	}
@@ -347,7 +388,7 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		fmt.Fprintf(&b, "that command changed files that held the user's own unsaved work: %s. Don't change them further; put them first under \"For you\" in the report. ", listFiles(theirs))
 	}
 	if len(risky) > 0 {
-		fmt.Fprintf(&b, "that command changed risky files outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))
+		fmt.Fprintf(&b, "that command changed risky files (or files that decide which checks run) outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))
 	}
 	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
 		c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))

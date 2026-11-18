@@ -19,7 +19,7 @@ import (
 // reviewedTask: proven, reviewed by the code reviewer, ready to report.
 func reviewedTask(t *testing.T) *harness {
 	h := provenTask(t)
-	h.runHelper(HelperCodeReviewer, "# Code review 1\n- [90] must-fix: A should return 3 (src/a.go:3)\n")
+	h.runHelper(HelperCodeReviewer, "# Code review 1\n- [90] must-fix: A should return 3 (src/a.go:3 `func A() int`)\n")
 	return h
 }
 
@@ -331,7 +331,7 @@ func TestReviewerAnswersDisputes(t *testing.T) {
 	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "Read", map[string]any{"file_path": filepath.Join(docs, DisputesName(HelperCodeReviewer))})), "", "")
 	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "Read", map[string]any{"file_path": filepath.Join(docs, DisputesName(HelperSecurity))})), "deny", "independent")
 	// Answering without a Disputes section isn't an answer.
-	write(t, h.findingsPath(id), "# Code review 2\nnothing new\n")
+	write(t, h.findingsPath(id), h.complete(HelperCodeReviewer, "# Code review 2\nnothing new\n"))
 	h.stopHelper(id, HelperCodeReviewer)
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); !strings.Contains(m, "answers its disputes") {
@@ -339,7 +339,7 @@ func TestReviewerAnswersDisputes(t *testing.T) {
 	}
 
 	// Withdrawn: done.
-	h.runHelper(HelperCodeReviewer, "# Code review 3\n## Disputes\n- withdrawn: the ticket does say 2\n")
+	h.runHelperReading(HelperCodeReviewer, "# Code review 3\n## Disputes\n- withdrawn: the ticket does say 2 (src/a.go:3 `return 2`)\n", filepath.Join(h.repo, "src", "a.go"))
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("a withdrawn finding needs nothing more: %s", m)
@@ -349,7 +349,7 @@ func TestReviewerAnswersDisputes(t *testing.T) {
 func TestUpheldDisputeGoesToTheUser(t *testing.T) {
 	h := reviewedTask(t)
 	time.Sleep(10 * time.Millisecond)
-	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2\n")
+	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2 (src/a.go:3)\n")
 	h.runHelper(HelperCodeReviewer, "# Code review 2\n## Disputes\n- upheld: the comment on the ticket changed it to 3\n")
 	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- disputed\n## For you\n- nothing\n")
 	if m := h.finishMissing(); !strings.Contains(m, "upheld findings") {
@@ -368,7 +368,7 @@ func TestUpheldDisputeGoesToTheUser(t *testing.T) {
 	// No runs left to answer a new dispute: the user decides.
 	h.runHelper(HelperCodeReviewer, "# Code review 3\n## Disputes\n- upheld: same\n")
 	time.Sleep(10 * time.Millisecond)
-	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2, again\n")
+	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2, again (src/a.go:3)\n")
 	if m := h.finishMissing(); !strings.Contains(m, "all 3 runs are used") {
 		t.Fatalf("a dispute with no runs left goes to the user: %s", m)
 	}

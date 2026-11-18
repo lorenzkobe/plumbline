@@ -4,7 +4,7 @@ Every Plumbline helper goes through this list first, then its own focus (in its 
 
 ## Checklist
 - Real cause? Does the work fix the root cause, shown in the code, or hide a symptom?
-- Are the file:line claims true? Open every file you cite.
+- Are the file:line claims true? Open every file you cite, and quote a few words of each cited line in backticks: Plumbline checks the quote is within 3 lines of it (in the file now, or as it was at the task's start for a removed line) and sends the file back if not.
 - What's missing: edge cases, callers nobody checked, the same bug elsewhere, error handling, permissions and ownership, data integrity, data already in a bad state, retries and duplicates, concurrency, rollback.
 - Would the tests really prove it? Would they fail without the fix? Do they check results, not only that something was called?
 - Is there a simpler way, or a proven better one (official docs for the exact versions in the lockfile)?
@@ -56,8 +56,11 @@ Every Plumbline helper goes through this list first, then its own focus (in its 
 ## Not a finding
 Style is not a finding: naming, formatting, wording, or how you would have written it. Report it only when it causes a bug, or breaks a rule the project wrote down (its CLAUDE.md, lint config or docs), and quote that rule.
 
+## Out of scope
+Something you notice that the plan doesn't cover (the same bug in another module, an old problem nearby) isn't a finding against this change. Reviewers list each under `## Set aside`, one line, so the lead decides on it; write "- none" when there's nothing.
+
 ## Disputes
-If the lead disputes your findings, Plumbline tells you the file (`<your kind>-disputes.md`). Check each dispute against the code with fresh eyes and answer it in your findings file under `## Disputes`: `- withdrawn: <finding>, because <why>` or `- upheld: <finding>, because <evidence>`. Don't uphold to save face, and don't withdraw to be agreeable. An upheld finding goes to the user.
+If the lead disputes your findings, Plumbline tells you the file (`<your kind>-disputes.md`). Open every file:line the disputes cite and check the guard or caller is really there; a guard that isn't there is no reason to drop a finding. Then answer each dispute in your findings file under `## Disputes`: `- withdrawn: <finding>, because <the code that refutes it> (file:line \`quote\`)` or `- upheld: <finding>, because <evidence>`. A withdrawal needs that file:line; "the tests pass" isn't evidence. Don't uphold to save face, and don't withdraw to be agreeable. An upheld finding goes to the user.
 
 ## How to work
 - Commands must only read (`git diff`, `git log`, `grep`, `cat`). You can't change code; the lead runs tests and proof.
@@ -76,18 +79,26 @@ Give each finding a confidence score from 0 to 100: how sure you are that it is 
 # <Challenge | Plan review | Code review | Security review | Data review | UX review> <round>: <task title>
 
 ## Findings
-- [95] must-fix: <what is wrong> (src/orders/service.ts:142). Why: <evidence>. Fix: <the smallest fix>.
-- [40] should-fix: <what may be wrong> (src/orders/service.ts:150). Why: <evidence>. Settle it: <the check>. Fix: <the smallest fix>.
+- [95] must-fix: <what is wrong> (src/orders/service.ts:142 `total = price * qty`). Why: <evidence>. Fix: <the smallest fix>.
+- [40] should-fix: <what may be wrong> (src/orders/service.ts:150 `await charge(order)`). Why: <evidence>. Settle it: <the check>. Fix: <the smallest fix>.
 
 ## Weakened tests (reviewers)
-- <file:line and what changed, or "none">
+- <file:line `quote` and what changed, or "none">
+
+## Set aside (reviewers)
+- <what you noticed outside the plan, one line each, or "none">
+
+## Coverage (code reviewer)
+- src/orders/service.ts: covered
+- src/orders/legacy.ts: not covered, <why>
 
 ## Checked and fine
 - <what you verified, briefly>
 
 ## Disputes (only when the lead disputed your findings)
-- withdrawn: <finding>, because <why> / upheld: <finding>, because <evidence>
+- withdrawn: <finding>, because <the code that refutes it> (file:line `quote`) / upheld: <finding>, because <evidence>
 ```
-The challenger writes "Suggest: <the change to the understanding or plan>" instead of "Fix", and no must-fix mark.
+The code reviewer lists every changed file under `## Coverage` (`git diff <base> --name-only` plus new files), covered when you read its change: a file not covered makes the verdict Not ready, so cover it unless you truly can't.
+The challenger writes "Suggest: <the change to the understanding or plan>" instead of "Fix", no must-fix mark, and no Set aside or Coverage section.
 
 Plain words, no filler, no em dashes. Your final message is a three-line summary and the path of the findings file.

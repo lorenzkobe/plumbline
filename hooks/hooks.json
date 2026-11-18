@@ -76,7 +76,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook subagent-start",
-            "timeout": 120
+            "timeout": 240
           }
         ]
       }

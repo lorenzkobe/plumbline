@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.5: release 3c (helpers and builders)
+- Findings quote what they cite: each file:line in a challenger's or reviewer's findings carries a few backticked words of that line, and Plumbline checks they're within 3 lines of it (in the file now, or as it was at the task's start). A file that fails is sent back once; a run whose file still fails doesn't count as a review (N3).
+- The code reviewer lists every changed file under `## Coverage`, covered or not covered; one not covered makes the verdict Not ready (N4).
+- Disputes cite their evidence: each of the lead's disputes names the file:line of the guard, caller or test (opened and unchanged), or the reviewer isn't started. A reviewer withdraws a finding only by citing the code that refutes it, with a quote, after opening every file the disputes cite (N5).
+- Reviewers list what they set aside as outside the plan under `## Set aside`, and the report's `## Review` needs a "Set aside:" line with the lead's call on each (N6).
+- A reviewer's or blind QA's prompt is refused when it repeats a run of text from notes that helper may not read (other reviewers' findings, the report, builders' notes), or tells it what to find or skip ("don't flag", "already fixed") (R3).
+- Specialists are also called for by what the change adds, in any file: password hashing, tokens, permissions and the like for the security reviewer; SQL statements, ORM writes, prices and refunds for the data reviewer. Tests, prose and lockfiles don't count (R1).
+- Builders end their notes with `## Status`: done, done with concerns, blocked or needs context. Without it they're sent back once; a blocked or needs-context copy isn't merged, and `plumbline builder list` shows each status (N10).
+- `builder_setup` in the setup's commands runs in each new builder copy (for example `pnpm install --frozen-lockfile --prefer-offline`), so its tests can run there. Tracked files it changes are put back, it has 150 seconds, and a setup changed outside the confirm prompt doesn't run it (B2). SubagentStart's timeout is now 240 seconds.
+- A builder's new files outside the plan count toward the 3-file limit before they're merged (B3).
+- The lead's edits in flight aren't put on a builder whose command ends at the same moment, and the lead's edit takes only its own file into the builders' baselines, so a builder's write landing then is still caught. A lead command running at the same time is named in the note (B5).
+- Blind QA can search from the repo root with the Grep tool, `rg` or `fd` (not with `-u`, `--hidden`, `-g` or `-L`) or `grep -r --exclude-dir=.claude`, which skip the builders' copies (B7).
+- More test file names: Rust test modules (`tests.rs`, `*_tests.rs`), `_test` files in Elixir, Dart, Clojure, Lua and others, `*_spec` in Lua and Crystal, and `FooSpec`/`FooTests` classes in Scala, Kotlin, Groovy and Haskell. The setup's `test_files` lists the project's own patterns; one added outside the confirm prompt doesn't count (B8).
+- A normal task whose plan names screen files gets a one-time reminder that a design task mocks them up first; nothing is held (D1).
+- Blind QA's tests are kept as written in the notes folder (`qa-N-tests/`). One changed after QA wrote it must be named on the report's Weakened tests line (fix its setup, never what it expects), and reviewers are told and may read QA's version (N22).
+- Files that decide which checks run (CI, git hooks, test and lint config, CLAUDE.md, AGENTS.md, `.claude/` and plugin parts), changed outside the plan, are refused and held like risky files. The project setup keeps its own confirm prompt, and Claude Code's own settings files are left to it (the 3b open question).
+- Open tasks from before 0.6.5: a reviewer run that finishes on 0.6.5 is checked the new way; earlier finished runs keep counting.
+
 ## 0.6.4: release 3b (proof and finish)
 - Weakened tests are checked in the diff: the finish check finds skips and `.only` in test files, silenced lint, type and coverage checks, CI steps allowed to fail, deleted test files, fewer assertions, lowered thresholds, snapshots changed without their test and product code branching on CI, and the report's "Weakened tests:" line must name each file (P3).
 - Temporary debug logs carry `[PLB-DEBUG]`, and the finish check refuses while one is left (N9).

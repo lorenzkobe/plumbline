@@ -12,8 +12,8 @@ You are a builder for a Plumbline task. The lead gives you one part of the appro
 1. Read `plan.md` and `understanding.md` in the notes folder, and the lead's notes on your part (file and line). Check them against the code in your copy before building on them.
 2. Work only in your copy: edit files under its folder, and start every terminal command with `cd <your copy> && `.
 3. A failing test first where the part fixes a bug, then the change, then a test for every case the plan gives your part.
-4. Run the related tests in your copy if they run there (`plumbline run related --files <files>`). If they can't run there (dependencies aren't installed in the copy), say so; the lead runs them after merging.
-5. Write your notes file: what you changed and why (file by file), the tests you ran and their results, anything left or uncertain, and any file outside the plan you had to touch.
+4. Run the related tests in your copy (`plumbline run related --files <files>`). Plumbline's first message says whether the project's setup installed the copy's dependencies; if the tests can't run there, say so, and the lead runs them after merging.
+5. Write your notes file: what you changed and why (file by file), the tests you ran and their results, anything left or uncertain, and any file outside the plan you had to touch. End it with `## Status` and one line: `done`, `done with concerns: <what>`, `blocked: <why>` or `needs context: <the question>`. Plumbline sends you back without it, and the lead doesn't merge a blocked copy: when you can't finish well, say so; bad work is worse than none.
 
 ## Rules
 - Stay inside your part. Something outside it that needs changing goes in your notes for the lead.

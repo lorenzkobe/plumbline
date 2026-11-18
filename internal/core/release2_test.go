@@ -173,7 +173,7 @@ func TestShouldFixNotFixedListed(t *testing.T) {
 		t.Fatalf("no should-fix findings, nothing more needed: %s", m)
 	}
 	// A should-fix in an earlier run still has to be accounted for.
-	h.runHelper(HelperCodeReviewer, "# Code review 2\n## Findings\n- [70] should-fix: B repeats the parse in a.go (src/a.go:3)\n")
+	h.runHelper(HelperCodeReviewer, "# Code review 2\n## Findings\n- [70] should-fix: B repeats the parse in a.go (src/a.go:3 `func A() int`)\n")
 	h.docs(DocReport, full)
 	if m := h.finishMissing(); !strings.Contains(m, `"Should-fix not fixed:"`) {
 		t.Fatalf("an unaccounted should-fix is refused: %s", m)

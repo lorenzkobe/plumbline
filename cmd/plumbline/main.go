@@ -755,6 +755,9 @@ func cmdBuilder(args []string) error {
 		return nil
 	}
 	fmt.Printf("Merged builder %d into the task's code (%d files: %s). Its copy is removed. Run the related tests next.\n", n, len(changed), strings.Join(changed, ", "))
+	if r, _ := t.BuilderRun(n); r != nil && r.Status == "done with concerns" {
+		fmt.Printf("It finished with concerns: read them in its notes (%s) and settle each before the report.\n", r.Findings)
+	}
 	return nil
 }
 

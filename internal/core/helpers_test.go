@@ -43,14 +43,45 @@ func (h *harness) stopHelper(id, kind string) Output {
 // runHelper is a whole helper run that writes its findings and stops.
 func (h *harness) runHelper(kind, findings string) string {
 	h.t.Helper()
+	return h.runHelperReading(kind, findings)
+}
+
+// runHelperReading: a helper run that opens these files with the Read tool
+// before it writes its findings.
+func (h *harness) runHelperReading(kind, findings string, files ...string) string {
+	h.t.Helper()
 	id, _ := h.startHelper(kind)
+	for _, f := range files {
+		h.helperPost(id, kind, "Read", map[string]any{"file_path": f}, nil)
+	}
 	p := h.findingsPath(id)
 	h.expect(PreToolUse(h.helperIn(id, kind, "Write", map[string]any{"file_path": p})), "allow", "")
-	write(h.t, p, findings)
+	write(h.t, p, h.complete(kind, findings))
 	if o := h.stopHelper(id, kind); o != nil {
 		h.t.Fatalf("helper stop blocked: %v", o)
 	}
 	return id
+}
+
+// complete adds what a findings file must hold beyond the findings, when a
+// test's fixture leaves it out: a reviewer's "## Set aside", the code
+// reviewer's "## Coverage" (every changed file covered), and a builder's
+// "## Status".
+func (h *harness) complete(kind, text string) string {
+	if isReviewer(kind) && !strings.Contains(text, "## Set aside") {
+		text += "\n## Set aside\n- none\n"
+	}
+	if kind == HelperCodeReviewer && !strings.Contains(text, "## Coverage") {
+		s, _, _ := LoadSetup(h.repo)
+		text += "\n## Coverage\n"
+		for _, f := range reviewedFiles(h.task(), s.IgnoreChanges) {
+			text += "- " + f + ": covered\n"
+		}
+	}
+	if kind == HelperBuilder && !strings.Contains(text, "## Status") {
+		text += "\n## Status\n- done\n"
+	}
+	return text
 }
 
 const goodPlan = "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
@@ -132,7 +163,7 @@ func TestChallengerBeforeCheckpoint(t *testing.T) {
 	if o["decision"] != "block" || !strings.Contains(fmtOut(o), "challenge-1.md") {
 		t.Fatalf("helper without findings should be sent back: %v", o)
 	}
-	write(t, h.findingsPath(id), "# Challenge 1\n- [85] the cause is in B, not A (src/b.go:3)\n")
+	write(t, h.findingsPath(id), "# Challenge 1\n- [85] the cause is in B, not A (src/b.go:3 `func B() int`)\n")
 	if o := h.stopHelper(id, HelperChallenger); o != nil {
 		t.Fatalf("stop with findings should pass: %v", o)
 	}
@@ -226,7 +257,7 @@ func TestReviewerAfterBuilding(t *testing.T) {
 		t.Fatalf("finish while running: %s", m)
 	}
 	h.expect(PreToolUse(h.helperIn(id, HelperCodeReviewer, "Edit", map[string]any{"file_path": a})), "deny", "read-only")
-	write(t, h.findingsPath(id), "# Review 1\n- [90] A should return 3 (src/a.go:3)\n")
+	write(t, h.findingsPath(id), h.complete(HelperCodeReviewer, "# Review 1\n- [90] A should return 3 (src/a.go:3 `func A() int`)\n"))
 	h.stopHelper(id, HelperCodeReviewer)
 
 	// The report is older than the review: update it.

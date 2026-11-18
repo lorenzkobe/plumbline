@@ -91,7 +91,7 @@ func TestSpecialistsRequired(t *testing.T) {
 	if m := h.finishMissing(); !strings.Contains(m, "plumbline:security-reviewer") || strings.Contains(m, "code-reviewer") {
 		t.Fatalf("only the security review is left: %s", m)
 	}
-	h.runHelper(HelperSecurity, "# Security review 1\n- [90] must-fix: token logged (src/a.go:3)\n")
+	h.runHelper(HelperSecurity, "# Security review 1\n- [90] must-fix: token logged (src/a.go:3 `func A() int`)\n")
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("every reviewer done: %s", m)
@@ -112,7 +112,7 @@ func TestSpecialistsRequired(t *testing.T) {
 	if s := fmtOut(o); !strings.Contains(s, "security-review-1.md") || strings.Contains(s, "code-review-1.md") || !strings.Contains(s, "run 2 of at most 3 for the security-reviewer") {
 		t.Fatalf("second security run context: %s", s)
 	}
-	write(t, h.findingsPath(id), "fixed\n")
+	write(t, h.findingsPath(id), h.complete(HelperSecurity, "fixed\n"))
 	h.stopHelper(id, HelperSecurity)
 	h.runHelper(HelperPlanReviewer, "fine\n")
 	h.runHelper(HelperCodeReviewer, "fixed\n")
