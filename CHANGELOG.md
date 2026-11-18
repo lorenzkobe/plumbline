@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.13: binding after a piped start
+- TB2: `plumbline task start ... 2>&1 | tail -30` and `plumbline task adopt <id> | tail -20` now tie the task to the session; before, any pipe after them stopped the binding, so every edit was refused as "no task is active" even after the user approved the adopt. Only `head` or `tail` reading the pipe, with at most a line or byte count, may follow; a stage that reads a file or rewrites text (`tail notes.txt`, `sed`, `awk`, `tee`, `xargs`) still binds nothing. When a real start or adopt doesn't bind because of what shared its line, Claude is told to run `plumbline task adopt <id>` on its own line.
+
 ## 0.6.12: fixes from the first smoke run
 - TB1: `plumbline task start ... && git status` (or `pwd`, `ls`, Plumbline's own reads) now ties the task to the session; before, only a start on its own line did, so the hooks said "no task is active" while `plumbline status` showed the task. Commands that can print any text (echo, cat, grep, git log) still don't bind, and output naming two different task ids binds nothing. When the session has no task but its branch has one open task no session holds, the refusals name it and say to run `plumbline task adopt <id>` on its own line. The task skill says to start on its own line.
 - RTK1: `rtk <cmd>` (rtk git diff, rtk proxy, rtk err, rtk test, rtk run -c, rtk read) is judged by the command it runs, for helpers' read-only rule, the lead's gates and the post hook (a commit through `rtk git commit` is counted). `rtk gain`, `discover` and the other show-only subcommands only read; an unknown subcommand counts as a change.

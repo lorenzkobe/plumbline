@@ -164,7 +164,7 @@ func lookupFamily(tool string) string {
 	return ""
 }
 
-func (c *hookCtx) afterBash() Output {
+func (c *hookCtx) afterBash() (res Output) {
 	in := c.in
 	cmd := in.Str("command")
 	out := responseText(in.ToolResponse)
@@ -184,6 +184,9 @@ func (c *hookCtx) afterBash() Output {
 		case isPlumblineBin(s.Name()) && s.Arg(1) == "task" && s.Arg(2) == "adopt":
 			adopt = s
 		case isPlumblineBin(s.Name()), s.Name() == "cd", s.Name() == "" && len(s.Env) == 0:
+		case dropsPipedLines(*s):
+			// `| tail -30` only trims what the commands before it printed,
+			// and those are judged on their own (TB2).
 		default:
 			onlyPlumbline = false
 			if !startTailReads(*s) {
@@ -191,11 +194,25 @@ func (c *hookCtx) afterBash() Output {
 			}
 		}
 	}
-	if id := oneID(reTaskStarted, out); id != "" && start != nil && startTail {
-		c.bind(id, true)
+	// note: a real start or adopt whose line kept it from binding. Without
+	// it Claude sees the task started and every edit refused (TB2).
+	note := ""
+	if id := oneID(reTaskStarted, out); id != "" && start != nil {
+		if startTail {
+			c.bind(id, true)
+		} else {
+			note = notTiedNote(id)
+		}
 	}
-	if m := reAdopted.FindStringSubmatch(out); m != nil && adopt != nil && onlyPlumbline && contains(adopt.Words[3:], m[1]) {
-		c.bind(m[1], false)
+	if m := reAdopted.FindStringSubmatch(out); m != nil && adopt != nil && contains(adopt.Words[3:], m[1]) {
+		if onlyPlumbline {
+			c.bind(m[1], false)
+		} else {
+			note = notTiedNote(m[1])
+		}
+	}
+	if note != "" {
+		defer func() { res = addContext(res, note) }()
 	}
 	if c.task != nil {
 		for _, s := range segs {
@@ -270,6 +287,51 @@ func (c *hookCtx) noteHelperOpened(files ...string) {
 	if added {
 		_ = SaveTask(c.task)
 	}
+}
+
+func notTiedNote(id string) string {
+	return "Plumbline: task " + id + " is NOT tied to this session, because other commands shared its line. Run `plumbline task adopt " + id + "` on its own line, with nothing piped after it."
+}
+
+// dropsPipedLines: head or tail reading only the pipe, with at most a line
+// or byte count. It can drop lines of what came before but never add any.
+func dropsPipedLines(s Segment) bool {
+	if !s.Piped || s.Opaque != "" || len(s.Redirects) > 0 || len(s.Inputs) > 0 || s.Stdin != nil || s.MoreArgs {
+		return false
+	}
+	if n := s.Name(); n != "head" && n != "tail" {
+		return false
+	}
+	for i := 1; i < len(s.Words); i++ {
+		a := s.Words[i]
+		if s.dyn(i) || s.glob(i) {
+			return false
+		}
+		switch {
+		case a == "-n" || a == "-c":
+			if i++; i >= len(s.Words) || !isCount(s.Words[i]) || s.dyn(i) {
+				return false
+			}
+		case a == "-q":
+		case strings.HasPrefix(a, "-n") || strings.HasPrefix(a, "-c"):
+			if !isCount(a[2:]) {
+				return false
+			}
+		case strings.HasPrefix(a, "-"):
+			if !isCount(a[1:]) {
+				return false
+			}
+		default:
+			return false // a file it prints instead of the pipe
+		}
+	}
+	return true
+}
+
+// isCount: a line or byte count as head and tail take it: 30, +2 or -5.
+func isCount(a string) bool {
+	a = strings.TrimLeft(a, "+-")
+	return a != "" && strings.Trim(a, "0123456789") == ""
 }
 
 // startTailReads: a command that may share a line with plumbline task

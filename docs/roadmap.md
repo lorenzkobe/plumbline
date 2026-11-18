@@ -142,6 +142,11 @@ To fix (each with a test that fails first):
 - [x] (0.6.12) Smaller: SR3 (setup says how to learn the laptop state instead of reading settings.json), SR4 (laptop prompt says it changes Claude Code settings), SR6 (setup offers doc fixes as a task, not edits), SR7 (setup explains a tracked `.claude/settings.local.json` before the sandbox), SR10 (rules: every change starts by asking to open a task), L6 (drop the `"Q"="A"` string fallback: the hook gets a structured `answers` map), the stale "paused"/step note on a plumbline command message, read-only `awk` for helpers.
 - [x] (0.6.12) smoke-test.md: hook time is ~30-40 ms, not 5 ms; step 6b's variable check uses `CMD=$(cat f); $CMD`; step 3's touch check per the decision above; finish comes after the commit in step 5.
 
+## Fixes from the second smoke run (0.6.13)
+The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evidence: [smoke-run-2.md](smoke-run-2.md). Decided with the user: fix it before going on, then restart Claude and redo step 3.
+- [x] TB2 (0.6.13): `plumbline task start ... 2>&1 | tail -30` and `plumbline task adopt <id> | tail -20` never bound the task: a piped `tail` failed both the start's read list and adopt's plumbline-only rule, and the adopt the user approved did nothing, silently. `head`/`tail` reading only the pipe, with at most a count, may now follow either; any other stage still binds nothing, and when a real start or adopt doesn't bind, the post hook tells Claude to run adopt on its own line.
+- [ ] SR10 again: Claude still tried the edit before asking to open a task (the gate held). The rules line from 0.6.12 didn't change this; watch it in the rest of the run before changing more.
+
 ## Release 5, last
 - The smoke test, V1 to V20 (docs/smoke-test.md).
 - The items that depend on it: R2 (after V11), B6 (after V7 and V9). L6 is done (0.6.12, after V1 in smoke run 1).
