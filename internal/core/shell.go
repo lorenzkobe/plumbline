@@ -248,6 +248,14 @@ func ReadOnly(s Segment) bool {
 			return a == "ps" || a == "logs" || a == "config" || a == "ls"
 		}
 		return false
+	case "brew":
+		// Where things are and what's installed; install, upgrade,
+		// services and the rest change the laptop (FR2).
+		switch s.Arg(1) {
+		case "--prefix", "--cellar", "--repository", "--version", "-v", "list", "ls", "info", "deps", "leaves", "config":
+			return true
+		}
+		return false
 	case "npm", "pnpm", "yarn":
 		switch s.Arg(1) {
 		case "ls", "list", "view", "info", "outdated", "why", "explain", "-v", "--version":

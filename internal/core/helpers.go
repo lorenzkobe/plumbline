@@ -548,11 +548,18 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 		case HelperTester:
 			runs = "Run the checks with plumbline run test|related|lint|build|e2e."
 		}
-		return c.deny("helper-read-only", fmt.Sprintf("the %s only runs commands that read (git diff, git log, grep, cat ...). %q changes something or isn't known to be read-only. %s", kind, what, runs))
+		edit := "To change your findings file, use the Edit or Write tool."
+		for _, r := range s.Redirects {
+			if !harmlessRedirect(r) {
+				return c.deny("helper-read-only", fmt.Sprintf("the %s doesn't write files with the shell (%s > ...). %s %s", kind, what, edit, runs))
+			}
+		}
+		return c.deny("helper-read-only", fmt.Sprintf("the %s only runs commands that read (git diff, git log, grep, cat ...). %q changes something or isn't known to be read-only. %s %s", kind, what, edit, runs))
 	}
 	if !independent(kind) {
 		return nil
 	}
+	isDocs, listsOnly := c.notesListing(cmd)
 	for _, s := range ParseShell(cmd, c.in.Cwd) {
 		dir := s.Dir
 		if dir == "" {
@@ -591,6 +598,9 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 				}
 				w = v
 			}
+			if listsOnly && s.Name() == "ls" && isDocs(w, dir) {
+				continue
+			}
 			if o := c.reviewerNotes(kind, Abs(w, dir), recursive); o != nil {
 				return o
 			}
@@ -609,6 +619,7 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 			if strings.Contains(strings.ToLower(w), "plumb") {
 				return c.deny("reviewer-own-notes", fmt.Sprintf("the %s can't tell which notes file %q reads; name the file.", kind, w))
 			}
+		case listsOnly && isDocs(w, c.in.Cwd):
 		case filepath.IsAbs(w) || strings.HasPrefix(w, "~/"):
 			if o := c.reviewerNotes(kind, w, false); o != nil {
 				return o
@@ -616,6 +627,38 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 		}
 	}
 	return nil
+}
+
+// notesListing: isDocs tells whether a word names the task's notes folder
+// itself; listsOnly is true when only plain ls operands name it. ls shows
+// the names there, not what the findings say, so the review stays
+// independent (HR1). Any other command naming the folder is checked as before.
+func (c *hookCtx) notesListing(cmd string) (isDocs func(w, dir string) bool, listsOnly bool) {
+	docs := ""
+	if c.task != nil {
+		docs = foldPath(Abs(TaskDocsDir(c.task.Root, c.task.ID), "/"))
+	}
+	isDocs = func(w, dir string) bool { return docs != "" && w != "" && foldPath(Abs(w, dir)) == docs }
+	if docs == "" {
+		return isDocs, false
+	}
+	for _, s := range ParseShell(cmd, c.in.Cwd) {
+		dir := s.Dir
+		if dir == "" {
+			dir = c.in.Cwd
+		}
+		for _, w := range append(append([]string{}, s.Inputs...), s.Redirects...) {
+			if isDocs(w, dir) {
+				return isDocs, false
+			}
+		}
+		for i := 1; i < len(s.Words); i++ {
+			if isDocs(s.Words[i], dir) && (s.Name() != "ls" || s.dyn(i) || s.glob(i)) {
+				return isDocs, false
+			}
+		}
+	}
+	return isDocs, true
 }
 
 var reQATestsDir = regexp.MustCompile(`^qa-[0-9]+-tests$`)

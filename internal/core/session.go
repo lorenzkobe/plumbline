@@ -124,7 +124,7 @@ func UserPromptSubmit(in *HookInput) Output {
 	case c.task != nil:
 		line = "Plumbline: " + taskLine(c.task) + ". Stay in scope; claims need file:line or a run; no done without proof."
 	default:
-		line = "Plumbline: no task active. Pick the mode (Question / Explore / Task) and say it in one line. If this asks for a change, ask before starting the task workflow."
+		line = "Plumbline: no task open. Pick the mode (Question / Explore / Task) and say it in one line. Any change to the repo's files, even a one-line rename, is a Task: your first step is to ask the user whether to start one. Don't try the edit first; it will be refused."
 	}
 	return Context("UserPromptSubmit", line)
 }

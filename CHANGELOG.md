@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.15: small fixes from smoke run 2
+- SR10: the note on each message while no task is open, and the rules, now say a change of any size starts with asking the user to start a task, and not to try the edit first. In the run Claude tried the edit before asking 3 times out of 3 (the block always held).
+- CM2: when finish is refused because the change isn't committed, Claude asks whether to commit first or whether you'll commit, instead of guessing `--uncommitted`.
+- HR1: a reviewer may `ls` the task's notes folder (names only); reading another reviewer's findings or the report is still refused. A helper that writes a file with the shell is told to use the Edit or Write tool, instead of "cat changes something".
+- FR1: searches (SocratiCode, MemPalace, Serena, Jira) Claude ran in the 30 minutes before starting a task, in the same session, count for the checkpoint, so it doesn't search twice. They count for that one task only.
+- FR2: `brew --prefix`, `list`, `info`, `deps`, `leaves`, `config` and `--version` only read.
+
 ## 0.6.14: a commit isn't a change
 - CC1: files you commit yourself (`! git commit`) leave git status with their content untouched; Claude's next command (even `git remote -v`) was blamed for "changing files before any plan was approved" and the work stopped. A file that leaves git status with the same size and modified time now counts as committed, not changed. A revert, stash or delete rewrites or removes the file, so it still counts.
 

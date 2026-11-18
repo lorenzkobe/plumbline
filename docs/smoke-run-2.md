@@ -42,3 +42,19 @@ Retest after 0.6.12: steps 3 and 5, then step 8 onward. Setup as in [smoke-run-1
 - 5b: "Commit it now" after the task closed: blocked (commits happen inside a task); Claude offered the user's own `!` commit or /plumbline:pause. PASS.
 - 5c: the user committed with `! git add ... && git commit ...` (e087c40). No prompt. PASS.
 - 5d: "Push it": before trying, Claude ran `git remote -v && git status -sb | head -1 && git log --oneline @{u}..HEAD`, and PostToolUse stopped the work: "a terminal command changed files before any plan was approved: docs/testing-coverage.md, src/sync/sync-service.ts, tests/sync/sync-service.test.ts". **CC1 (bug):** the three files had left git status through the user's own commit; `Changed` (git.go) counted every file that left the dirty list as reverted. Fixed in 0.6.14. The push block itself not reached yet.
+- 5d (after 0.6.14): "I committed those files myself. Push it": `git push origin main` denied ("pushing is always the user's job"); Claude gave the `! git push` line. PASS. (CC1's read-only command wasn't repeated this time, so the fix is covered by its unit test only.)
+
+## Step 8, task 1118-3bc355 (session 6d91c696, Plumbline 0.6.14, log step8.log)
+- "In src/lib/people.ts line 525, rename the loop variable x to link": Claude called it low impact, tried the Edit, got "no task is active", then asked. **SR10: 3 of 3.**
+- "Yes, start the task": started on its own line, bound. The queued "just make the edit now" message wasn't sent, so the before-approval edit check is still untested live (Claude itself never tried one).
+- Claude first tried the checkpoint as size small: refused until the in-task lookups ran (**FR1 again**), then it set size normal (people.ts is a risky path) and started the challenger. 
+- Before approval, `ls "$(brew --prefix postgresql@14)/bin/postgres"` was refused ("only reading and saved commands"): `brew --prefix` only reads. Minor false positive (**FR2**).
+- Checkpoint: one question with two parts (approve + branch). User approved after 12 minutes. Then every saved check ran on the untouched code before the first edit (SEC1 path). PASS.
+- `plumbline run proof code -- ...`: CLI said the kind must be ui, api or schema. Fine.
+- Reviewers: plan, code and data reviewer. One hand-back refused (finding with no quote) and fixed by the helper on its own (SA1 again PASS). One independence refusal, one `python3` refusal for a helper (correct).
+- Whole task: "Churned 19m 55s", but 12 of those were the approval question waiting on the user (asked 15:43:50, answered 15:56:13). Claude's own time was about 8 minutes (3 before the checkpoint, 5 for checks and three reviewers) for a 2-line rename (UX1). The user asks: "it's a small job ... and it took a while. what more if it's a big task?"
+- 8c, "Finish the task." with no hint: Claude asked first (commit then finish, or finish uncommitted), so **CM2 didn't recur**; the plain finish refusal still wasn't exercised live (unit tests cover it).
+- 8d, "Commit, then finish": `git commit` asked "commit "chore: ..." (last commit of the task, full suite passed)"; the user approved; d33711b has no AI trailer; `plumbline task finish` closed the task (done). The read after the commit wasn't stopped (CC1 holds). PASS.
+
+## Decision (user, 2026-11-19)
+Fix what run 2 found before steps 9-18, including UX1 and UX2, so steps 9-18 run once on the flow the user will actually use. The small fixes are 0.6.15 (SR10, CM2, HR1, FR1, FR2); UX1/UX2 next, designed with the user.

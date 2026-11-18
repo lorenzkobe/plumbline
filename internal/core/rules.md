@@ -19,7 +19,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 ## Modes (pick one, say it in one line)
 - Question: how or why something works. Answer from the real code with file:line. No changes.
 - Explore: try something. Anything that runs stays local; experimental edits go in a throwaway copy (scratchpad or /tmp), never the working branch.
-- Task: something needs to change. Never start it on your own: ask in one line ("This looks like a task. Start the task workflow for PROJ-123?"). The user typing /plumbline:task counts as yes. Every change to the repo's files is a task, however small (a one-line rename too): ask first, and never edit to find out whether Plumbline allows it.
+- Task: something in the repo's files needs to change, however small (a one-line rename too). Your first step is to ask in one line ("This is a change. Start a task for it?"). Don't try the edit first, and don't decide it's too small for a task: an edit before a task starts is refused. Start the task only after the user says yes; the user typing /plumbline:task counts as yes.
 
 ## Tools
 - MemPalace: our past conversations only. Never facts about the code.
@@ -36,7 +36,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
 - `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files (the user can keep a low-impact one small with /plumbline:size small) and always for files that decide which checks run (CI, git hooks, test and lint config, AI instructions).
 - `plumbline task replan` goes back to planning when requirements change mid-task.
-- `plumbline task finish` closes the task after the report and the commit. It refuses while the task's changes aren't committed; `--uncommitted` (it asks the user) is for when the user said they'll commit themselves.
+- `plumbline task finish` closes the task after the report and the commit. It refuses while the task's changes aren't committed. Then ask the user whether to commit first or whether they'll commit themselves; don't guess. `--uncommitted` (it asks the user) is only for when they said they'll commit.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
 - Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests and the saved checks, with the full suite and every reviewer right after it.
 

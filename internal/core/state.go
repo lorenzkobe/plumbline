@@ -340,6 +340,51 @@ func sessionPath(sessionID string) string {
 	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".json")
 }
 
+// sessionLookupsPath holds the lead's searches made while no task was
+// open, so the task that follows in this session can count them (FR1).
+func sessionLookupsPath(sessionID string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".lookups.json")
+}
+
+// sessionLookupWindow: searches older than this, before the task started,
+// were for something else.
+const sessionLookupWindow = 30 * time.Minute
+
+func noteSessionLookup(sessionID, fam string) {
+	m := map[string]Lookup{}
+	if b, err := os.ReadFile(sessionLookupsPath(sessionID)); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	l := m[fam]
+	l.Count++
+	l.At = Now()
+	m[fam] = l
+	b, _ := json.Marshal(m)
+	_ = os.MkdirAll(filepath.Dir(sessionLookupsPath(sessionID)), 0o700)
+	_ = writeFileAtomic(sessionLookupsPath(sessionID), b)
+}
+
+// takeSessionLookups returns the searches of the last sessionLookupWindow
+// and clears them: each counts for one task at most.
+func takeSessionLookups(sessionID string) map[string]Lookup {
+	p := sessionLookupsPath(sessionID)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	_ = os.Remove(p)
+	m := map[string]Lookup{}
+	if json.Unmarshal(b, &m) != nil {
+		return nil
+	}
+	for fam, l := range m {
+		if Now().Sub(l.At) > sessionLookupWindow {
+			delete(m, fam)
+		}
+	}
+	return m
+}
+
 type SessionBinding struct {
 	TaskID string `json:"task_id"`
 	Root   string `json:"root"`

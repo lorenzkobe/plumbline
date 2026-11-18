@@ -135,17 +135,19 @@ func PostToolUse(in *HookInput) Output {
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
 		return c.withTrackerCheck(c.withMainCheck(c.checkChanged(nil)))
 	case strings.HasPrefix(in.ToolName, "mcp__"):
-		if c.task != nil && in.AgentID == "" { // a helper's searches aren't the lead's
-			if fam := lookupFamily(in.ToolName); fam != "" {
-				if c.task.Lookups == nil {
-					c.task.Lookups = map[string]Lookup{}
-				}
-				l := c.task.Lookups[fam]
-				l.Count++
-				l.At = Now()
-				c.task.Lookups[fam] = l
-				_ = SaveTask(c.task)
+		if fam := lookupFamily(in.ToolName); fam != "" && in.AgentID == "" { // a helper's searches aren't the lead's
+			if c.task == nil {
+				noteSessionLookup(in.SessionID, fam)
+				return nil
 			}
+			if c.task.Lookups == nil {
+				c.task.Lookups = map[string]Lookup{}
+			}
+			l := c.task.Lookups[fam]
+			l.Count++
+			l.At = Now()
+			c.task.Lookups[fam] = l
+			_ = SaveTask(c.task)
 		}
 	}
 	return nil
@@ -376,6 +378,20 @@ func (c *hookCtx) bind(id string, mustBeNew bool) {
 		return
 	}
 	t.SessionID = c.in.SessionID
+	pre := takeSessionLookups(c.in.SessionID)
+	if mustBeNew { // a new task: the searches that led to it count (FR1)
+		for fam, l := range pre {
+			if t.Lookups == nil {
+				t.Lookups = map[string]Lookup{}
+			}
+			had := t.Lookups[fam]
+			had.Count += l.Count
+			if l.At.After(had.At) {
+				had.At = l.At
+			}
+			t.Lookups[fam] = had
+		}
+	}
 	_ = SaveTask(t)
 	_ = BindSession(c.in.SessionID, t)
 	c.task = t
