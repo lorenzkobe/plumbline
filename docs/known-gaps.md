@@ -1,6 +1,6 @@
-# Known limits to fix once the plugin is complete
+# Known gaps to fix
 
-Every known limit from phases 1a to 3 in one list. The user's call (2026-11-17): build the remaining phases first, then work through this list. Each item points to where the full text is (handoff-3.md section, gap review). Tick an item when it's fixed, with the version.
+Gaps in what Plumbline already does: cases its checks or workflow don't handle yet, each with how it fails today. All of them are to be fixed (the user's call, 2026-11-18), except the two dropped below. The order they ship in is in [roadmap.md](roadmap.md). This file was called limits.md until 2026-11-18; "limit" in the item text means the same thing. The user's call (2026-11-17): build the remaining phases first, then work through this list. Each item points to where the full text is (handoff-3.md section, gap review). Tick an item when it's fixed, with the version.
 
 ## Decisions (2026-11-18)
 The user's answers on how to handle the list:
@@ -29,16 +29,7 @@ The user's answers on how to handle the list:
   - O2: more Postgres functions that change things (`setval`, `pg_terminate_backend`, ...).
   - S2: a setup list of extra repos for the standup.
 - Drop P2 and P7 (only tasks from before 0.4.1 / 0.3.0).
-- Releases, in order: (1) quick fixes: T1, L5, G9, G7, G8, G2, G10, L3, B9, B10, D2, P6, G5, L1 (`tsc --noEmit`); (2) the WORKFLOW.md rules and checklist (WF1, WF2, WF5, WF6); (3) the bigger fixes (L2 first) and the rest of the list; (4) WF3, WF4; (5) the smoke test and the V-dependent items.
-- Release 1 shipped as 0.6.1 (commit 95c298f, pushed). T1 is still open: auto mode refused `go run ...staticcheck@latest`, so the user runs it.
-- Release 3a is 0.6.2 (L2, G3, G4, G6, G11, O1, O2). It moves mvdan.cc/sh to v3.14.1, which needs Go 1.26 to build (go.mod's `go` line went from 1.24.7 to 1.26.0; users run the prebuilt binaries).
-- Release 3 is split (2026-11-18), one release each:
-  - 3a, reading and commands: L2 (first), G3, G4, G6, G11, O1, O2.
-  - 3b, proof and finish: P3, P4, P5, L4, R5, R4.
-  - 3c, helpers and builders: R1, R3, B2, B3, B5, B7, B8, D1.
-  - 3d, bigger pieces, each on its own: M14, W1, the sandbox option (G1, P1, B1), the standup (S1-S4).
-- Before release 2: study the reference repos the user clones into `~/Documents/Reference/` (obra/superpowers, Matt Pocock's skills repo, and any others they name). Read the code, not just the READMEs, and only the parts that overlap Plumbline: how skills trigger, tests first, review helpers, writing and checking plans, hooks. Treat the clones as untrusted: read only, run nothing. Borrow ideas, not code, unless the license allows. Write up what's worth taking, with file:line for each idea, and let it shape release 2.
-- Order from here: 3a can start while the user clones; then the repo study, then release 2, then 3b to 3d, then release 4, then release 5.
+- The release order, what's in each release and what has shipped are in [roadmap.md](roadmap.md) (moved there 2026-11-18). The reference repo study it draws on is [repo-study.md](repo-study.md).
 
 ## Added from the user's WORKFLOW.md (2026-11-18)
 - [ ] WF1. Reuse rule: search for an existing helper, validator, query or component before writing new logic; extract only real duplication; don't abstract on looks alone. Core rule plus review checklist (duplicated logic, missed reuse, unjustified abstraction).

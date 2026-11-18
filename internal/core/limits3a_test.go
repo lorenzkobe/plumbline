@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Release 3a of the limits pass (docs/limits.md): one test per fixed item.
+// Release 3a of the limits pass (docs/known-gaps.md): one test per fixed item.
 
 // The developer's own Docker settings must not change what the tests see.
 func init() {

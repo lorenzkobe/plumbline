@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Release 1 of the limits pass (docs/limits.md): one test per fixed item.
+// Release 1 of the limits pass (docs/known-gaps.md): one test per fixed item.
 
 // G9: macOS's disk ignores case, so GIT runs git. Name-based rules must too.
 func TestCommandNamesIgnoreCase(t *testing.T) {

@@ -1,6 +1,6 @@
 # Handoff: every phase is built (1a to 3); the smoke test and the limits pass are next
 
-Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true. Every known limit is collected in docs/limits.md, to fix once the plugin is complete (the user's call).
+Read this, the plan doc ("Plumbline plugin plan" in Claude Docs), and the code before starting. The code decides what is true. Every known limit is collected in docs/known-gaps.md, to fix once the plugin is complete (the user's call).
 
 ## What 1a built
 - Go core in `internal/core`, CLI and hook runner in `cmd/plumbline`, prebuilt binaries in `dist/`, launcher `bin/plumbline` (also on Claude's PATH through the plugin's `bin/`).
@@ -213,4 +213,4 @@ From a review of 14 suggestions against the code and done-gate's logs (the plan'
 - That the standup skill's MemPalace `since`/`before` search returns the day's sessions.
 
 ## Next
-Run docs/smoke-test.md (steps 1 to 13) on your laptop, then work through docs/limits.md (the user's call: every known limit after the plugin is complete), then the Kwenta trial.
+Run docs/smoke-test.md (steps 1 to 13) on your laptop, then work through docs/known-gaps.md (the user's call: every known limit after the plugin is complete), then the Kwenta trial.
