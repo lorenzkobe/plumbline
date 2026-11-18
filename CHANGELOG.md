@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.6.14: a commit isn't a change
+- CC1: files you commit yourself (`! git commit`) leave git status with their content untouched; Claude's next command (even `git remote -v`) was blamed for "changing files before any plan was approved" and the work stopped. A file that leaves git status with the same size and modified time now counts as committed, not changed. A revert, stash or delete rewrites or removes the file, so it still counts.
+
 ## 0.6.13: binding after a piped start
 - TB2: `plumbline task start ... 2>&1 | tail -30` and `plumbline task adopt <id> | tail -20` now tie the task to the session; before, any pipe after them stopped the binding, so every edit was refused as "no task is active" even after the user approved the adopt. Only `head` or `tail` reading the pipe, with at most a line or byte count, may follow; a stage that reads a file or rewrites text (`tail notes.txt`, `sed`, `awk`, `tee`, `xargs`) still binds nothing. When a real start or adopt doesn't bind because of what shared its line, Claude is told to run `plumbline task adopt <id>` on its own line.
 

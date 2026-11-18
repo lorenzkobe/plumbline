@@ -518,7 +518,7 @@ func (c *hookCtx) builderReachedMain() string {
 	// The lead's own edits in flight aren't the builder's.
 	leads, leadCommand := t.leadTouching()
 	var changed []string
-	for _, p := range Changed(prev, now) {
+	for _, p := range Changed(t.Root, prev, now) {
 		if (c.setup == nil || !MatchAny(c.setup.IgnoreChanges, p)) && !leads[p] {
 			changed = append(changed, p)
 		}

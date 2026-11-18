@@ -254,7 +254,7 @@ func (c *hookCtx) takeChanges(readOnly bool) (prev map[string]string, changed []
 	}
 	tc := loadTreeChanges(c.root)
 	if prev != nil {
-		changed = Changed(prev, now)
+		changed = Changed(c.root, prev, now)
 	}
 	if readOnly && len(changed) > 0 {
 		paths, anyFile := tc.othersBusy(c.in.SessionID)

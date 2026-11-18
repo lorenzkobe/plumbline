@@ -1,6 +1,7 @@
 package core
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -55,5 +56,26 @@ func TestPipedPrinterBindsNothing(t *testing.T) {
 				t.Fatalf("%q%q: no word that the task isn't tied: %v", cmd, tail, o)
 			}
 		}
+	}
+}
+
+// CC1: the user committed their changes themselves (`! git commit`). The
+// files leave git status with their content untouched, so the next command
+// changed nothing; a real revert still counts.
+func TestCommittedFilesAreNotAChange(t *testing.T) {
+	h := newHarness(t)
+	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 5 }\n")
+	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot: a.go dirty
+	run(t, h.repo, "git", "commit", "-q", "-am", "mine")
+	if o := h.post("Bash", map[string]any{"command": "git remote -v"}, map[string]any{}); o["continue"] == false {
+		t.Fatalf("a commit by the user stopped the work as a change: %v", o)
+	}
+	// A revert rewrites the file (another size here): still a change.
+	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 777 }\n")
+	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot: b.go dirty
+	run(t, h.repo, "git", "checkout", "--", "src/b.go")
+	o := h.post("Bash", map[string]any{"command": "git checkout -- src/b.go"}, map[string]any{})
+	if o["continue"] != false || !strings.Contains(fmtOut(o), "src/b.go") {
+		t.Fatalf("a revert before approval should stop the work: %v", o)
 	}
 }

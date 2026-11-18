@@ -145,6 +145,11 @@ To fix (each with a test that fails first):
 ## Fixes from the second smoke run (0.6.13)
 The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evidence: [smoke-run-2.md](smoke-run-2.md). Decided with the user: fix it before going on, then restart Claude and redo step 3.
 - [x] TB2 (0.6.13): `plumbline task start ... 2>&1 | tail -30` and `plumbline task adopt <id> | tail -20` never bound the task: a piped `tail` failed both the start's read list and adopt's plumbline-only rule, and the adopt the user approved did nothing, silently. `head`/`tail` reading only the pipe, with at most a count, may now follow either; any other stage still binds nothing, and when a real start or adopt doesn't bind, the post hook tells Claude to run adopt on its own line.
+- [x] CC1 (0.6.14): after the user's own `! git commit`, the next read-only command stopped the work ("a terminal command changed files before any plan was approved"): `Changed` counted every file leaving git status as reverted. A file whose stamp is unchanged was committed, not changed.
+- [ ] HR1: reviewers refused for `ls <notes folder>` (names only); allow it. Also the helper's shell-write refusal says "cat changes something": say to use Edit or Write for findings.
+- [ ] FR1: lookups made in the same session just before `task start` don't count for the checkpoint, so Claude searches twice.
+- [ ] CM2: Claude picked `finish --uncommitted` without the user saying they'd commit; the rules should make it ask.
+- [ ] UX1 / UX2 (after the run): too much ceremony for small changes, and Plumbline should work under the hood with plain, well-laid-out messages for the user.
 - [ ] SR10 again: Claude still tried the edit before asking to open a task (the gate held). The rules line from 0.6.12 didn't change this; watch it in the rest of the run before changing more.
 
 ## Release 5, last

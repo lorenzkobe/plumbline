@@ -135,16 +135,18 @@ func stamp(p string) string {
 	return fmt.Sprintf("%d:%d", fi.Size(), fi.ModTime().UnixNano())
 }
 
-// Changed returns paths whose stamp differs between two snapshots.
-func Changed(before, after map[string]string) []string {
+// Changed returns paths whose stamp differs between two snapshots of root.
+// A file that left git status with its stamp unchanged was committed (by
+// the user's own `! git commit`, say): its content didn't change (CC1).
+func Changed(root string, before, after map[string]string) []string {
 	var out []string
 	for p, s := range after {
 		if before[p] != s {
 			out = append(out, p)
 		}
 	}
-	for p := range before {
-		if _, ok := after[p]; !ok {
+	for p, s := range before {
+		if _, ok := after[p]; !ok && stamp(filepath.Join(root, p)) != s {
 			out = append(out, p) // reverted or deleted
 		}
 	}
