@@ -33,6 +33,47 @@ type Lookup struct {
 type Read struct {
 	Hash string    `json:"hash"`
 	At   time.Time `json:"at"`
+	// Days: the last read of each earlier local day (newest last), so a
+	// file opened Monday and again Tuesday counts for both in the standup.
+	Days []time.Time `json:"days,omitempty"`
+}
+
+// keepDays is the most earlier days a read or a code change remembers.
+const keepDays = 60
+
+// dayTimes adds last, the latest time of its local day, to days when now
+// falls on a later local day. At most keepDays are kept, the oldest dropped.
+func dayTimes(days []time.Time, last, now time.Time) []time.Time {
+	if last.IsZero() || localDay(last) == localDay(now) {
+		return days
+	}
+	days = append(days, last)
+	if len(days) > keepDays {
+		days = days[len(days)-keepDays:]
+	}
+	return days
+}
+
+func localDay(t time.Time) string { return t.In(time.Local).Format("2006-01-02") }
+
+// noteRead records that the file with hash h was read now.
+func (t *Task) noteRead(abs, h string) {
+	if t.Reads == nil {
+		t.Reads = map[string]Read{}
+	}
+	now := Now()
+	old := t.Reads[abs]
+	t.Reads[abs] = Read{Hash: h, At: now, Days: dayTimes(old.Days, old.At, now)}
+}
+
+// times: every day's last read, the latest last.
+func (r Read) times() []time.Time { return append(append([]time.Time{}, r.Days...), r.At) }
+
+// noteCodeChange records a code change now; earlier days are kept.
+func (t *Task) noteCodeChange() {
+	now := Now()
+	t.ChangeDays = dayTimes(t.ChangeDays, t.LastCodeChange, now)
+	t.LastCodeChange = now
 }
 
 type Sendback struct {
@@ -122,10 +163,12 @@ type Task struct {
 	// while nothing but tests changed since.
 	ApprovalPrint string `json:"approval_print,omitempty"`
 
-	LastCodeChange time.Time  `json:"last_code_change,omitempty"`
-	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
-	Waivers        []Waiver   `json:"waivers,omitempty"`
-	Reported       bool       `json:"reported,omitempty"`
+	LastCodeChange time.Time `json:"last_code_change,omitempty"`
+	// ChangeDays: the last code change of each earlier local day.
+	ChangeDays []time.Time `json:"change_days,omitempty"`
+	Sendbacks  []Sendback  `json:"sendbacks,omitempty"`
+	Waivers    []Waiver    `json:"waivers,omitempty"`
+	Reported   bool        `json:"reported,omitempty"`
 	// Tokens per transcript ("main:<session>", "agent:<id>"), from the
 	// task's start.
 	Tokens  map[string]TokenCount `json:"tokens,omitempty"`

@@ -460,9 +460,9 @@ func PostToolUseFailure(in *HookInput) Output {
 		if in.ToolName == "Bash" {
 			c.followHead(segs, true) // git checkout main && npm test moved HEAD although the line failed
 		}
-		o = c.withMainCheck(c.checkChanged(segs))
+		o = c.withTrackerCheck(c.withMainCheck(c.checkChanged(segs)))
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
-		o = c.withMainCheck(c.checkChanged(nil))
+		o = c.withTrackerCheck(c.withMainCheck(c.checkChanged(nil)))
 	}
 	if h, ok := o["hookSpecificOutput"].(map[string]any); ok {
 		h["hookEventName"] = "PostToolUseFailure"

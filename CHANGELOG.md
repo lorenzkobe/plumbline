@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.9: release 3d, the standup (S1, S4; S2 and S3 dropped)
+- `plumbline standup` covers the time since your last standup in this project, up to now, and remembers it for the next one. Asked again within 12 hours, it keeps the same start (a redo isn't empty); the first one starts at the beginning of yesterday, and it never goes back more than 7 days. `--date` still covers one whole day and doesn't move the start. The listing prints the MemPalace `since`/`before` to use.
+- S1: a task keeps the last read of each day for every file, and the last code change of each day (up to 60 days), so a file opened Monday and again Tuesday counts for both days.
+- S4: a recursive `rm` or an archive extracted over the sprint file's folder asks first. Before each command (and MCP write tool) that may change something, Plumbline keeps a copy of the sprint file; if the command changed it without a prompt naming it (a script, `python -c`, a test), Claude is told right after, with the changed lines, and must tell you first. Nothing is put back on its own.
+- S2 and S3 (more repos for the standup, following branches in personal projects) are dropped: the standup is what you did, from MemPalace, git and Plumbline's tasks.
+- A builder's note that its command reached the main checkout is no longer dropped when the post-command result had no other context.
+
 ## 0.6.8: release 3d, the sandbox option (G1, P1, B1)
 - `plumbline setup sandbox [--exclude psql,mysql]` turns on Claude Code's Bash sandbox for one checkout, in `.claude/settings.local.json`, behind a confirm prompt: sandboxed commands can't read or write Plumbline's folder, Claude can't retry a command outside the sandbox, and Plumbline's own commands, Docker and the named database clients run outside it. It keeps every other setting, adds nothing twice, keeps the file out of git, and refuses a committed file, broken JSON and shells or interpreters in `--exclude`. `plumbline setup undo-sandbox` takes out only what it added.
 - `plumbline status` shows whether the sandbox is on and from which settings file, and what's missing (Plumbline's commands not excluded, the seal key readable, the retry allowed, Linux without bubblewrap and socat, native Windows). The session start says so too while it's on.

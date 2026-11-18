@@ -50,7 +50,7 @@ No Go needed: prebuilt binaries for Apple Silicon, Intel Mac and Linux ship in `
 | `/plumbline:setup` | Checks the tools, learns the project, saves the answers |
 | `/plumbline:task TICKET-123` | The full task workflow |
 | `/plumbline:design what to design` | The design workflow: brand kit, 3 mockup directions, your pick, then the task workflow |
-| `/plumbline:standup [day]` | Your own work that day, by ticket, across the repos it touched (not unrelated projects), what's next from open tasks and Jira, and suggested updates to your sprint file |
+| `/plumbline:standup [day]` | Your own work since your last standup (or on a day you name), by ticket, across the repos it touched (not unrelated projects), what's next from open tasks and Jira, and suggested updates to your sprint file |
 | `/plumbline:status` | Where the task is, what's proven, what's missing |
 | `/plumbline:stats` | Blocks per rule, send-backs, waivers, blocks marked wrong, tokens per task |
 | `/plumbline:pause`, `/plumbline:resume`, `/plumbline:cancel`, `/plumbline:wrong` | Yours only |
@@ -69,7 +69,7 @@ claude.ai connectors other than Claude Docs (Slack, Gmail, Atlassian, ...) are j
 
 - Your data: `~/.plumbline/` (task state, proof runs, logs). Never in the repo.
 - Project setup: `.plumbline.json` in the repo for personal projects; `~/.plumbline/projects/<project>/setup.json` for company projects.
-- Your sprint file (optional, for `/plumbline:standup`): wherever you keep it; `plumbline standup tracker --set <path>` remembers it per project. One inside a repo must be ignored by git. Edits to it always ask you.
+- Your sprint file (optional, for `/plumbline:standup`): wherever you keep it; `plumbline standup tracker --set <path>` remembers it per project. One inside a repo must be ignored by git. Edits to it always ask you, and a command that changed it without asking (a script, say) is reported to you.
 - Claude Code's Bash sandbox (optional): `plumbline setup sandbox [--exclude psql]` turns it on for one checkout in `.claude/settings.local.json`, with Plumbline's folder fenced off from sandboxed commands and Plumbline's own commands and Docker outside it; `plumbline setup undo-sandbox` takes it back out, and `plumbline status` shows it. Code that Plumbline's commands run (the test suite, proof commands) and Docker containers stay outside the fence.
 - Logs: kept 6 months, then rolled into monthly number summaries kept 1 year. No code, secrets or ticket text.
 

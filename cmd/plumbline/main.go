@@ -102,7 +102,7 @@ func usage() {
   plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
   plumbline waive proof:ui|proof:api|proof:schema|e2e|qa --reason "..."
   plumbline stats [--months N]
-  plumbline standup [--date YYYY-MM-DD]  your work that day, from this repo (default: yesterday)
+  plumbline standup [--date YYYY-MM-DD]  your work since your last standup here (or on that day), from this repo
   plumbline standup tracker [--set <path>]   this project's sprint file
   plumbline pause|resume                (your terminal only)
 `)
@@ -625,19 +625,31 @@ func cmdStandup(args []string) error {
 	if len(pos) > 0 {
 		return fmt.Errorf("unknown standup command %q", pos[0])
 	}
-	day := time.Now().AddDate(0, 0, -1)
 	if d := f["date"]; d != "" {
-		t, err := time.ParseInLocation("2006-01-02", d, time.Local)
+		day, err := time.ParseInLocation("2006-01-02", d, time.Local)
 		if err != nil {
 			return errors.New("--date is YYYY-MM-DD, for example 2026-11-17")
 		}
-		day = t
+		r, err := core.Standup(root, day)
+		if err != nil {
+			return err
+		}
+		fmt.Print(r.String())
+		return nil
 	}
-	r, err := core.Standup(root, day)
+	// Since the last standup here, up to now; this one is remembered for
+	// the next. A day named with --date isn't.
+	now := time.Now()
+	from, note := core.StandupSince(root, now)
+	r, err := core.StandupBetween(root, from, now)
 	if err != nil {
 		return err
 	}
+	r.Note = note
 	fmt.Print(r.String())
+	if err := core.RecordStandup(root, from, now); err != nil {
+		fmt.Printf("\nNote: this standup couldn't be remembered (%v), so the next one starts from the same place.\n", err)
+	}
 	return nil
 }
 

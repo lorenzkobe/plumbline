@@ -90,10 +90,7 @@ func PostToolUse(in *HookInput) Output {
 		if c.task != nil && in.AgentID == "" {
 			abs := Abs(in.Str("file_path"), in.Cwd)
 			if h := fileHash(abs); h != "" {
-				if c.task.Reads == nil {
-					c.task.Reads = map[string]Read{}
-				}
-				c.task.Reads[abs] = Read{Hash: h, At: Now()}
+				c.task.noteRead(abs, h)
 				_ = SaveTask(c.task)
 			}
 		}
@@ -114,11 +111,11 @@ func PostToolUse(in *HookInput) Output {
 			if run := c.task.runByAgent(in.AgentID); run != nil && run.Kind == HelperQA && !contains(run.Wrote, rel) {
 				run.Wrote = append(run.Wrote, rel)
 			}
-			c.task.LastCodeChange = Now()
+			c.task.noteCodeChange()
 			c.task.Reported = false
 			if c.task.Reads != nil && in.AgentID == "" {
 				if h := fileHash(abs); h != "" {
-					c.task.Reads[abs] = Read{Hash: h, At: Now()} // Claude just wrote it, so it knows it
+					c.task.noteRead(abs, h) // Claude just wrote it, so it knows it
 				}
 			}
 			_ = SaveTask(c.task)
@@ -128,15 +125,15 @@ func PostToolUse(in *HookInput) Output {
 			return o
 		}
 	case in.ToolName == "Bash":
-		return c.withMainCheck(c.afterBash())
+		return c.withTrackerCheck(c.withMainCheck(c.afterBash()))
 	case in.ToolName == "Monitor" && in.Str("command") != "":
 		// Monitor runs its command in Bash's shell: the same check after it.
 		// What it changes later is seen by the next check.
-		return c.withMainCheck(c.checkChanged(ParseShell(in.Str("command"), in.Cwd)))
+		return c.withTrackerCheck(c.withMainCheck(c.checkChanged(ParseShell(in.Str("command"), in.Cwd))))
 	case in.ToolName == "AskUserQuestion":
 		return c.afterQuestion()
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
-		return c.withMainCheck(c.checkChanged(nil))
+		return c.withTrackerCheck(c.withMainCheck(c.checkChanged(nil)))
 	case strings.HasPrefix(in.ToolName, "mcp__"):
 		if c.task != nil && in.AgentID == "" { // a helper's searches aren't the lead's
 			if fam := lookupFamily(in.ToolName); fam != "" {
@@ -223,12 +220,9 @@ func (c *hookCtx) noteShellReads(segs []Segment) {
 	if len(files) == 0 {
 		return
 	}
-	if c.task.Reads == nil {
-		c.task.Reads = map[string]Read{}
-	}
 	for _, f := range files {
 		if h := fileHash(f); h != "" {
-			c.task.Reads[f] = Read{Hash: h, At: Now()}
+			c.task.noteRead(f, h)
 		}
 	}
 	_ = SaveTask(c.task)
@@ -335,7 +329,7 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		return nil
 	}
 	if c.task != nil {
-		c.task.LastCodeChange = Now()
+		c.task.noteCodeChange()
 		c.task.Reported = false
 		_ = SaveTask(c.task)
 	}
@@ -614,14 +608,5 @@ func (c *hookCtx) withMainCheck(o Output) Output {
 	if note == "" {
 		return o
 	}
-	if o == nil {
-		return Context("PostToolUse", msg(note))
-	}
-	if h, ok := o["hookSpecificOutput"].(map[string]any); ok {
-		if prev, _ := h["additionalContext"].(string); prev != "" {
-			h["additionalContext"] = prev + " " + msg(note)
-			return o
-		}
-	}
-	return o
+	return addContext(o, msg(note))
 }

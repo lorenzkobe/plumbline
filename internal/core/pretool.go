@@ -24,6 +24,9 @@ type hookCtx struct {
 	// searchSkipsCopies: the search being checked skips what git ignores,
 	// so it doesn't reach the builders' copies (B7).
 	searchSkipsCopies bool
+	// trackerAsked: this command's prompt names the sprint file, so a change
+	// to it is one the user was asked about (S4).
+	trackerAsked bool
 }
 
 func newCtx(in *HookInput) *hookCtx {
@@ -161,6 +164,7 @@ func PreToolUse(in *HookInput) Output {
 		o := c.noAsk(kind, c.gateTool())
 		if d, _ := decisionOf(o); d != "deny" {
 			c.noteBusy()
+			c.noteTrackerBefore()
 		}
 		return o
 	}
@@ -169,6 +173,7 @@ func PreToolUse(in *HookInput) Output {
 		c.noteLeadBusy()
 		c.noteBusy()
 		c.noteHeadBefore()
+		c.noteTrackerBefore()
 	}
 	return o
 }
@@ -1103,6 +1108,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		for _, t := range TreeTargets(s) {
 			abs := targetAbs(s, t)
+			if c.trackerUnder(abs) {
+				c.askTracker(v)
+			}
 			if abs == "" {
 				v.d("config-protect", "this writes files into a folder Plumbline can't work out. Give the folder as a full path.")
 				continue
@@ -1122,6 +1130,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				continue
 			}
 			abs := targetAbs(s, t)
+			if removesTree(s) && c.trackerUnder(abs) {
+				c.askTracker(v) // rm -r of the folder that holds it
+			}
 			switch {
 			case abs == "" && protectedBase(t):
 				v.d("config-protect", fmt.Sprintf("%s is written in a folder Plumbline can't work out, and Claude Code's settings are protected. Write to it with a full path, or tell the user what to change.", t))
@@ -1132,7 +1143,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case abs != "" && c.root != "" && foldPath(abs) == foldPath(filepath.Join(ProjectRoot(c.root), RepoSetupFile)):
 				v.a("setup-change", "this changes Plumbline's saved project setup from the terminal. Until the user confirms it again with /plumbline:setup, its saved commands don't run and nothing in it switches a rule off.")
 			case abs != "" && c.root != "" && TrackerPath(c.root) != "" && foldPath(abs) == foldPath(TrackerPath(c.root)):
-				v.a("tracker", fmt.Sprintf("this updates your sprint file (%s). Check the change before allowing it.", filepath.Base(abs)))
+				c.askTracker(v)
 			case abs != "" && isProtectedConfig(abs):
 				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
 			case abs != "" && isGitConfig(abs):

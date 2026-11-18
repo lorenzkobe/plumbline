@@ -36,13 +36,15 @@ type StandupItem struct {
 }
 
 type StandupReport struct {
-	Day     time.Time
-	Anchor  string // repo name the standup starts from
-	Emails  []string
-	Items   []*StandupItem
-	Loose   []StandupCommit // your commits that day in this repo with no ticket and no task
-	Open    []StandupTask   // still open: what's next
-	Tickets []string
+	From, To time.Time // the window, [From, To)
+	WholeDay bool      // a day the user named, not "since the last standup"
+	Note     string    // how From was chosen, for the header
+	Anchor   string    // repo name the standup starts from
+	Emails   []string
+	Items    []*StandupItem
+	Loose    []StandupCommit // your commits in that time in this repo with no ticket and no task
+	Open     []StandupTask   // still open: what's next
+	Tickets  []string
 }
 
 // AllTasks loads every task Plumbline holds on this laptop, across projects.
@@ -92,8 +94,13 @@ func activeOn(t *Task, from, to time.Time, events map[string][]time.Time) bool {
 	if in(t.Created) || in(t.Checkpoint1At) || in(t.Checkpoint2At) || in(t.LastCodeChange) || in(t.DirectionAt) {
 		return true
 	}
+	for _, at := range t.ChangeDays {
+		if in(at) {
+			return true
+		}
+	}
 	for _, r := range t.Reads {
-		if in(r.At) {
+		if readIn(r, from, to) {
 			return true
 		}
 	}
@@ -104,6 +111,16 @@ func activeOn(t *Task, from, to time.Time, events map[string][]time.Time) bool {
 	}
 	for _, at := range events[t.ID] {
 		if in(at) {
+			return true
+		}
+	}
+	return false
+}
+
+// readIn: the file was read during [from, to) on some day.
+func readIn(r Read, from, to time.Time) bool {
+	for _, at := range r.times() {
+		if !at.IsZero() && !at.Before(from) && at.Before(to) {
 			return true
 		}
 	}
@@ -200,19 +217,27 @@ func siblingRepos(root string) []string {
 // Standup builds the notes for one local day, starting from anchor (a path
 // in the repo you're in).
 func Standup(anchor string, day time.Time) (*StandupReport, error) {
+	from := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
+	r, err := StandupBetween(anchor, from, from.AddDate(0, 0, 1))
+	if r != nil {
+		r.WholeDay = true
+	}
+	return r, err
+}
+
+// StandupBetween builds the notes for [from, to), starting from anchor.
+func StandupBetween(anchor string, from, to time.Time) (*StandupReport, error) {
 	root := RepoRoot(anchor)
 	if root == "" {
 		return nil, errors.New("not inside a git repository")
 	}
 	root = ProjectRoot(root)
-	from := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
-	to := from.AddDate(0, 0, 1)
 	setup, _, _ := LoadSetup(root)
 	var reTicket *regexp.Regexp
 	if setup != nil && setup.Kind == "company" {
 		reTicket, _ = regexp.Compile(`\b(` + setup.TicketPattern() + `)\b`)
 	}
-	rep := &StandupReport{Day: from, Anchor: filepath.Base(root)}
+	rep := &StandupReport{From: from, To: to, Anchor: filepath.Base(root)}
 
 	events := eventTimes(from, to)
 	all := AllTasks()
@@ -245,7 +270,7 @@ func Standup(anchor string, day time.Time) (*StandupReport, error) {
 	noteReads := func(t *Task, it *StandupItem) {
 		own := ProjectRoot(t.Root)
 		for p, r := range t.Reads {
-			if r.At.Before(from) || !r.At.Before(to) || IsInside(p, own) || isInsideFold(p, DataDir()) {
+			if !readIn(r, from, to) || IsInside(p, own) || isInsideFold(p, DataDir()) {
 				continue
 			}
 			if rr := RepoRoot(existingDir(p)); rr != "" {
@@ -417,10 +442,20 @@ func appendUniq(s []string, v string) []string {
 // String is the plain listing the standup skill turns into notes.
 func (r *StandupReport) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Standup for %s, from %s. Your commits only (%s).\n", r.Day.Format("Mon 2006-01-02"), r.Anchor, orNoneDash(strings.Join(r.Emails, ", ")))
+	if r.WholeDay {
+		fmt.Fprintf(&b, "Standup for %s, from %s. Your commits only (%s).\n", r.From.Format("Mon 2006-01-02"), r.Anchor, orNoneDash(strings.Join(r.Emails, ", ")))
+	} else {
+		note := ""
+		if r.Note != "" {
+			note = " (" + r.Note + ")"
+		}
+		fmt.Fprintf(&b, "Standup from %s to %s%s, from %s. Your commits only (%s).\n", r.From.Format("Mon 2006-01-02 15:04"), r.To.Format("Mon 2006-01-02 15:04"), note, r.Anchor, orNoneDash(strings.Join(r.Emails, ", ")))
+	}
+	// MemPalace's since/before compare its local filing times.
+	fmt.Fprintf(&b, "MemPalace window: since=%s before=%s\n", r.From.Format("2006-01-02T15:04:05"), r.To.Format("2006-01-02T15:04:05"))
 	b.WriteString("\nWorked on:\n")
 	if len(r.Items) == 0 && len(r.Loose) == 0 {
-		b.WriteString("- nothing recorded by Plumbline or git for that day\n")
+		b.WriteString("- nothing recorded by Plumbline or git in that time\n")
 	}
 	for _, it := range r.Items {
 		if it.Ticket != "" {
@@ -461,7 +496,7 @@ func (r *StandupReport) String() string {
 		fmt.Fprintf(&b, "- %s%q in %s: %s step\n", tk, t.Title, t.Repo, t.Phase)
 	}
 	fmt.Fprintf(&b, "\nTickets: %s\n", orNoneDash(strings.Join(r.Tickets, ", ")))
-	fmt.Fprintf(&b, "Repos with your work that day: %s\n", orNoneDash(strings.Join(r.repos(), ", ")))
+	fmt.Fprintf(&b, "Repos with your work: %s\n", orNoneDash(strings.Join(r.repos(), ", ")))
 	return b.String()
 }
 
@@ -530,4 +565,50 @@ func SetTracker(root, path string) (string, error) {
 		}
 	}
 	return abs, writeFileAtomic(trackerFile(root), []byte(abs+"\n"))
+}
+
+// "Since your last standup": each standup without a named day is recorded
+// per project, and the next one starts where it ended.
+const (
+	// standupRedo: a standup asked again this soon is the same one redone
+	// (the notes tweaked), so it keeps its start instead of coming back empty.
+	standupRedo = 12 * time.Hour
+	// standupMaxDays caps the window after a long break.
+	standupMaxDays = 7
+)
+
+type standupMark struct {
+	From time.Time `json:"from"` // where that standup's window started
+	At   time.Time `json:"at"`   // when it was asked
+}
+
+func standupMarkFile(root string) string { return filepath.Join(ProjectDir(root), "standup.json") }
+
+// StandupSince is where a standup asked at now starts, and why.
+func StandupSince(root string, now time.Time) (time.Time, string) {
+	now = now.In(time.Local)
+	y := now.AddDate(0, 0, -1)
+	from, note := time.Date(y.Year(), y.Month(), y.Day(), 0, 0, 0, 0, time.Local), "no earlier standup here, so from the start of yesterday"
+	var m standupMark
+	if b, err := os.ReadFile(standupMarkFile(root)); err == nil && json.Unmarshal(b, &m) == nil &&
+		!m.At.IsZero() && !m.At.After(now) && !m.From.IsZero() && !m.From.After(m.At) {
+		if now.Sub(m.At) < standupRedo {
+			from, note = m.From.In(time.Local), fmt.Sprintf("asked again within %d hours of the last one, so the same start", int(standupRedo.Hours()))
+		} else {
+			from, note = m.At.In(time.Local), "since your last standup here"
+		}
+	}
+	if limit := now.AddDate(0, 0, -standupMaxDays); from.Before(limit) {
+		from, note = limit, fmt.Sprintf("the last %d days at most", standupMaxDays)
+	}
+	return from, note
+}
+
+// RecordStandup remembers a standup over [from, at) for the next one.
+func RecordStandup(root string, from, at time.Time) error {
+	b, err := json.Marshal(standupMark{From: from.UTC(), At: at.UTC()})
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(standupMarkFile(root), b)
 }

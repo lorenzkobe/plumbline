@@ -36,7 +36,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 3c: 0.6.5 (commit c96821f): R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
 - Release 3d, first part: 0.6.6 (commit ffbcd0e): M14.
 - Release 3d, second part: 0.6.7 (commit 67c9126): W1, M15 (found while building it).
-- Release 3d, third part: 0.6.8: the sandbox option (G1, P1, B1, each partly; the leftovers are in known-gaps.md).
+- Release 3d, third part: 0.6.8 (commit cfb9d24): the sandbox option (G1, P1, B1, each partly; the leftovers are in known-gaps.md).
+- Release 3d, fourth part: 0.6.9: the standup (S1, S4; S2 and S3 dropped).
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -93,11 +94,16 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - `plumbline setup sandbox [--exclude <client>]` writes the settings for one checkout, behind a confirm prompt, with undo; not laptop-wide (the friction should land only where chosen). The whole data folder is fenced (`denyRead` and `denyWrite`), not only the key, which also keeps helpers' notes from sandboxed commands. `--exclude` refuses shells, interpreters and command runners.
 - With the sandbox off, nothing changes.
 
+## Decisions for release 3d, standup (2026-11-18)
+- The standup is what was done since the user's last standup in that project, up to now, from MemPalace, git and Plumbline's tasks. The first one starts at the beginning of yesterday; one asked again within 12 hours keeps its start; it goes back 7 days at most. A named day (`--date`) still works and doesn't move the start.
+- S2 and S3 are dropped (no list of extra repos, no following branches in personal projects). Company tickets are still followed into the repos they were already followed into.
+- S4: a change to the sprint file that no prompt named is reported to Claude, to tell the user, not put back.
+
 ## Next: release 3d, bigger pieces (each its own release)
 - [x] M14: two sessions in one repo (0.6.6).
 - [x] W1: the hotfix flow (0.6.7), with M15.
 - [x] The sandbox option: G1, P1, B1 (0.6.8, each partly).
-- The standup: S1 to S4.
+- [x] The standup: S1, S4 (0.6.9); S2 and S3 dropped.
 
 ## Release 4
 - WF3: optional saved `format`, `typecheck` and `security` commands.

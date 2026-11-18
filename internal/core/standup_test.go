@@ -97,7 +97,8 @@ func TestStandupFollowsYourTicketsAcrossRepos(t *testing.T) {
 		"read in web: 1 files",
 		"commits with no ticket or task:", "orders-service:", "chore: bump go",
 		`PROJ-2 "add export" in orders-service: planning step`,
-		"Tickets: PROJ-1\n", "Repos with your work that day: orders-service, web\n",
+		"Tickets: PROJ-1\n", "Repos with your work: orders-service, web\n",
+		"MemPalace window: since=2026-11-16T00:00:00 before=2026-11-17T00:00:00\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("standup is missing %q:\n%s", want, out)
