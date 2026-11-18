@@ -1,6 +1,6 @@
 ---
 name: design
-description: Plumbline's design workflow for new or changed screens. Brand kit check, at least 3 mockup directions, the user picks one, then the usual plan, checkpoint, build and proof. Use when the user types /plumbline:design, or after they say yes to starting the design workflow for a design request.
+description: Plumbline's design workflow. Use when the user types /plumbline:design, or says yes to starting the design workflow, for new or changed screens, flows or components whose look must be agreed before they are built.
 argument-hint: "what to design (a screen, a flow, a component), or a ticket id"
 ---
 # Design workflow

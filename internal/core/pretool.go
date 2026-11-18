@@ -1474,6 +1474,9 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 				p = append(p, "the understanding needs file:line references to the real code")
 			}
 			p = append(p, CheckRefs(t, text)...)
+			if len(Section(text, "reuse")) == 0 {
+				p = append(p, `understanding.md needs a "## Reuse" section: where you searched for code that already does this job (the queries and places) and what you found, with file:line, or "nothing"`)
+			}
 		}
 	}
 	if cp == 2 {

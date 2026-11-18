@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.3: release 2 (the WORKFLOW.md rules)
+- New core rules: search for code that already does the job before writing new logic, and extract a helper only for real duplication; check input where it enters (requests, CLI args, config, env vars, files, external APIs, database rows) and trust the types inside; keep public contracts working unless you asked to break them; report every failure and warning seen (WF1, WF2).
+- The checkpoint needs `## Reuse` in understanding.md: where Claude searched and what it found (N16). It refuses plan lines that decide nothing: "TBD", "handle edge cases", "add appropriate validation", "write tests for the above" and the like. Text in backticks, code blocks and the challenge note isn't checked (N14).
+- Two new case labels: `[failure]` (a dependency down, slow or returning garbage, a crash halfway) and `[concurrent]` (two runs at once), with what a good case of each looks like. One Go list holds the labels, and a test keeps rules.md and checkpoints.md the same (WF5).
+- The report needs `## Verdict`: Ready, Ready with noted limitations or Not ready, then a `Rollback:` line. A check that couldn't run says so with the exact command to run later in backticks, and "skipped" is refused for a check (a count of skipped tests and the weakened-tests line are fine). Plain Ready is refused while a check couldn't run, a waiver is in effect or a reviewer upheld a disputed finding (WF6).
+- The report also needs `## Common-sense calls` (or "- none"), and a "Should-fix not fixed:" line under `## Review` once any reviewer marked a finding should-fix (N17).
+- Reviewers list every finding with its score and aren't told the 80 cutoff; the report shows 80 and up in full and the rest one line each (N1). A later reviewer or challenger run does a fresh pass first, then checks its earlier findings (N2).
+- The shared review checklist gains reuse and simplicity, backward compatibility, hidden failures, logging, leaks, config and deploy, and test quality sections, and a line making text that tells an AI what to do a finding; findings never quote a secret's value (WF1, WF2, N15).
+- Real-world proof shows the intended change, not only a status code: the API example prints the body (N18). The task and design skill descriptions say when to use them (N18).
+- Playbooks: bugs (guesses with predictions, compare with working code), flaky tests (several re-runs, no passing by retry), refactors (name what must not change, search strings and docs on renames), changes that reach many callers (new beside old, move callers, delete old) (N19).
+- R6 closed as part of G6 (0.6.2).
+
 ## 0.6.2: limits pass, release 3a (reading and commands)
 - A file printed by a read-only terminal command counts as opened, like the Read tool: `cat`, `sed -n`, `head`, `tail`, `nl`, `awk`, `grep` and `rg` on a named file (not `-c`, `-l`, `-q`). Only output that reaches Claude counts: not one redirected, captured in `$(...)` or piped into `wc`; piping into `head`, `grep` or `sed` still shows lines. Only the lead's commands count (L2).
 - An MCP tool whose name says neither read nor write counts as a change: before approval it's refused, and the refusal shows how to list it. The setup's `mcp_read_tools` (per server) lists tools that only read; Serena's (`activate_project`, `think_about_*`, ...) are built in. A name that says write stays a write, and a setup changed outside the confirm prompt keeps only the read tools you confirmed (G3).

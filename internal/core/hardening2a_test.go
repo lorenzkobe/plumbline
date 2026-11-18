@@ -29,21 +29,21 @@ func (h *harness) stop(last string) Output {
 
 func TestReportNeedsForYouAndWaivers(t *testing.T) {
 	h := reviewedTask(t)
-	h.docs(DocReport, "# Report\n## Review\n- code-review-1: pushed back\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- code-review-1: pushed back\n")
 	if m := h.finishMissing(); !strings.Contains(m, `"## For you"`) {
 		t.Fatalf("a report without For you should be refused: %s", m)
 	}
 	// A heading that only starts like it doesn't count.
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For your information\n- the suite is slow\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For your information\n- the suite is slow\n")
 	if m := h.finishMissing(); !strings.Contains(m, `"## For you"`) {
 		t.Fatalf("\"For your information\" isn't a For you section: %s", m)
 	}
 	// An empty For you heading doesn't count either.
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For you\n")
 	if m := h.finishMissing(); !strings.Contains(m, `"## For you"`) {
 		t.Fatalf("an empty For you section should be refused: %s", m)
 	}
-	report := "# Report\n## Review\n- fine\n## For you\n- nothing\n"
+	report := "# Report\n" + reportEnd + "## Review\n- fine\n## For you\n- nothing\n"
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("complete report: %s", m)
@@ -64,6 +64,11 @@ func TestReportNeedsForYouAndWaivers(t *testing.T) {
 		t.Fatalf("e2e outside the waiver line isn't a listed waiver: %s", m)
 	}
 	h.docs(DocReport, report+"## Proof\n- Waivers: proof:ui (browser can't reach localhost), e2e (no local stack)\n")
+	if m := h.finishMissing(); !strings.Contains(m, "verdict says Ready") || !strings.Contains(m, "proof:ui") {
+		t.Fatalf("a waiver in effect makes plain Ready wrong: %s", m)
+	}
+	limited := strings.Replace(report, "Ready: proven", "Ready with noted limitations: the UI wasn't clicked through", 1)
+	h.docs(DocReport, limited+"## Proof\n- Waivers: proof:ui (browser can't reach localhost), e2e (no local stack)\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("waivers listed: %s", m)
 	}
@@ -75,7 +80,7 @@ func TestClosingMessageIsTheShortReport(t *testing.T) {
 	if o := h.stop("Should A return 3 or 4?"); o != nil {
 		t.Fatalf("a question while unproven should pass: %v", o)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For you\n- nothing\n")
 	// Proven: ending with the commit question no longer skips the check.
 	if o := h.stop("Done, ready for your review. Commit?"); !strings.Contains(fmtOut(o), "final message") {
 		t.Fatalf("the closing question without For you should be sent back: %v", o)
@@ -108,7 +113,7 @@ func TestClosingMessageIsTheShortReport(t *testing.T) {
 // not the proof, and a real question after the proof must not loop.
 func TestClosingMessageSentBackOnce(t *testing.T) {
 	h := reviewedTask(t)
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For you\n- nothing\n")
 	if o := h.stop("Should I also update the README?"); !strings.Contains(fmtOut(o), "final message") {
 		t.Fatalf("first closing message without For you: %v", o)
 	}
@@ -305,7 +310,7 @@ func TestSharedTests(t *testing.T) {
 
 func TestReviewerAnswersDisputes(t *testing.T) {
 	h := reviewedTask(t)
-	report := "# Report\n## Review\n- code-review-1: pushed back, see disputes\n## For you\n- nothing\n"
+	report := "# Report\n" + reportEnd + "## Review\n- code-review-1: pushed back, see disputes\n## For you\n- nothing\n"
 	h.docs(DocReport, report)
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("no dispute yet: %s", m)
@@ -346,11 +351,16 @@ func TestUpheldDisputeGoesToTheUser(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2\n")
 	h.runHelper(HelperCodeReviewer, "# Code review 2\n## Disputes\n- upheld: the comment on the ticket changed it to 3\n")
-	h.docs(DocReport, "# Report\n## Review\n- disputed\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- disputed\n## For you\n- nothing\n")
 	if m := h.finishMissing(); !strings.Contains(m, "upheld findings") {
 		t.Fatalf("an upheld finding must reach the user: %s", m)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3 (ticket comment); I think 2 (ticket text). Your call.\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3 (ticket comment); I think 2 (ticket text). Your call.\n")
+	if m := h.finishMissing(); !strings.Contains(m, "verdict says Ready") || !strings.Contains(m, "upheld a finding") {
+		t.Fatalf("an upheld finding makes plain Ready wrong: %s", m)
+	}
+	limitedEnd := strings.Replace(reportEnd, "Ready: proven", "Ready with noted limitations: one finding is your call", 1)
+	h.docs(DocReport, "# Report\n"+limitedEnd+"## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3 (ticket comment); I think 2 (ticket text). Your call.\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("upheld and listed: %s", m)
 	}
@@ -362,7 +372,7 @@ func TestUpheldDisputeGoesToTheUser(t *testing.T) {
 	if m := h.finishMissing(); !strings.Contains(m, "all 3 runs are used") {
 		t.Fatalf("a dispute with no runs left goes to the user: %s", m)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3.\n- Disputed again, no review runs left: the ticket says 2. Your call.\n")
+	h.docs(DocReport, "# Report\n"+limitedEnd+"## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3.\n- Disputed again, no review runs left: the ticket says 2. Your call.\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("a capped dispute listed under For you is the user's now: %s", m)
 	}
@@ -567,3 +577,7 @@ func TestChangedFilesCallForSpecialists(t *testing.T) {
 		t.Fatalf("a committed auth file still needs the security reviewer: %s", got)
 	}
 }
+
+// reportEnd: the verdict and common-sense calls every finished report has
+// (0.6.3).
+const reportEnd = "## Verdict\nReady: proven and reviewed.\nRollback: revert the commit.\n## Common-sense calls\n- none\n"

@@ -298,11 +298,11 @@ func TestBlindQA(t *testing.T) {
 	h.post("Edit", map[string]any{"file_path": a}, nil)
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:qa"}), "deny", "already changed")
 
-	h.docs(DocReport, "# Report\n## Review\n- code-review-1: fine\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- code-review-1: fine\n## For you\n- nothing\n")
 	if m := h.finishMissing(); !strings.Contains(m, "what blind QA's tests caught") || strings.Contains(m, "big tasks need blind QA") {
 		t.Fatalf("the report must say what QA caught: %s", m)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- qa-1: TestA failed before the fix\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- qa-1: TestA failed before the fix\n## For you\n- nothing\n")
 	if m := h.finishMissing(); strings.Contains(m, "qa") {
 		t.Fatalf("QA is satisfied: %s", m)
 	}

@@ -32,12 +32,12 @@ The user's answers on how to handle the list:
 - The release order, what's in each release and what has shipped are in [roadmap.md](roadmap.md) (moved there 2026-11-18). The reference repo study it draws on is [repo-study.md](repo-study.md).
 
 ## Added from the user's WORKFLOW.md (2026-11-18)
-- [ ] WF1. Reuse rule: search for an existing helper, validator, query or component before writing new logic; extract only real duplication; don't abstract on looks alone. Core rule plus review checklist (duplicated logic, missed reuse, unjustified abstraction).
-- [ ] WF2. Review checklist adds backward compatibility, logging and observability gaps, resource leaks, config/environment/deploy mistakes, and test quality (over-mocking, mocking the thing under test, arbitrary sleeps, real external services). Core rule 5 adds: keep backward compatibility unless asked to break it; never hide failures or ignore warnings.
+- [x] WF1. (0.6.3: core rules 11 and 12, with input checked where it enters; `## Reuse` in understanding.md is required at the checkpoint; the checklist's "Reuse and simplicity" section) Reuse rule: search for an existing helper, validator, query or component before writing new logic; extract only real duplication; don't abstract on looks alone. Core rule plus review checklist (duplicated logic, missed reuse, unjustified abstraction).
+- [x] WF2. (0.6.3: core rule 5 keeps public contracts and reports every failure and warning; checklist sections for backward compatibility, hidden failures, logging, leaks, config and deploy, and test quality) Review checklist adds backward compatibility, logging and observability gaps, resource leaks, config/environment/deploy mistakes, and test quality (over-mocking, mocking the thing under test, arbitrary sleeps, real external services). Core rule 5 adds: keep backward compatibility unless asked to break it; never hide failures or ignore warnings.
 - [ ] WF3. Optional saved `format`, `typecheck` and `security` commands (`plumbline run format|typecheck|security`); when setup defines them, commit needs them to pass.
 - [ ] WF4. A `[bug]` case needs a recorded failing run taken while only test files had changed since approval (the regression test failed before the fix).
-- [ ] WF5. Case labels `[failure]` (a dependency is down, times out or returns garbage; rollback) and `[concurrent]` (two requests at once).
-- [ ] WF6. The report needs `## Verdict`: Ready / Ready with noted limitations / Not ready, and under Proof anything that couldn't run with the exact command to run later. The finish check checks both.
+- [x] WF5. (0.6.3: one Go list, `CaseLabels`; a test keeps rules.md and checkpoints.md in step; checkpoints.md says what a good case of each looks like and how to show its test can fail) Case labels `[failure]` (a dependency is down, times out or returns garbage; rollback) and `[concurrent]` (two requests at once).
+- [x] WF6. (0.6.3: the finish check needs `## Verdict` with a `Rollback:` line, refuses "skipped" for a check, needs the exact command on each "couldn't run" line, and refuses plain Ready while a check couldn't run, a waiver is in effect or a finding was upheld. Still text checks: Go can't tell whether a Not ready was earned, or match each should-fix to the report) The report needs `## Verdict`: Ready / Ready with noted limitations / Not ready, and under Proof anything that couldn't run with the exact command to run later. The finish check checks both.
 
 ## Gates and parsing
 - [ ] G1. Code run by interpreters isn't inspected (`python -c`, `node -e`, `awk 'BEGIN{system()}'`, a script file). Never runs before approval, but while building it can do anything. (handoff: after the hardening)
@@ -68,7 +68,7 @@ The user's answers on how to handle the list:
 - [ ] R3. Reviewer independence is path based: a path built at run time without "plumb" in it, or findings pasted into a reviewer's prompt, aren't caught. (after 2a)
 - [ ] R4. "Small" is refused for any risky-list file, even a copy-only change. (after 0.4.1)
 - [ ] R5. The closing-message check can't check that bad news comes first. (after 0.4.1)
-- [ ] R6. Grep and Glob go through PreToolUse only for helpers. (after 2a)
+- [x] R6. (0.6.2, with G6: the lead's Grep that names a secret file asks, and `--deny-secrets` makes Claude Code skip `.env` and key files for folder-wide Grep and Glob too. The lead's other searches stay unchecked so they stay fast; G6's leftovers apply: the deny rules are opt-in and best effort) Grep and Glob go through PreToolUse only for helpers. (after 2a)
 
 ## Builders, blind QA, tracers, tester (2b)
 - [ ] B1. Builder confinement and QA blindness are guard rails, not a sandbox: code a builder or QA runs can reach anywhere. For builders, changes landing in the main checkout's tracked, untracked or git files are caught after the command (not ignored files, not other copies); for QA nothing catches its own tests reading the copies. (after 2b)

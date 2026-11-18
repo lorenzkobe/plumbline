@@ -601,7 +601,13 @@ func SubagentStart(in *HookInput) Output {
 		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is run %d of at most %d for the %s. Other reviewers check the change on their own: in the notes folder read only %s, %s and your own earlier findings.", DocPlan, base, n, MaxReviews, kind, DocUnderstanding, DocPlan)
 	}
 	if n > 1 && !isWorker(kind) {
-		fmt.Fprintf(&b, " Your earlier findings: %s; check whether each was really fixed, then look at what changed since.", t.helperRuns(kind)[n-2].Findings)
+		// A fresh pass first: a reviewer who reads its earlier verdict first
+		// anchors on it and misses what the fix broke.
+		done := "fixed"
+		if kind == HelperChallenger {
+			done = "answered"
+		}
+		fmt.Fprintf(&b, " Do a fresh pass first, as if this were your first run, and write those findings. Only then open your earlier findings (%s) and check whether each was really %s.", t.helperRuns(kind)[n-2].Findings, done)
 	}
 	if plan, _, err := ReadDoc(t, DocPlan); err == nil {
 		if shared := CheckPlan(plan).SharedTests; len(shared) > 0 {
@@ -635,7 +641,7 @@ func SubagentStop(in *HookInput) Output {
 		return nil
 	}
 	if !t.findingsExist(*run) && !in.StopHookActive {
-		return Output{"decision": "block", "reason": msg(fmt.Sprintf("write your findings to %s before you stop (if nothing scored 80 or more, say so there, with what you checked).", filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)))}
+		return Output{"decision": "block", "reason": msg(fmt.Sprintf("write your findings to %s before you stop (if you found nothing, say so there, with what you checked).", filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)))}
 	}
 	run.Finished = Now()
 	run.PrintAfter, _ = Fingerprint(t.Root, c.ignore())

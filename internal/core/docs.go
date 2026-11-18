@@ -159,7 +159,51 @@ func bullet(line string) (string, bool) {
 	return "", false
 }
 
-var reCaseLabel = regexp.MustCompile(`^\[(normal|edge|refused|boundary|repeat-safe|bug|performance)\]`)
+// CaseLabels is the one list of case labels. rules.md and checkpoints.md
+// repeat it, and a test keeps all three the same.
+var CaseLabels = []string{"normal", "edge", "refused", "boundary", "repeat-safe", "bug", "performance", "failure", "concurrent"}
+
+var reCaseLabel = regexp.MustCompile(`^\[(` + strings.Join(CaseLabels, "|") + `)\]`)
+
+// caseLabelList: "[normal] [edge] ...", for messages.
+func caseLabelList() string {
+	return "[" + strings.Join(CaseLabels, "] [") + "]"
+}
+
+// Plan wording that leaves the decision for later. Each is a whole phrase,
+// so "edge" or "validation" alone doesn't count.
+var reVaguePlan = regexp.MustCompile(`(?i)\b(?:tbd|to be (?:decided|determined)|decide later|figure (?:it |this |that )?out later|fill (?:it |this |these )?in later|details later|handle (?:all |any |the )?(?:other )?edge cases|(?:appropriate|proper|necessary) (?:validation|error handling)|handle errors (?:appropriately|properly|as needed)|(?:write|add) tests (?:for the above|as needed))\b`)
+
+// vaguePlanLines: plan lines that decide nothing ("TBD", "handle edge
+// cases", "add appropriate validation"). Text in backticks or a code block
+// is code or a name, and the challenge note may quote the challenger, so
+// neither is the plan's own wording.
+func vaguePlanLines(text string) []string {
+	var out []string
+	fence, note := false, false
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "```") {
+			fence = !fence
+			continue
+		}
+		if fence || trim == "" {
+			continue
+		}
+		if strings.HasPrefix(trim, "#") {
+			note = strings.HasPrefix(strings.ToLower(strings.TrimSpace(strings.TrimLeft(trim, "#"))), "challenge note")
+			continue
+		}
+		if note {
+			continue
+		}
+		plain := reBacktick.ReplaceAllString(trim, "")
+		if m := reVaguePlan.FindString(plain); m != "" {
+			out = append(out, fmt.Sprintf("%q in %q", m, short(trim)))
+		}
+	}
+	return out
+}
 
 // A case's test: "test: path" or "test: path::name", in backticks when the
 // name has spaces ("test: `a.test.ts::refunds twice`"). "test" must be a
@@ -200,7 +244,7 @@ func CheckPlan(text string) PlanCheck {
 		}
 		pc.Cases++
 		if !reCaseLabel.MatchString(b) {
-			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs a label: [normal] [edge] [refused] [boundary] [repeat-safe] [bug] [performance]", short(b)))
+			pc.Problems = append(pc.Problems, fmt.Sprintf("case %q needs a label: %s", short(b), caseLabelList()))
 		}
 		lower := strings.ToLower(b)
 		if m := reTestLink.FindStringSubmatch(b); m != nil {
@@ -245,6 +289,9 @@ func CheckPlan(text string) PlanCheck {
 				pc.Approved = append(pc.Approved, strings.TrimSpace(x[1]))
 			}
 		}
+	}
+	if vague := vaguePlanLines(text); len(vague) > 0 {
+		pc.Problems = append(pc.Problems, "plan.md has lines that leave the decision for later ("+strings.Join(vague, "; ")+"): name the exact cases, checks or values instead")
 	}
 	return pc
 }

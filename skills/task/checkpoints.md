@@ -18,6 +18,9 @@ Checked vs assumed: <anything not confirmed in the code, labelled as an assumpti
 ## Normal cases and what can go wrong
 - <case>
 
+## Reuse
+Searched: <queries and places: SocratiCode "refund state check", src/orders/, src/payments/>. Found: <src/orders/guards.ts:12 already checks the state; reused> / nothing that does this job.
+
 ## Open questions (each with my suggestion)
 - <question>? I suggest <answer>, because <reason>.
 
@@ -45,10 +48,12 @@ If no existing code is involved (a brand-new project), say "No existing code is 
 - [normal] full refund of a paid order -> test: src/orders/service.test.ts
 - [edge] refund of 0.00 -> test: src/orders/service.test.ts
 - [repeat-safe] the same refund request twice -> test: `src/orders/service.test.ts::refund twice is refused`
+- [failure] the payment provider times out: the order stays unrefunded and the error reaches the caller -> test: src/orders/service.test.ts
+- [concurrent] two refund requests for one order at once: exactly one succeeds -> test: src/orders/service.test.ts
 - [performance] does not apply, because the refund path handles one order at a time
 
 ## Real-world proof
-- api: POST /orders/:id/refund returns 409 for a refunded order
+- api: POST /orders/:id/refund on a refunded order returns 409 with code "already_refunded", and the order's refunded total is unchanged
 - ui: does not apply, because there is no UI change
 - schema: does not apply, because no schema change
 
@@ -95,19 +100,28 @@ and `- ui: screenshots of the real screens at phone, tablet and desktop sizes ag
 - Direction C: card-free list, <link>, ...
 ```
 Bullets straight under "## Directions", at least 3.
-Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every case gets `test: <file>`, better `test: <file>::<test name>` (in backticks when the name has spaces), or `does not apply, because ...`. Naming the test lets the reviewers see when one test is the proof for several cases.
+Labels: normal, edge, refused, boundary, repeat-safe, bug, performance, failure, concurrent. Every case gets `test: <file>`, better `test: <file>::<test name>` (in backticks when the name has spaces), or `does not apply, because ...`. Naming the test lets the reviewers see when one test is the proof for several cases. Each case is one a plausible wrong version of the code would fail.
+- `failure`: a dependency is down, slow or returns garbage, or the run crashes halfway. Say what's left behind and how a retry treats it (a write sent outside after the database commit has nothing to roll back).
+- `concurrent`: two requests or jobs at once. Say what stops both doing the same work. The test releases both from one barrier so they really overlap; a mock that answers instantly hides the race.
+- These bugs often don't exist yet, so show the test can fail: break the guard on purpose (remove it, reorder the step), see the test fail, then put it back and check the diff shows it restored.
+Every line in the plan decides something. "TBD", "handle edge cases", "add appropriate validation" or "write tests for the above" are refused: name the cases, checks or values.
 
 ## report.md
 ```
 # Report: <title>
-<Bad news first: anything failed, skipped or uncertain.>
+<Bad news first: anything failed, couldn't run or uncertain.>
+
+## Verdict
+<Ready | Ready with noted limitations | Not ready>: <why, in one line>
+Rollback: <how to undo it: revert the commit, the down migration> / <why it can't be undone: data deleted, sent outside, a public API removed>
 
 ## What changed
 - <file>: <what and why>
 
 ## Proof
 - Full suite: <ran>, <failed> (<new failures: none>); lint, build: pass
-- Real-world: <api call and response code / clicks / query>
+- Real-world: <the api call and what the response shows changed / clicks / query>
+- <check>: couldn't run, because <why>; run later: `<exact command>`
 - Weakened tests: <skipped, removed or loosened tests, or "none">
 - Waivers: <or "none">
 
@@ -115,8 +129,13 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance. Every ca
 - Reviews: <reviewer>: <n> runs (code-review-1.md, ...), the last one on the final code; the same for each reviewer
 - Builders (if used): <builder n>: <part>, merged / dropped, checked how
 - Blind QA (big tasks): <qa-1.md>: <its tests that failed before the code, and any problem they found>
-- <finding> -> fixed in <file> / pushed back: <evidence>
+- [<score>] <finding> -> fixed in <file> / pushed back: <evidence> (findings at 80 or more, in full)
+- Under 80: <one line each: finding, and what you did with it>
+- Should-fix not fixed: <each, with why> / none
 - Not fixed, needs you: <or "none">
+
+## Common-sense calls
+- <a call you made without asking, and what it costs if it's wrong> / none
 
 ## Outside the plan
 - <file>: <what and why it belonged to this change>

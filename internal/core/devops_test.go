@@ -191,7 +191,7 @@ func opsTask(t *testing.T, pipeline bool, parts map[string]bool) *harness {
 	for _, tool := range []string{"mcp__socraticode__search", "mcp__mempalace__search", "mcp__serena__find_symbol"} {
 		h.post(tool, nil, nil)
 	}
-	h.docs(DocUnderstanding, "# U\nno existing code is involved\n")
+	h.docs(DocUnderstanding, "# U\nno existing code is involved\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.docs(DocPlan, opsPlan)
 	h.approve()
 	return h

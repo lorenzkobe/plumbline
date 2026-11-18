@@ -215,14 +215,14 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.post("mcp__plugin_x_mempalace__search", map[string]any{}, map[string]any{})
 	h.post("mcp__serena__find_referencing_symbols", map[string]any{}, map[string]any{})
 	// Quoting a file not opened: refused.
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3) and B (src/b.go:3)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3) and B (src/b.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.expect(h.cp(1, "Approve"), "deny", "src/b.go:3")
 	h.post("Read", map[string]any{"file_path": a}, map[string]any{})
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "b.go")}, map[string]any{})
 	// A line past the end of the file: refused.
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:99)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:99)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.expect(h.cp(1, "Approve"), "deny", "only 3 lines")
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 
 	// Free-text answer that starts with "approve" isn't approval.
 	o := h.cp(1, "approve, but also change B")
@@ -317,13 +317,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 	h.expect(h.bash(`git commit -am "fix: A returns 2"`), "ask", "full suite passed")
 
 	// The report must list what happened outside the plan.
-	h.docs(DocReport, "# Report\nDone.\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"Done.\n")
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); !strings.Contains(fmtOut(o), "src/auth/login.go") {
 		t.Fatalf("report without outside-plan files should be sent back: %v", o)
 	}
 	h.runHelper(HelperCodeReviewer, "# Review 1\nnothing at 80 or more\n")
 	h.runHelper(HelperPlanReviewer, "# Review 1\nmatches the plan\n") // a normal task gets both
-	h.docs(DocReport, "# Report\n## Review\n- nothing at 80 or more\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- nothing at 80 or more\n## Outside the plan\n- src/b.go (formatting)\n## For you\n- src/auth/login.go: not changed\n- package.json: left-pad not installed\n")
 	// Proven, but the closing chat message must be the short report.
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo, LastMessage: "All done. Want me to commit?"}); !strings.Contains(fmtOut(o), "final message") {
 		t.Fatalf("a closing message without \"For you\" should be sent back: %v", o)
@@ -378,7 +378,7 @@ func TestCombinedCheckpoint(t *testing.T) {
 	tk.ToolDown = map[string]string{"serena": "new file only"}
 	must(t, SaveTask(tk))
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
-	h.docs(DocUnderstanding, "# U\nsrc/a.go:1\n")
+	h.docs(DocUnderstanding, "# U\nsrc/a.go:1\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\nnone\n")
 	h.cp(2, "Approve")
 	if h.task().Phase != PhaseBuilding {
@@ -397,7 +397,7 @@ func TestCombinedCheckpoint(t *testing.T) {
 	h2.post("mcp__mempalace__search", nil, nil)
 	h2.post("mcp__serena__find_symbol", nil, nil)
 	h2.post("Read", map[string]any{"file_path": filepath.Join(h2.repo, "src", "a.go")}, nil)
-	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n")
+	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h2.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n## Challenge note\n- nothing changed\n")
 	h2.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	h2.expect(h2.pre("AskUserQuestion", q), "", "")

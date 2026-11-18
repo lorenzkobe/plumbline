@@ -75,7 +75,7 @@ func riskyTask(t *testing.T, team string) *harness {
 
 func TestSpecialistsRequired(t *testing.T) {
 	h := riskyTask(t, "- lead, challenger, plan-reviewer, code-reviewer, security-reviewer, data-reviewer")
-	report := "# Report\n## Review\n- all clean\n## For you\n- nothing\n"
+	report := "# Report\n" + reportEnd + "## Review\n- all clean\n## For you\n- nothing\n"
 	h.docs(DocReport, report)
 
 	// The Team adds the data reviewer, the auth file the security reviewer.
@@ -158,7 +158,7 @@ func TestReviewersIndependent(t *testing.T) {
 	docs := TaskDocsDir(h.repo, h.task().ID)
 	h.runHelper(HelperCodeReviewer, "# Code review 1\n- [85] must-fix: off by one\n")
 	h.runHelper(HelperSecurity, "# Security review 1\nnothing\n")
-	h.docs(DocReport, "# Report\n## Review\n- code-review-1: off by one, fixed\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- code-review-1: off by one, fixed\n")
 	id, _ := h.startHelper(HelperSecurity)
 	hi := func(tool string, input any) Output { return PreToolUse(h.helperIn(id, HelperSecurity, tool, input)) }
 	in := func(name string) string { return filepath.Join(docs, name) }
@@ -217,7 +217,7 @@ func TestLegacyReviewerRunCounts(t *testing.T) {
 	if got := h.task().Helpers[0].Kind; got != HelperCodeReviewer {
 		t.Fatalf("a 0.3.x reviewer run should load as the code reviewer's: %s", got)
 	}
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n- nothing\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For you\n- nothing\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("the 0.3.x review counts: %s", m)
 	}
@@ -369,7 +369,7 @@ func companyTask(t *testing.T) *harness {
 		h.post(tool, nil, nil)
 	}
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.docs(DocPlan, goodPlan)
 	return h
 }
@@ -389,7 +389,7 @@ func TestJiraTicketTask(t *testing.T) {
 	_, err := Execute(h.repo, h.task(), KindTest, "", "./test.sh", nil, io.Discard)
 	must(t, err)
 	h.runHelper(HelperCodeReviewer, "fine\n")
-	h.docs(DocReport, "# Report\n## Review\n- fine\n## For you\n- Suggested status: In Review\n")
+	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- fine\n## For you\n- Suggested status: In Review\n")
 	if m := h.finishMissing(); !strings.Contains(m, "ABC-123-jira-comment.md") {
 		t.Fatalf("a ticket task needs the drafted comment: %s", m)
 	}

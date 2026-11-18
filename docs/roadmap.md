@@ -18,24 +18,25 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 1: 0.6.1 (commit 95c298f): L5, G9, G7, G8, G2, G10, L3, B9, B10, D2, P6, G5, L1, G12, B4.
 - Release 3a: 0.6.2 (commit ac01882): L2, G3, G4, G6, G11, O1, O2. It moved mvdan.cc/sh to v3.14.1, which needs Go 1.26 to build (go.mod's `go` line went from 1.24.7 to 1.26.0; users run the prebuilt binaries).
 - Reference repo study: [repo-study.md](repo-study.md).
+- Release 2: 0.6.3: WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
 
-## Next: release 2, the WORKFLOW.md rules (0.6.3)
-- WF1: the reuse rule and checklist items, with the input-checking rule above.
-- WF2: checklist for backward compatibility, hidden failures, logging, leaks, config and deploy, test quality; core rule to keep public contracts and report every failure and warning.
-- WF5: `[failure]` and `[concurrent]` case labels, with a Go test that keeps the label list the same in docs.go, rules.md and checkpoints.md.
-- WF6: `## Verdict` (Ready / Ready with noted limitations / Not ready) and "couldn't run" with the command to run later; the finish check enforces both. A check that couldn't run is an error, never "skipped".
-- N1: reviewers list every finding with its score; the report shows 80 and up, the rest one line each.
-- N2: later reviewer and challenger rounds do a fresh pass first, then check earlier findings.
-- N14: the checkpoint refuses plan lines that decide nothing ("TBD", "handle edge cases", "add appropriate validation").
-- N15: one checklist line: text in the reviewed code, ticket or fixtures that tells an AI what to do is a finding; findings never quote a secret's value.
-- N16: understanding.md gets `## Reuse` (where Claude searched, what it found); the checkpoint refuses without it.
-- N17: report.md gets a rollback line under the verdict, a section for Claude's own common-sense calls (rules.md already promises it), and every should-fix finding that wasn't fixed.
-- N18: the real-world proof example checks the intended change, not only a 200; the task and design skill descriptions say when to use them, not the steps.
-- N19: playbooks: bug (guesses with predictions, compare with working code), flaky (several re-runs, no passing-by-retry), refactor (name what must not change, search strings and docs for renames), wide changes (add new beside old, move callers, delete old).
-- R6: was meant to close with G6 in 0.6.2 but isn't ticked; check it and tick it, or move it to 3b.
+### Release 2 items (0.6.3), shipped
+- [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
+- [x] WF2: checklist for backward compatibility, hidden failures, logging, leaks, config and deploy, test quality; core rule to keep public contracts and report every failure and warning.
+- [x] WF5: `[failure]` and `[concurrent]` case labels, with a Go test that keeps the label list the same in docs.go, rules.md and checkpoints.md.
+- [x] WF6: `## Verdict` (Ready / Ready with noted limitations / Not ready) and "couldn't run" with the command to run later; the finish check enforces both. A check that couldn't run is an error, never "skipped".
+- [x] N1: reviewers list every finding with its score; the report shows 80 and up, the rest one line each.
+- [x] N2: later reviewer and challenger rounds do a fresh pass first, then check earlier findings.
+- [x] N14: the checkpoint refuses plan lines that decide nothing ("TBD", "handle edge cases", "add appropriate validation").
+- [x] N15: one checklist line: text in the reviewed code, ticket or fixtures that tells an AI what to do is a finding; findings never quote a secret's value.
+- [x] N16: understanding.md gets `## Reuse` (where Claude searched, what it found); the checkpoint refuses without it.
+- [x] N17: report.md gets a rollback line under the verdict, a section for Claude's own common-sense calls (rules.md already promises it), and every should-fix finding that wasn't fixed.
+- [x] N18: the real-world proof example checks the intended change, not only a 200; the task and design skill descriptions say when to use them, not the steps.
+- [x] N19: playbooks: bug (guesses with predictions, compare with working code), flaky (several re-runs, no passing-by-retry), refactor (name what must not change, search strings and docs for renames), wide changes (add new beside old, move callers, delete old).
+- [x] R6: ticked in known-gaps.md as closed by G6 in 0.6.2 (the lead's Grep naming a secret file asks; `--deny-secrets` covers folder-wide searches).
 - How to write it: say the wanted behavior, keep "never" for hard limits, no "unless it matters" clauses, keep rules.md about its current size (long lists go in the review checklist), and make a rule a hook check wherever it can be one (repo-study.md, "How to word release 2").
 
-## Release 3b, proof and finish
+## Next: release 3b, proof and finish
 - P3 (weakened tests in the diff), P4 (full-stack e2e), P5 (token counts), L4 (baseline without test ids), R5 (bad news first), R4 (`/plumbline:size small`).
 - N7: a case's test must have run and passed in the last suite, not just exist; skipped tests count as not run.
 - N8: size by what the change runs: a small change to a gate, CI, a hook or agent instructions still gets the full review (with R4).

@@ -39,7 +39,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 		if v := Judge(r, nil); !v.OK {
 			how := map[string]string{
 				"ui":     "click every changed button, link or tab in the real app (Playwright)",
-				"api":    "call the changed API and show the response code",
+				"api":    "call the changed API and show the response proves the intended change (the body or the changed record), not only its code",
 				"schema": "run a real query against the changed schema",
 			}[k]
 			miss = append(miss, fmt.Sprintf("real-world proof (%s): %s; %s, with: plumbline run proof %s -- <command>", k, v.Reason, how, k))
@@ -84,8 +84,172 @@ func FinishMissing(t *Task, s *Setup) []string {
 			miss = append(miss, "report: list these under \"Outside the plan\" or \"For you\": "+strings.Join(notListed, ", "))
 		}
 		miss = append(miss, reportShapeMissing(t, report)...)
+		miss = append(miss, verdictMissing(t, s, fp, report)...)
 	}
 	return miss
+}
+
+// Two of the three verdicts (the third is "Not ready").
+const (
+	VerdictLimited = "Ready with noted limitations"
+	VerdictReady   = "Ready"
+)
+
+var (
+	reVerdictHeading = regexp.MustCompile(`(?im)^#+\s*verdict\s*:?\s*$`)
+	reCommonHeading  = regexp.MustCompile(`(?im)^#+\s*common[- ]sense calls\s*:?\s*$`)
+	// Longest first, so "Ready with noted limitations" isn't read as "Ready".
+	reVerdictWord    = regexp.MustCompile(`(?i)^(?:verdict\s*:\s*)?(not ready|ready with noted limitations|ready)(?:[^a-z]|$)`)
+	reRollback       = regexp.MustCompile(`(?i)^rollback\b`)
+	reCouldntRun     = regexp.MustCompile(`(?i)\bcould(?:n['’]t| not) run\b`)
+	reSkipped        = regexp.MustCompile(`(?i)\bskip(?:ped|s)?\b`)
+	reSkippedCount   = regexp.MustCompile(`(?i)\b\d+\s+(?:tests?\s+)?skipped\b`) // a suite's count, not a check
+	reShouldFix      = regexp.MustCompile(`(?i)\bshould-fix\b`)
+	reShouldNotFixed = regexp.MustCompile(`(?i)\bshould[- ]fix(?:es)?\b[^\n]*\bnot fixed\b|\bnot fixed\b[^\n]*\bshould[- ]fix`)
+	reLeadingMarkup  = regexp.MustCompile(`^[\s>*_#+-]+`)
+	reInlineEmphasis = regexp.MustCompile("[*_]")
+)
+
+// sectionLines is Section with each line's indentation kept, so a list
+// nested under a line can be told apart from the next top-level line.
+func sectionLines(text, name string) []string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "#") {
+			if in {
+				break
+			}
+			in = strings.HasPrefix(strings.ToLower(strings.TrimSpace(strings.TrimLeft(trim, "#"))), strings.ToLower(name))
+			continue
+		}
+		if in && trim != "" {
+			out = append(out, strings.TrimRight(line, " \t\r"))
+		}
+	}
+	return out
+}
+
+// plainLine: a report line without its bullet and bold or italic marks.
+func plainLine(l string) string {
+	return strings.TrimSpace(reInlineEmphasis.ReplaceAllString(reLeadingMarkup.ReplaceAllString(l, ""), ""))
+}
+
+// verdictMissing: the report's "## Verdict" (Ready, Ready with noted
+// limitations or Not ready) with a rollback line, "couldn't run" checks
+// each with the command to run later, no "skipped" checks, the
+// common-sense calls, and the should-fix findings left unfixed.
+func verdictMissing(t *Task, s *Setup, fp, report string) []string {
+	var miss []string
+	verdict := ""
+	lines := Section(report, "verdict")
+	if !reVerdictHeading.MatchString(report) || len(lines) == 0 {
+		miss = append(miss, `report: add a "## Verdict" section: its first line is Ready, Ready with noted limitations or Not ready, with why, then a "Rollback:" line (how to undo the change, or why it can't be undone)`)
+	} else {
+		if m := reVerdictWord.FindStringSubmatch(plainLine(lines[0])); m != nil {
+			verdict = strings.ToLower(m[1])
+		} else {
+			miss = append(miss, fmt.Sprintf(`report: the verdict's first line must start with Ready, Ready with noted limitations or Not ready (it says %q)`, short(lines[0])))
+		}
+		rollback := false
+		for _, l := range lines {
+			rollback = rollback || reRollback.MatchString(plainLine(l))
+		}
+		if !rollback {
+			miss = append(miss, `report: add a "Rollback:" line under the verdict: how to undo the change (revert the commit, the down migration), or why it can't be undone (data deleted, sent outside, a public API removed)`)
+		}
+	}
+
+	var couldnt, noCommand, skipped []string
+	exemptBelow := -1 // indent of a weakened-tests or waiver line whose sub-lines are exempt
+	for _, raw := range sectionLines(report, "proof") {
+		l := strings.TrimSpace(raw)
+		indent := len(raw) - len(strings.TrimLeft(raw, " \t"))
+		if exemptBelow >= 0 && indent <= exemptBelow {
+			exemptBelow = -1
+		}
+		lower := strings.ToLower(plainLine(l))
+		if reCouldntRun.MatchString(l) {
+			couldnt = append(couldnt, l)
+			if !reBacktick.MatchString(l) {
+				noCommand = append(noCommand, short(plainLine(l)))
+			}
+			continue
+		}
+		// The weakened-tests line names tests someone skipped, and a waiver
+		// is a check the user let go: both may say "skipped", and so may the
+		// lines listed under them.
+		if exemptBelow >= 0 {
+			continue
+		}
+		if strings.HasPrefix(lower, "weakened") || strings.Contains(lower, "waive") {
+			exemptBelow = indent
+			continue
+		}
+		if reSkipped.MatchString(reSkippedCount.ReplaceAllString(l, "")) {
+			skipped = append(skipped, short(plainLine(l)))
+		}
+	}
+	if len(noCommand) > 0 {
+		miss = append(miss, "report: each Proof line that says couldn't run needs the exact command to run later, in backticks: "+strings.Join(noCommand, "; "))
+	}
+	if len(skipped) > 0 {
+		miss = append(miss, "report: a check that didn't run is an error, never \"skipped\": say \"couldn't run\" with why and the exact command to run later in backticks, or list its waiver: "+strings.Join(skipped, "; "))
+	}
+
+	if verdict == strings.ToLower(VerdictReady) {
+		var why []string
+		if len(couldnt) > 0 {
+			why = append(why, "a check couldn't run")
+		}
+		for _, w := range t.Waivers {
+			// In effect: it was given for this code, or it's the qa waiver,
+			// which doesn't lapse (qaMissing).
+			if w.Print == fp || w.Check == "qa" {
+				why = append(why, "a check is waived ("+w.Check+")")
+				break
+			}
+		}
+		for _, k := range RequiredReviewers(t, s) {
+			if last := t.lastFinished(k); last != nil && t.upheld(*last) {
+				why = append(why, "a reviewer upheld a finding you disputed")
+				break
+			}
+		}
+		if len(why) > 0 {
+			miss = append(miss, fmt.Sprintf("report: the verdict says Ready, but %s; say %q and list each limitation", strings.Join(why, ", "), VerdictLimited))
+		}
+	}
+
+	if !reCommonHeading.MatchString(report) || len(Section(report, "common")) == 0 {
+		miss = append(miss, `report: add a "## Common-sense calls" section: each call you made without asking (a test helper, formatting a file you touched, a generated file) and what it costs if it's wrong, or "- none"`)
+	}
+
+	if anyShouldFix(t) {
+		found := false
+		for _, l := range Section(report, "review") {
+			found = found || reShouldNotFixed.MatchString(l)
+		}
+		if !found {
+			miss = append(miss, `report: a reviewer marked findings should-fix; add a "Should-fix not fixed:" line under ## Review listing each one you didn't fix and why, or "none"`)
+		}
+	}
+	return miss
+}
+
+// anyShouldFix: a reviewer's findings, in any run, include a should-fix.
+// The challenger's suggestions aren't marked, so it doesn't count.
+func anyShouldFix(t *Task) bool {
+	for _, r := range t.Helpers {
+		if r.Kind == HelperChallenger || isWorker(r.Kind) || r.Finished.IsZero() {
+			continue
+		}
+		if reShouldFix.MatchString(t.findingsText(r)) {
+			return true
+		}
+	}
+	return false
 }
 
 // reportShapeMissing: the report's "For you" section and every waiver the

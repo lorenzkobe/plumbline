@@ -163,7 +163,7 @@ func TestBuildingBashRefusals(t *testing.T) {
 		h.post(tool, nil, nil)
 	}
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.docs(DocPlan, goodPlan)
 	h.approve()
 	h.expect(h.bash("rm src/b.go"), "deny", "user's own unsaved changes")
@@ -298,7 +298,7 @@ func TestCaseInsensitiveUserWork(t *testing.T) {
 		h.post(tool, nil, nil)
 	}
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
-	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n")
+	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h.docs(DocPlan, goodPlan)
 	h.approve()
 	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "SRC", "B.go")}), "deny", "user's own")
