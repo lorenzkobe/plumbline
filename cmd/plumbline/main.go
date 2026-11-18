@@ -138,6 +138,8 @@ func runHook(args []string) (code int) {
 		out = core.PreToolUse(in)
 	case "post":
 		out = core.PostToolUse(in)
+	case "post-failure":
+		out = core.PostToolUseFailure(in)
 	case "stop":
 		out = core.Stop(in)
 	case "subagent-start":
@@ -444,13 +446,14 @@ func cmdRun(args []string) (int, error) {
 			}
 		} else {
 			d, _ := core.DirtyFiles(root)
+			others := map[string]bool{}
+			if t != nil {
+				others = t.OthersWork()
+			}
 			for p := range d {
-				if t != nil {
-					if _, mine := t.Preexisting[p]; mine {
-						continue
-					}
+				if !others[p] {
+					files = append(files, p)
 				}
-				files = append(files, p)
 			}
 			sort.Strings(files)
 		}

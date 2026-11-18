@@ -123,7 +123,7 @@ func PostToolUse(in *HookInput) Output {
 			}
 			_ = SaveTask(c.task)
 		}
-		RefreshSnapshot(c.snapID(), c.root)
+		c.shareEdit(abs)
 		if o := c.designReminder(abs); o != nil {
 			return o
 		}
@@ -310,13 +310,8 @@ func (c *hookCtx) followBranch(segs []Segment) {
 // checkChanged is the changed-files check after a terminal command or an MCP
 // tool that may change files.
 func (c *hookCtx) checkChanged(segs []Segment) Output {
-	prev := loadSnap(c.snapID(), c.root)
-	now, err := DirtyFiles(c.root)
-	if err != nil {
-		return nil
-	}
-	saveSnap(c.snapID(), c.root, now)
-	if prev == nil || c.paused {
+	prev, all, ambiguous, ok := c.takeChanges(readOnlyLine(segs))
+	if !ok || prev == nil || c.paused {
 		return nil
 	}
 	setupSaved := false
@@ -326,7 +321,7 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		}
 	}
 	var changed []string
-	for _, p := range Changed(prev, now) {
+	for _, p := range all {
 		if c.setup != nil && MatchAny(c.setup.IgnoreChanges, p) {
 			continue
 		}
@@ -349,7 +344,8 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 	}
 	// During building the user is often away: record and tell Claude; stop
 	// only when the plan looks wrong.
-	var outside, theirs, risky []string
+	var outside, theirs, sessions, risky []string
+	others := c.task.otherSessionFiles()
 	held := func(p, why string) {
 		if c.task.Held == nil {
 			c.task.Held = map[string]string{}
@@ -365,6 +361,11 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 			held(p, "a terminal command changed it, and it held the user's own unsaved work")
 			continue
 		}
+		if others[p] && !ambiguous[p] {
+			sessions = append(sessions, p)
+			held(p, "a terminal command changed it, and another Claude session had changed it while this task was open")
+			continue
+		}
 		if RiskyPath(p, c.setup) {
 			risky = append(risky, p)
 			held(p, "a terminal command changed this risky file outside the plan")
@@ -378,14 +379,17 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		outside = append(outside, p)
 		c.task.NoteOutside(p, "changed by a terminal command")
 	}
-	if len(outside)+len(theirs)+len(risky) == 0 {
+	if len(outside)+len(theirs)+len(sessions)+len(risky) == 0 {
 		return nil
 	}
 	_ = SaveTask(c.task)
-	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)+len(risky)))
+	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)+len(sessions)+len(risky)))
 	var b strings.Builder
 	if len(theirs) > 0 {
 		fmt.Fprintf(&b, "that command changed files that held the user's own unsaved work: %s. Don't change them further; put them first under \"For you\" in the report. ", listFiles(theirs))
+	}
+	if len(sessions) > 0 {
+		fmt.Fprintf(&b, "that command changed files another Claude session in this checkout changed while this task was open: %s. They aren't this task's: don't change them further, and list them under \"For you\" in the report. ", listFiles(sessions))
 	}
 	if len(risky) > 0 {
 		fmt.Fprintf(&b, "that command changed risky files (or files that decide which checks run) outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))

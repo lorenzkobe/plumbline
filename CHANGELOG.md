@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.6: release 3d, two sessions in one checkout (M14)
+- Each change is put on the session that made it. Every session's edits and terminal commands are recorded per checkout (sealed, in the project's data folder), and folded into the other sessions' snapshots, so one session's edit no longer stops the other at its next command.
+- A task leaves out the files another session changed while it was open, as it does your own unsaved work: they're not in its review, the code reviewer's coverage, the specialists it needs, `plumbline run related` or the final-commit check. While building, Claude is refused editing them, and a command that changes one holds it for "For you". Files in the plan, or that the task itself changed outside the plan, stay the task's.
+- Commands of two sessions running at the same moment: a change made then counts for both. A read-only command can't have made one, so what another session's running command changes waits for that command's own check.
+- One open task per checkout: `plumbline task start` is refused while another session's task is open there, with the ways on (adopt it, have you close it, or a new session in its own worktree with `claude -w`). The same session can still start its next task, and a worktree is its own checkout.
+- A command that exits non-zero gets Claude Code's `PostToolUseFailure`, not `PostToolUse`: Plumbline now hooks it, so a failed command's changes are checked right away, and neither another session nor the task's builders keep waiting on it (the same fix for B5's in-flight list). A command you decline at a prompt gets no hook at all, so the end of the turn ends its mark.
+- Snapshots no session touched for a week are cleaned up.
+
 ## 0.6.5: release 3c (helpers and builders)
 - Findings quote what they cite: each file:line in a challenger's or reviewer's findings carries a few backticked words of that line, and Plumbline checks they're within 3 lines of it (in the file now, or as it was at the task's start). A file that fails is sent back once; a run whose file still fails doesn't count as a review (N3).
 - The code reviewer lists every changed file under `## Coverage`, covered or not covered; one not covered makes the verdict Not ready (N4).

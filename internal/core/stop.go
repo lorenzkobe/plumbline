@@ -389,6 +389,7 @@ func Stop(in *HookInput) Output {
 	c := newCtx(in)
 	defer c.close()
 	note := longConversationNote(in)
+	c.endTurnBusy()
 	if c.task != nil && c.task.Open() && in.TranscriptPath != "" {
 		c.task.recordTokens("main:"+safeName(in.SessionID), in.TranscriptPath)
 		_ = SaveTask(c.task)

@@ -183,6 +183,7 @@ func Cleanup() {
 		return
 	}
 	_ = writeFileAtomic(marker, []byte(Now().Format("2006-01-02")+"\n"))
+	cleanupSnapshots()
 	now := Now()
 	detailCut := now.AddDate(0, -6, 0).Format("2006-01")
 	summaryCut := now.AddDate(-1, 0, 0).Format("2006-01")

@@ -247,8 +247,9 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 	// Every file the task really changed counts too, so a folder or a
 	// pattern in the plan can't hide an auth or payments file from the
 	// specialists.
+	others := t.OthersWork()
 	for _, p := range ChangedSince(t.Root, t.StartCommit) {
-		if _, mine := t.Preexisting[p]; !mine {
+		if !others[p] {
 			files = append(files, p)
 		}
 	}

@@ -33,7 +33,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Reference repo study: [repo-study.md](repo-study.md).
 - Release 2: 0.6.3 (commit 89a2845): WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
 - Release 3b: 0.6.4 (commit a4c7f2c): P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
-- Release 3c: 0.6.5: R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
+- Release 3c: 0.6.5 (commit c96821f): R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
+- Release 3d, first part: 0.6.6: M14.
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -70,8 +71,14 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] N22: QA's tests are kept in `qa-N-tests/` with their hashes; one changed later must be on the Weakened tests line, and reviewers are told and may read QA's version. Go can't tell a setup fix from a changed expectation; the reviewers compare.
 - [x] The 3b open question: gate files outside the plan are refused and held (not `.plumbline.json`, which has its own prompt, nor Claude Code's `.claude/settings*.json`).
 
+## Decisions for release 3d, M14 (2026-11-18)
+- Commands of two sessions running at the same moment: a change made then counts for both (fail closed).
+- Files another session changed while a task was open aren't the task's: left out of its diff-based checks, refused for edits while building, listed under "For you".
+- A second open task in one checkout is refused; it needs its own worktree (`claude -w`).
+- Found while building it: Claude Code sends a command that exits non-zero to `PostToolUseFailure`, which Plumbline didn't hook (docs checked 2026-11-18).
+
 ## Next: release 3d, bigger pieces (each its own release)
-- M14: two sessions in one repo.
+- [x] M14: two sessions in one repo (0.6.6).
 - W1: the hotfix flow.
 - The sandbox option: G1, P1, B1.
 - The standup: S1 to S4.

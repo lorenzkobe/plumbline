@@ -69,6 +69,18 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash|Monitor|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook post-failure",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer|tracer|builder|qa|tester)$",

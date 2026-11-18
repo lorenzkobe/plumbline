@@ -140,16 +140,16 @@ func readableNewFile(root, rel string) ([]byte, bool) {
 
 // taskChanges: what the task changed, as a diff against the commit it
 // started from (so its own slice commits count), new files included. The
-// user's own unsaved work at task start, the setup's ignore_changes and the
-// builders' copies are left out.
+// user's own unsaved work at task start, what other sessions changed, the
+// setup's ignore_changes and the builders' copies are left out.
 func taskChanges(t *Task, ignore []string) ([]fileDiff, error) {
 	base := t.StartCommit
 	if base == "" {
 		base = "HEAD"
 	}
+	others := t.OthersWork()
 	keep := func(p string) bool {
-		_, mine := t.Preexisting[p]
-		return p != "" && !mine && !inWorktreesDir(p) && !MatchAny(ignore, p)
+		return p != "" && !others[p] && !inWorktreesDir(p) && !MatchAny(ignore, p)
 	}
 	// -M: a moved test file isn't read as a deleted one.
 	diff, err := gitOut(t.Root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "-M", "--src-prefix=a/", "--dst-prefix=b/", base, "--")

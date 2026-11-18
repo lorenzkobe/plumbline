@@ -81,7 +81,7 @@ func SessionStart(in *HookInput) Output {
 		}
 	}
 	if len(left) > 0 {
-		b.WriteString("- Leftover open tasks from earlier sessions: " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>).\n")
+		b.WriteString("- Open tasks of other sessions (earlier ones, or another window still working on them): " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>), unless another window is still on it. A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
 	}
 	RefreshSnapshot(in.SessionID, c.root)
 	return out()

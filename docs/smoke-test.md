@@ -93,4 +93,10 @@ Use a normal-size task (small tasks skip the challenger).
 - A tracer's transcript or `/agents` shows it ran on sonnet; the same for a builder started with `model: sonnet`.
 - On the Linux laptop (if any): `plumbline builder merge` works (git 2.38+ for `merge-tree --write-tree`).
 - At the end of any task, the "For you" check in the closing message reacts to the message you see (`last_assistant_message`).
+
+## 14. Two sessions in one checkout (0.6.6)
+- Open two Claude sessions in one repo. In the first, start a task and build; in the second, ask questions that run `ls` or `git status`. **Expected:** the second is never stopped by the first one's edits or commands.
+- In the second, ask Claude to start another task. **Expected: refused** ("open in this checkout", `claude -w`). Start one with `claude -w` instead: **expected:** allowed.
+- In the first session's task, let a test command fail (exit 1) after it wrote a file outside the plan. **Expected:** the note about that file comes right after the failing command (PostToolUseFailure fired). Run with `claude --debug` and check the PostToolUseFailure hook input carries `tool_use_id`; if not, a failed command counts as running for 10 minutes.
+
 When all of these pass, run one real task with only the core on, then everything on, end to end. Ten real Kwenta tasks with no gate bypassed and no gate bug come before Plumbline replaces done-gate anywhere.

@@ -158,11 +158,16 @@ func PreToolUse(in *HookInput) Output {
 		if o := c.gateHelper(kind); o != nil {
 			return o
 		}
-		return c.noAsk(kind, c.gateTool())
+		o := c.noAsk(kind, c.gateTool())
+		if d, _ := decisionOf(o); d != "deny" {
+			c.noteBusy()
+		}
+		return o
 	}
 	o := c.gateTool()
 	if d, _ := decisionOf(o); d != "deny" {
 		c.noteLeadBusy()
+		c.noteBusy()
 	}
 	return o
 }
@@ -902,6 +907,10 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		c.hold(rel, "your own unsaved changes were in it before the task")
 		return "user-work", fmt.Sprintf("%s had the user's own unsaved changes before this task started, so Claude doesn't touch it. Keep going with the rest, and list it under \"For you\" in the report.", rel)
 	}
+	if c.task.otherSessionFiles()[rel] {
+		c.hold(rel, "another Claude session changed it while this task was open")
+		return "other-session", fmt.Sprintf("%s was changed by another Claude session in this checkout while this task was open, so it isn't this task's and Claude doesn't touch it. Keep going with the rest, and list it under \"For you\" in the report.", rel)
+	}
 	if RiskyPath(rel, c.setup) {
 		c.hold(rel, "risky file outside the plan")
 		return "risky-outside-plan", fmt.Sprintf("%s isn't in the approved plan and is a risky kind of file (auth, payments, migrations, dependencies, config, deploy). Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why.", rel)
@@ -993,6 +1002,11 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 			if s.Arg(1) == "task" && (s.Arg(2) == "start" || s.Arg(2) == "tool-down" || s.Arg(2) == "size" || s.Arg(2) == "finish") {
 				quiet = true
+			}
+			if s.Arg(1) == "task" && s.Arg(2) == "start" {
+				if o := c.otherSessionTask(); o != nil {
+					v.d("task-other-session", fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout for another Claude session, and two tasks in one checkout would test each other's half-done code. Ask the user which way: continue that task in this session (plumbline task adopt %s), close it (/plumbline:cancel %s, theirs to type), or start this task in its own worktree (a new session with claude -w).", o.ID, o.Title, o.Phase, o.ID, o.ID))
+				}
 			}
 		case name == "git":
 			sub, args := GitSub(s)
@@ -1326,8 +1340,9 @@ func (c *hookCtx) isFinalCommit(ci CommitInfo, addsAll bool, added []string) boo
 	}
 	all := ci.All || addsAll
 	named := append(append([]string{}, ci.Paths...), added...)
+	others := c.task.OthersWork()
 	for p := range dirty {
-		if _, mine := c.task.Preexisting[p]; mine {
+		if others[p] {
 			continue
 		}
 		if c.setup != nil && MatchAny(c.setup.IgnoreChanges, p) {

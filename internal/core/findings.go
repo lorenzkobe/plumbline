@@ -176,12 +176,13 @@ func coverage(text string) map[string]bool {
 }
 
 // reviewedFiles: what the task changed, for the code reviewer's coverage:
-// every changed or new file since the start, without the user's own work
-// and what the setup ignores.
+// every changed or new file since the start, without the user's own work,
+// other sessions' files and what the setup ignores.
 func reviewedFiles(t *Task, ignore []string) []string {
 	var out []string
+	others := t.OthersWork()
 	for _, p := range ChangedSince(t.Root, t.StartCommit) {
-		if _, mine := t.Preexisting[p]; mine || MatchAny(ignore, p) {
+		if others[p] || MatchAny(ignore, p) {
 			continue
 		}
 		out = append(out, p)

@@ -16,7 +16,11 @@ var lockWait = 10 * time.Second
 // unlock function. If the lock can't be taken in time, it goes on without it
 // rather than hang the session.
 func LockTask(root, id string) func() {
-	p := filepath.Join(TaskDir(root, id), "state.lock")
+	return lockFile(filepath.Join(TaskDir(root, id), "state.lock"))
+}
+
+// lockFile takes an exclusive lock on the file p, waiting up to lockWait.
+func lockFile(p string) func() {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return func() {}
 	}
