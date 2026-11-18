@@ -153,24 +153,62 @@ func legacySealPath(root, id string) string { return filepath.Join(TaskDir(root,
 const sealLine = "plumbline-seal: "
 
 // sealKey is a per-laptop key kept beside the data. It does not stop a
-// determined edit, but any edit made outside Plumbline is detected.
-func sealKey() []byte {
+// determined edit, but any edit made outside Plumbline is detected. A key
+// that is there but can't be read (Claude Code's sandbox, permissions) is
+// never replaced: a new key would make every earlier record fail its seal.
+func sealKey() ([]byte, error) {
 	p := filepath.Join(DataDir(), ".key")
 	b, err := os.ReadFile(p)
 	if err == nil && len(b) >= 32 {
-		return b
+		return b, nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
 	b = make([]byte, 32)
-	_, _ = rand.Read(b)
-	_ = writeFileAtomic(p, b)
-	return b
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	if err := writeFileAtomic(p, b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func seal(data []byte) string {
+	key, err := sealKey()
+	if err != nil {
+		// Without the key: a value no stored seal can equal, so nothing
+		// verifies, and nothing sealed now ever will. CheckDataDir tells the
+		// user why before a command gets here.
+		r := make([]byte, 16)
+		_, _ = rand.Read(r)
+		return "no-key-" + hex.EncodeToString(r)
+	}
 	h := sha256.New()
-	h.Write(sealKey())
+	h.Write(key)
 	h.Write(data)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// CheckDataDir makes sure Plumbline can read its seal key and write its
+// folder, so a command fails with the reason instead of saving records
+// that never verify.
+func CheckDataDir() error {
+	why := func(err error) error {
+		return fmt.Errorf("Plumbline can't read or write its folder %s (%v). If Claude Code's Bash sandbox is on, Plumbline's commands must run outside it: run the plumbline command on its own line (a pipe, redirect, heredoc, cd or && can keep the whole line sandboxed), and exclude Plumbline from the sandbox with plumbline setup sandbox (the user runs it as ! plumbline setup sandbox if it's refused here) or by adding \"plumbline *\" to sandbox.excludedCommands", DataDir(), err)
+	}
+	if _, err := sealKey(); err != nil {
+		return why(err)
+	}
+	f, err := os.CreateTemp(DataDir(), ".write-check-*")
+	if err != nil {
+		return why(err)
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return nil
 }
 
 var ErrTampered = errors.New("task state was changed outside Plumbline")

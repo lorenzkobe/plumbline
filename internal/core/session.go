@@ -71,6 +71,9 @@ func SessionStart(in *HookInput) Output {
 			b.WriteString("- Docker: NOT running. It's required (SocratiCode and the test database). Try to start it once, then ask the user.\n")
 		}
 	}
+	if l := SandboxSessionLine(c.root); l != "" {
+		b.WriteString(l + "\n")
+	}
 	if c.task != nil {
 		b.WriteString("- This session's " + taskLine(c.task) + "\n")
 	}

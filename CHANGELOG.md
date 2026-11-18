@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.8: release 3d, the sandbox option (G1, P1, B1)
+- `plumbline setup sandbox [--exclude psql,mysql]` turns on Claude Code's Bash sandbox for one checkout, in `.claude/settings.local.json`, behind a confirm prompt: sandboxed commands can't read or write Plumbline's folder, Claude can't retry a command outside the sandbox, and Plumbline's own commands, Docker and the named database clients run outside it. It keeps every other setting, adds nothing twice, keeps the file out of git, and refuses a committed file, broken JSON and shells or interpreters in `--exclude`. `plumbline setup undo-sandbox` takes out only what it added.
+- `plumbline status` shows whether the sandbox is on and from which settings file, and what's missing (Plumbline's commands not excluded, the seal key readable, the retry allowed, Linux without bubblewrap and socat, native Windows). The session start says so too while it's on.
+- A seal key that's there but can't be read is never replaced, and seals made without it never verify. Plumbline's commands check their folder first and say why when they can't use it, with the fix.
+- `/plumbline:setup` explains the sandbox's pros and cons. Left (known-gaps.md): code started by Plumbline's own commands (tests, proof commands) and Docker run outside the fence; with the sandbox off nothing changed.
+
 ## 0.6.7: release 3d, the hotfix flow (W1)
 - `/plumbline:hotfix <what's broken, or the ticket>`, yours only, starts a hotfix: a small task bound to the session, with the ticket taken from what you typed. It's refused when Plumbline is paused, the setup is missing or unconfirmed, Docker is down, nothing was said, or a task is already open in the session or the checkout.
 - A hotfix has one checkpoint (Checkpoint 1 is refused), and its plan needs `## Root cause`: what really broke, and either "this fix is the root-cause fix" or the follow-up task. The report repeats it.

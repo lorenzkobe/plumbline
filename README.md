@@ -70,6 +70,7 @@ claude.ai connectors other than Claude Docs (Slack, Gmail, Atlassian, ...) are j
 - Your data: `~/.plumbline/` (task state, proof runs, logs). Never in the repo.
 - Project setup: `.plumbline.json` in the repo for personal projects; `~/.plumbline/projects/<project>/setup.json` for company projects.
 - Your sprint file (optional, for `/plumbline:standup`): wherever you keep it; `plumbline standup tracker --set <path>` remembers it per project. One inside a repo must be ignored by git. Edits to it always ask you.
+- Claude Code's Bash sandbox (optional): `plumbline setup sandbox [--exclude psql]` turns it on for one checkout in `.claude/settings.local.json`, with Plumbline's folder fenced off from sandboxed commands and Plumbline's own commands and Docker outside it; `plumbline setup undo-sandbox` takes it back out, and `plumbline status` shows it. Code that Plumbline's commands run (the test suite, proof commands) and Docker containers stay outside the fence.
 - Logs: kept 6 months, then rolled into monthly number summaries kept 1 year. No code, secrets or ticket text.
 
 ## Develop

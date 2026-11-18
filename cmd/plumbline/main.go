@@ -29,6 +29,15 @@ func main() {
 	args := os.Args[2:]
 	var err error
 	switch os.Args[1] {
+	case "hook", "version", "--version", "-v", "help", "--help", "-h":
+	default:
+		// Hooks run outside Claude Code's sandbox; commands may not.
+		if err := core.CheckDataDir(); err != nil {
+			fmt.Fprintln(os.Stderr, "plumbline:", err)
+			os.Exit(1)
+		}
+	}
+	switch os.Args[1] {
 	case "hook":
 		os.Exit(runHook(args))
 	case "task":
@@ -89,6 +98,7 @@ func usage() {
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
   plumbline setup show|save|laptop|undo-laptop
+  plumbline setup sandbox [--exclude psql,mysql] | undo-sandbox   Claude Code's Bash sandbox, this checkout
   plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
   plumbline waive proof:ui|proof:api|proof:schema|e2e|qa --reason "..."
   plumbline stats [--months N]
@@ -541,6 +551,9 @@ func cmdStatus(args []string) error {
 	default:
 		fmt.Printf("Setup: %s project, base branch %s.\n", s.Kind, s.BaseBranch)
 	}
+	for _, l := range core.SandboxLines(root) {
+		fmt.Println(l)
+	}
 	t, terr := core.ActiveTask(root, "", f["task"])
 	if terr != nil {
 		return terr
@@ -812,6 +825,33 @@ func cmdSetup(args []string) error {
 		return setupLaptop(f)
 	case "undo-laptop":
 		return undoLaptop()
+	case "sandbox":
+		if f["exclude"] == "true" { // --exclude with nothing after it
+			return errors.New("--exclude takes command names: --exclude psql,mysql")
+		}
+		extra, err := core.ParseExclusions(f["exclude"])
+		if err != nil {
+			return err
+		}
+		root := mustRoot()
+		changed, err := core.EnableSandbox(root, extra)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Changed in %s:\n", filepath.Join(root, core.SandboxLocalFile))
+		for _, c := range changed {
+			fmt.Println("  -", c)
+		}
+		fmt.Println("Start a new Claude Code session to be sure it applies, then check with plumbline status.")
+		fmt.Println("Undo any time with: plumbline setup undo-sandbox")
+		return nil
+	case "undo-sandbox":
+		root := mustRoot()
+		if err := core.UndoSandbox(root); err != nil {
+			return err
+		}
+		fmt.Printf("Sandbox settings in %s put back to how they were before Plumbline.\n", filepath.Join(root, core.SandboxLocalFile))
+		return nil
 	}
 	return fmt.Errorf("unknown setup command %q", args[0])
 }

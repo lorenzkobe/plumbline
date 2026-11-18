@@ -108,24 +108,65 @@ func snapshotCommit(root string, ignore []string, parent string) (commit, tree s
 // (never committed), so git status and searches in the main checkout skip
 // them.
 func excludeWorktrees(root string) {
+	addGitExclude(root, "Plumbline builders' copies", "/"+WorktreesDir+"/")
+}
+
+// gitExcludeFile is the repo's local exclude file (shared by its worktrees,
+// never committed), or "" for a bare repo or something unusual.
+func gitExcludeFile(root string) string {
 	common := filepath.Join(ProjectRoot(root), ".git")
 	if fi, err := os.Stat(common); err != nil || !fi.IsDir() {
-		return // a bare repo or something unusual: the path filters still apply
+		return ""
 	}
-	p := filepath.Join(common, "info", "exclude")
-	line := "/" + WorktreesDir + "/"
+	return filepath.Join(common, "info", "exclude")
+}
+
+// addGitExclude adds line, under a comment, to the local exclude file and
+// reports whether it added it (false when it was there or couldn't be
+// written).
+func addGitExclude(root, comment, line string) bool {
+	p := gitExcludeFile(root)
+	if p == "" {
+		return false // the path filters still apply
+	}
 	b, _ := os.ReadFile(p)
 	for _, l := range strings.Split(string(b), "\n") {
 		if strings.TrimSpace(l) == line {
-			return
+			return false
 		}
 	}
 	if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
 		b = append(b, '\n')
 	}
-	b = append(b, []byte("# Plumbline builders' copies\n"+line+"\n")...)
-	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	_ = os.WriteFile(p, b, 0o644)
+	b = append(b, []byte("# "+comment+"\n"+line+"\n")...)
+	if os.MkdirAll(filepath.Dir(p), 0o755) != nil || os.WriteFile(p, b, 0o644) != nil {
+		return false
+	}
+	return true
+}
+
+// removeGitExclude takes line out of the local exclude file, with the
+// comment addGitExclude wrote right above it. A line without that comment
+// above it isn't Plumbline's, so it stays.
+func removeGitExclude(root, comment, line string) {
+	p := gitExcludeFile(root)
+	if p == "" {
+		return
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(b), "\n")
+	var keep []string
+	for _, l := range lines {
+		if n := len(keep); strings.TrimSpace(l) == line && n > 0 && keep[n-1] == "# "+comment {
+			keep = keep[:n-1]
+			continue
+		}
+		keep = append(keep, l)
+	}
+	_ = os.WriteFile(p, []byte(strings.Join(keep, "\n")), 0o644)
 }
 
 // MakeWorktree makes a builder's copy at path from the lead's code in root.

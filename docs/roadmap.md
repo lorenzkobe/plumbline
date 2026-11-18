@@ -35,7 +35,8 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Release 3b: 0.6.4 (commit a4c7f2c): P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
 - Release 3c: 0.6.5 (commit c96821f): R1, R3, B2, B3, B5, B7, B8, D1, N3, N4, N5, N6, N10, N22, and the 3b open question (gate files outside the plan are refused).
 - Release 3d, first part: 0.6.6 (commit ffbcd0e): M14.
-- Release 3d, second part: 0.6.7: W1, M15 (found while building it).
+- Release 3d, second part: 0.6.7 (commit 67c9126): W1, M15 (found while building it).
+- Release 3d, third part: 0.6.8: the sandbox option (G1, P1, B1, each partly; the leftovers are in known-gaps.md).
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -86,10 +87,16 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - M15, found while building it: the start commit follows the lead's checkout, switch or pull until the task's first commit, for every task, and only to a commit that holds nothing made during the task (on a remote-tracking branch, or in a local branch at task start). The fresh-eyes review found that following any HEAD move let a stash hide the task's edits, and that a commit in a failed line wasn't counted; both fixed and tested.
 - Found while building it: branch switches are refused before approval (only reading and saved commands run then), so a hotfix switches to the production branch right after the checkpoint. M16 (the baseline is from the starting branch) is left open.
 
+## Decisions for release 3d, sandbox (2026-11-18)
+- From Claude Code's docs (checked 2026-11-18): hooks, file tools and MCP servers run outside the sandbox; sandboxed commands write only the working folder and temp; `excludedCommands` uses Bash rule syntax, and every command in a line must match (a pipe, redirect, `cd` or `$(...)` keeps it sandboxed); `.claude/settings.local.json` can set `enabled`, `excludedCommands` and `allowUnsandboxedCommands`, and Claude Code's `/sandbox` panel writes there.
+- Found while planning: with the recorded settings, Plumbline's own commands couldn't save proof (they run sandboxed and need the key and their folder). Chosen: exclude `plumbline *`, so code those commands start stays outside the fence (documented). Not chosen: sealing runs in the hooks (rebuilds every proof record for a threat Docker leaves open anyway).
+- `plumbline setup sandbox [--exclude <client>]` writes the settings for one checkout, behind a confirm prompt, with undo; not laptop-wide (the friction should land only where chosen). The whole data folder is fenced (`denyRead` and `denyWrite`), not only the key, which also keeps helpers' notes from sandboxed commands. `--exclude` refuses shells, interpreters and command runners.
+- With the sandbox off, nothing changes.
+
 ## Next: release 3d, bigger pieces (each its own release)
 - [x] M14: two sessions in one repo (0.6.6).
 - [x] W1: the hotfix flow (0.6.7), with M15.
-- The sandbox option: G1, P1, B1.
+- [x] The sandbox option: G1, P1, B1 (0.6.8, each partly).
 - The standup: S1 to S4.
 
 ## Release 4

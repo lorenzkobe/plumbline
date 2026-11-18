@@ -985,7 +985,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case "pause", "resume", "cancel", "wrong":
 				v.d("user-only", fmt.Sprintf("only the user can %s, by typing /plumbline:%s.", s.Arg(1), s.Arg(1)))
 			case "setup":
-				if s.Arg(2) != "show" && s.Arg(2) != "" {
+				switch s.Arg(2) {
+				case "show", "":
+				case "sandbox":
+					v.a("setup-change", "this turns on Claude Code's Bash sandbox in this checkout ("+SandboxLocalFile+"): Plumbline's folder is fenced off from commands, Plumbline's own commands, Docker and any --exclude names run outside it, and Claude can't retry a command outside it. Builds that need the network, caches outside the project or a login may then fail; undo with plumbline setup undo-sandbox.")
+				case "undo-sandbox":
+					v.a("setup-change", "this takes out the sandbox settings Plumbline added in this checkout ("+SandboxLocalFile+").")
+				default:
 					v.a("setup-change", "this saves Plumbline setup. Check the values before allowing.")
 				}
 			case "waive":
