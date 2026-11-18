@@ -23,6 +23,8 @@ type Event struct {
 	Detail  string    `json:"detail,omitempty"`
 	Size    string    `json:"size,omitempty"`
 	Wrong   bool      `json:"wrong,omitempty"`
+	// Tokens: a finished or cancelled task's token use (counts only).
+	Tokens *TokenCount `json:"tokens,omitempty"`
 }
 
 func logsDir() string { return filepath.Join(DataDir(), "logs") }
@@ -118,6 +120,11 @@ type Summary struct {
 	Waivers   int            `json:"waivers"`
 	Failures  int            `json:"failures"` // Plumbline itself broke (crash, bad input, binary that won't start)
 	Asks      map[string]int `json:"asks"`
+	// Token use of the tasks that logged it, and how many of those had
+	// transcripts that couldn't all be read.
+	Tokens        TokenCount `json:"tokens"`
+	TokenTasks    int        `json:"token_tasks,omitempty"`
+	TokensUnknown int        `json:"tokens_unknown,omitempty"`
 }
 
 func summarize(month string, events []Event) Summary {
@@ -140,6 +147,14 @@ func summarize(month string, events []Event) Summary {
 			s.Waivers++
 		case "failure":
 			s.Failures++
+		case "tokens":
+			if e.Tokens != nil {
+				s.Tokens.Add(*e.Tokens)
+				s.TokenTasks++
+				if e.Tokens.Unknown {
+					s.TokensUnknown++
+				}
+			}
 		}
 	}
 	s.Tasks = len(tasks)
@@ -244,6 +259,14 @@ func Stats(months int) string {
 	fmt.Fprintf(&b, "Confirm prompts by rule: %s\n", orNone(kv(s.Asks)))
 	fmt.Fprintf(&b, "Waivers: %d\n", s.Waivers)
 	fmt.Fprintf(&b, "Plumbline failures: %d\n", s.Failures)
+	if s.TokenTasks > 0 {
+		avg := s.Tokens.Total() / int64(s.TokenTasks)
+		fmt.Fprintf(&b, "Tokens: %s across %d task(s), about %s a task", s.Tokens, s.TokenTasks, groupDigits(avg))
+		if s.TokensUnknown > 0 {
+			fmt.Fprintf(&b, "; %d task(s) had transcripts that couldn't all be read", s.TokensUnknown)
+		}
+		b.WriteString("\n")
+	}
 	var noisy []string
 	for r, w := range s.Wrong {
 		if bl := s.Blocks[r]; bl > 0 && w*2 >= bl {

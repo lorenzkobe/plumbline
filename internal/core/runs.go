@@ -41,8 +41,13 @@ type Run struct {
 	Ran         int       `json:"ran"`    // tests that ran; -1 when the output could not be read
 	Failed      int       `json:"failed"` // failing tests, or problems for lint/build
 	FailedIDs   []string  `json:"failed_ids,omitempty"`
-	Problems    int       `json:"problems,omitempty"`
-	Baseline    bool      `json:"baseline,omitempty"` // run before any task edit
+	Skipped     int       `json:"skipped,omitempty"` // skipped, todo or pending tests
+	// Files: the files a related run was given. Seen: the task's case
+	// tests that the run's output names (the file, or its Go package).
+	Files    []string `json:"files,omitempty"`
+	Seen     []string `json:"seen,omitempty"`
+	Problems int      `json:"problems,omitempty"`
+	Baseline bool     `json:"baseline,omitempty"` // run before any task edit
 }
 
 // Complete is true only when the run finished and the code did not change
@@ -110,6 +115,16 @@ func LoadRuns(root string) []*Run {
 // Execute runs a saved command through the shell, streams its output to the
 // terminal, and records the result.
 func Execute(root string, t *Task, kind, sub, command string, setup *Setup, out io.Writer) (*Run, error) {
+	return execute(root, t, kind, sub, command, nil, setup, out)
+}
+
+// ExecuteRelated runs the related-tests command for the given files and
+// records which files it was given.
+func ExecuteRelated(root string, t *Task, command string, files []string, setup *Setup, out io.Writer) (*Run, error) {
+	return execute(root, t, KindRelated, "", command, files, setup, out)
+}
+
+func execute(root string, t *Task, kind, sub, command string, files []string, setup *Setup, out io.Writer) (*Run, error) {
 	ignore := []string(nil)
 	if setup != nil {
 		ignore = setup.IgnoreChanges
@@ -119,6 +134,11 @@ func Execute(root string, t *Task, kind, sub, command string, setup *Setup, out 
 		return nil, err
 	}
 	r := &Run{ID: newID() + "-" + kind, Kind: kind, Sub: sub, Command: command, Started: Now(), PrintBefore: before, Ran: -1}
+	for _, f := range files {
+		if f = cleanRel(f); f != "" {
+			r.Files = append(r.Files, f)
+		}
+	}
 	if t != nil {
 		r.TaskID = t.ID
 		r.Baseline = t.Phase != PhaseBuilding && t.LastCodeChange.IsZero()
@@ -150,7 +170,11 @@ func Execute(root string, t *Task, kind, sub, command string, setup *Setup, out 
 		if setup != nil {
 			pat = setup.TestsRanPattern
 		}
-		r.Ran, r.Failed, r.FailedIDs = ParseTests(text, pat)
+		c := ParseTestOutput(text, pat)
+		r.Ran, r.Failed, r.FailedIDs, r.Skipped = c.Ran, c.Failed, c.IDs, c.Skipped
+		if t != nil {
+			r.Seen = CaseTestsSeen(root, text, t.caseTestFiles())
+		}
 		if r.Exit != 0 && r.Failed == 0 && r.Ran >= 0 {
 			r.Failed = 1 // non-zero exit with no failure count: treat as failing
 		}
@@ -188,89 +212,219 @@ var (
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
+// TestCounts is what a test run's output says: tests that ran, failed and
+// were skipped, and the failing tests' names when the format shows them.
+// Ran is -1 when the output format is unknown: that is never counted as
+// proof.
+type TestCounts struct {
+	Ran, Failed, Skipped int
+	IDs                  []string
+}
+
 // ParseTests reads test output and returns how many tests ran, how many
-// failed, and the failing test names when the format shows them. ran is -1
-// when the output format is unknown: that is never counted as proof.
+// failed, and the failing test names when the format shows them.
 func ParseTests(text, custom string) (ran, failed int, ids []string) {
+	c := ParseTestOutput(text, custom)
+	return c.Ran, c.Failed, c.IDs
+}
+
+var (
+	reSkippedN   = regexp.MustCompile(`(\d+) (?:skipped|todo|pending|ignored)\b`)
+	reVitestFail = regexp.MustCompile(`(?m)^\s*FAIL\s+(\S+)\s+>\s+(.+?)\s*$`)
+	// A test file that failed as a whole (an import error): "FAIL  x.test.ts [ x.test.ts ]".
+	reVitestFileFail = regexp.MustCompile(`(?m)^\s*FAIL\s+(\S+)\s*(?:\[[^\]]*\])?\s*$`)
+	// Cypress prints a box per spec: "│ Tests:  3 │", "│ Failing:  1 │".
+	reCyTests     = regexp.MustCompile(`│\s*Tests:\s+(\d+)`)
+	reCyFailing   = regexp.MustCompile(`│\s*Failing:\s+(\d+)`)
+	reCySkipped   = regexp.MustCompile(`│\s*(?:Pending|Skipped):\s+(\d+)`)
+	reRSpecFail   = regexp.MustCompile(`(?m)^rspec \S+ # (.+)$`)
+	reCargoFail   = regexp.MustCompile(`(?m)^test (\S+) \.\.\. FAILED\s*$`)
+	rePHPUnitFail = regexp.MustCompile(`(?m)^\d+\) ([\w\\]+::\w+)`)
+	rePHPUnitSkip = regexp.MustCompile(`(?:Skipped|Incomplete|Risky): (\d+)`)
+	reMochaItem   = regexp.MustCompile(`^\s+\d+\) (.*)$`)
+	reGoSkip      = regexp.MustCompile(`(?m)^\s*--- SKIP: `)
+	reCargoResult = regexp.MustCompile(`test result: .*`)
+	reMochaPend   = regexp.MustCompile(`(?m)^\s*(\d+) pending`)
+	rePWSkipped   = regexp.MustCompile(`(?m)^\s*(\d+) skipped`)
+)
+
+// sumSkipped adds up every "N skipped" (todo, pending, ignored) in a
+// summary line.
+func sumSkipped(summary string) int {
+	n := 0
+	for _, m := range reSkippedN.FindAllStringSubmatch(summary, -1) {
+		n += atoi(m[1])
+	}
+	return n
+}
+
+// mochaFailures: the names under mocha's "N failing" list, each "1) suite
+// test:" possibly split over several indented lines.
+func mochaFailures(text string, at int) []string {
+	var ids []string
+	var cur []string
+	flush := func() {
+		if len(cur) > 0 {
+			ids = append(ids, strings.TrimSuffix(strings.Join(cur, " "), ":"))
+			cur = nil
+		}
+	}
+	for _, l := range strings.Split(text[at:], "\n") {
+		if m := reMochaItem.FindStringSubmatch(l); m != nil {
+			flush()
+			cur = []string{strings.TrimSpace(m[1])}
+			if strings.HasSuffix(cur[0], ":") {
+				flush()
+			}
+			continue
+		}
+		if cur != nil {
+			t := strings.TrimSpace(l)
+			if t == "" {
+				flush()
+				continue
+			}
+			cur = append(cur, t)
+			if strings.HasSuffix(t, ":") {
+				flush()
+			}
+		}
+	}
+	flush()
+	return ids
+}
+
+// ParseTestOutput reads test output (Jest, Vitest, pytest, PHPUnit, RSpec,
+// cargo, mocha, Playwright, go test), or the setup's tests_ran_pattern.
+func ParseTestOutput(text, custom string) TestCounts {
+	var c TestCounts
 	if custom != "" {
 		if re, err := regexp.Compile(custom); err == nil {
 			if m := re.FindStringSubmatch(text); m != nil {
 				for i, n := range re.SubexpNames() {
 					switch n {
 					case "ran":
-						ran = atoi(m[i])
+						c.Ran = atoi(m[i])
 					case "failed":
-						failed = atoi(m[i])
+						c.Failed = atoi(m[i])
+					case "skipped":
+						c.Skipped = atoi(m[i])
 					}
 				}
-				return ran, failed, nil
+				return c
 			}
 		}
 	}
 	if m := reJest.FindAllStringSubmatch(text, -1); m != nil {
 		last := m[len(m)-1]
-		ran = atoi(last[2])
+		c.Ran = atoi(last[2])
 		if f := reJestFailed.FindStringSubmatch(last[1]); f != nil {
-			failed = atoi(f[1])
+			c.Failed = atoi(f[1])
 		}
+		c.Skipped = sumSkipped(last[1])
 		for _, x := range reJestFailID.FindAllStringSubmatch(text, -1) {
-			ids = append(ids, strings.TrimSpace(x[1])+" › "+strings.TrimSpace(x[2]))
+			c.IDs = append(c.IDs, strings.TrimSpace(x[1])+" › "+strings.TrimSpace(x[2]))
 		}
-		return ran, failed, uniq(ids)
+		c.IDs = uniq(c.IDs)
+		return c
 	}
 	if m := reVitest.FindAllStringSubmatch(text, -1); m != nil {
 		last := m[len(m)-1]
-		ran = atoi(last[2])
+		c.Ran = atoi(last[2])
 		if f := reJestFailed.FindStringSubmatch(last[1]); f != nil {
-			failed = atoi(f[1])
+			c.Failed = atoi(f[1])
 		}
-		return ran, failed, nil
+		c.Skipped = sumSkipped(last[1])
+		for _, x := range reVitestFail.FindAllStringSubmatch(text, -1) {
+			c.IDs = append(c.IDs, x[1]+" > "+x[2])
+		}
+		for _, x := range reVitestFileFail.FindAllStringSubmatch(text, -1) {
+			c.IDs = append(c.IDs, x[1]) // the whole file failed
+		}
+		c.IDs = uniq(c.IDs)
+		return c
 	}
 	if m := rePytest.FindAllStringSubmatch(text, -1); m != nil {
 		summary := m[len(m)-1][1]
 		if strings.Contains(summary, "no tests ran") {
-			return 0, 0, nil
+			c.Skipped = sumSkipped(summary)
+			return c
 		}
 		found := false
-		for _, c := range rePyCount.FindAllStringSubmatch(summary, -1) {
+		for _, x := range rePyCount.FindAllStringSubmatch(summary, -1) {
 			found = true
-			n := atoi(c[1])
-			ran += n
-			if c[2] == "failed" || strings.HasPrefix(c[2], "error") {
-				failed += n
+			n := atoi(x[1])
+			c.Ran += n
+			if x[2] == "failed" || strings.HasPrefix(x[2], "error") {
+				c.Failed += n
 			}
 		}
 		if found {
+			c.Skipped = sumSkipped(summary)
 			for _, x := range rePyFailedID.FindAllStringSubmatch(text, -1) {
-				ids = append(ids, x[1])
+				c.IDs = append(c.IDs, x[1])
 			}
-			return ran, failed, uniq(ids)
+			c.IDs = uniq(c.IDs)
+			return c
 		}
 	}
+	phpSkipped := func() int {
+		n := 0
+		for _, m := range rePHPUnitSkip.FindAllStringSubmatch(text, -1) {
+			n += atoi(m[1])
+		}
+		return n
+	}
 	if m := rePHPUnitOK.FindStringSubmatch(text); m != nil {
-		return atoi(m[1]), 0, nil
+		return TestCounts{Ran: atoi(m[1]), Skipped: phpSkipped()}
 	}
 	if m := rePHPUnit.FindStringSubmatch(text); m != nil {
-		return atoi(m[1]), atoi(m[2]) + atoi(m[3]), nil
+		c = TestCounts{Ran: atoi(m[1]), Failed: atoi(m[2]) + atoi(m[3]), Skipped: phpSkipped()}
+		for _, x := range rePHPUnitFail.FindAllStringSubmatch(text, -1) {
+			c.IDs = append(c.IDs, x[1])
+		}
+		c.IDs = uniq(c.IDs)
+		return c
 	}
 	if m := reRSpec.FindAllStringSubmatch(text, -1); m != nil {
 		last := m[len(m)-1]
-		return atoi(last[1]), atoi(last[2]), nil
+		c = TestCounts{Ran: atoi(last[1]), Failed: atoi(last[2])}
+		if i := strings.LastIndex(text, last[0]); i >= 0 {
+			line, _, _ := strings.Cut(text[i:], "\n")
+			c.Skipped = sumSkipped(line)
+		}
+		for _, x := range reRSpecFail.FindAllStringSubmatch(text, -1) {
+			c.IDs = append(c.IDs, strings.TrimSpace(x[1]))
+		}
+		c.IDs = uniq(c.IDs)
+		return c
 	}
 	if m := reCargo.FindAllStringSubmatch(text, -1); m != nil {
 		for _, x := range m {
-			ran += atoi(x[1]) + atoi(x[2])
-			failed += atoi(x[2])
+			c.Ran += atoi(x[1]) + atoi(x[2])
+			c.Failed += atoi(x[2])
 		}
-		return ran, failed, nil
+		for _, line := range reCargoResult.FindAllString(text, -1) {
+			c.Skipped += sumSkipped(line)
+		}
+		for _, x := range reCargoFail.FindAllStringSubmatch(text, -1) {
+			c.IDs = append(c.IDs, x[1])
+		}
+		c.IDs = uniq(c.IDs)
+		return c
 	}
 	if m := reMocha.FindStringSubmatch(text); m != nil {
 		p := atoi(m[1])
 		f := 0
-		if mf := reMochaFail.FindStringSubmatch(text); mf != nil {
-			f = atoi(mf[1])
+		if loc := reMochaFail.FindStringSubmatchIndex(text); loc != nil {
+			f = atoi(text[loc[2]:loc[3]])
+			c.IDs = uniq(mochaFailures(text, loc[1]))
 		}
-		return p + f, f, nil
+		if pm := reMochaPend.FindStringSubmatch(text); pm != nil {
+			c.Skipped = atoi(pm[1])
+		}
+		c.Ran, c.Failed = p+f, f
+		return c
 	}
 	if m := rePlaywright.FindStringSubmatch(text); m != nil {
 		p := atoi(m[1])
@@ -278,7 +432,23 @@ func ParseTests(text, custom string) (ran, failed int, ids []string) {
 		if mf := rePWFailed.FindStringSubmatch(text); mf != nil {
 			f = atoi(mf[1])
 		}
-		return p + f, f, nil
+		if sm := rePWSkipped.FindStringSubmatch(text); sm != nil {
+			c.Skipped = atoi(sm[1])
+		}
+		c.Ran, c.Failed = p+f, f
+		return c
+	}
+	if m := reCyTests.FindAllStringSubmatch(text, -1); m != nil {
+		for _, x := range m {
+			c.Ran += atoi(x[1])
+		}
+		for _, x := range reCyFailing.FindAllStringSubmatch(text, -1) {
+			c.Failed += atoi(x[1])
+		}
+		for _, x := range reCySkipped.FindAllStringSubmatch(text, -1) {
+			c.Skipped += atoi(x[1])
+		}
+		return c
 	}
 	// Go: count packages that really ran tests.
 	oks := reGoOK.FindAllStringSubmatch(text, -1)
@@ -292,22 +462,26 @@ func ParseTests(text, custom string) (ran, failed int, ids []string) {
 		}
 		runs := len(reGoRun.FindAllString(text, -1))
 		for _, x := range reGoFailID.FindAllStringSubmatch(text, -1) {
-			ids = append(ids, x[1])
+			c.IDs = append(c.IDs, x[1])
 		}
-		ran = pk + len(fails)
-		if runs > ran {
-			ran = runs
+		c.Ran = pk + len(fails)
+		if runs > c.Ran {
+			c.Ran = runs
 		}
-		failed = len(ids)
-		if failed == 0 {
-			failed = len(fails)
+		// Without -v, Ran counts packages, so Failed does too (a package's
+		// subtests would otherwise outnumber what ran); the names stay.
+		c.Failed = len(c.IDs)
+		if c.Failed == 0 || (runs == 0 && len(fails) > 0) {
+			c.Failed = len(fails)
 		}
-		return ran, failed, uniq(ids)
+		c.IDs = uniq(c.IDs)
+		c.Skipped = len(reGoSkip.FindAllString(text, -1))
+		return c
 	}
 	if strings.Contains(text, "no test files") {
-		return 0, 0, nil
+		return c
 	}
-	return -1, 0, nil
+	return TestCounts{Ran: -1}
 }
 
 func uniq(s []string) []string {
@@ -368,6 +542,11 @@ func Judge(r *Run, baseline *Run) Verdict {
 					if !base[id] {
 						fresh = append(fresh, id)
 					}
+				}
+				// A failure without a name (a file that didn't load) can't be
+				// matched by name, so those may not grow either.
+				if len(fresh) == 0 && unnamedFailures(r) > unnamedFailures(baseline) {
+					return Verdict{false, "more failures without a test name than before the task (a test file that didn't load?)"}
 				}
 				if len(fresh) == 0 {
 					return Verdict{true, "only failures that were there before the task"}
@@ -443,12 +622,59 @@ func commandMatches(kind, saved, ran string) bool {
 	return ran == saved
 }
 
-// BaselineFor returns the task's baseline run of a kind.
-func BaselineFor(runs []*Run, taskID, kind string) *Run {
+// unnamedFailures: failures the output gave no name for.
+func unnamedFailures(r *Run) int {
+	if n := r.Failed - len(r.FailedIDs); n > 0 {
+		return n
+	}
+	return 0
+}
+
+// baselineRuns: the task's complete runs of a kind taken before its first
+// edit, oldest first.
+func baselineRuns(runs []*Run, taskID, kind string) []*Run {
+	var out []*Run
 	for _, r := range runs {
 		if r.TaskID == taskID && r.Kind == kind && r.Baseline && r.Complete() {
-			return r
+			out = append(out, r)
 		}
 	}
-	return nil
+	return out
+}
+
+// brokenBaseline: every test failed in each run before the first edit, so
+// none of them is a starting point (BaselineFor).
+func brokenBaseline(runs []*Run, taskID, kind string) bool {
+	b := baselineRuns(runs, taskID, kind)
+	return len(b) > 0 && BaselineFor(runs, taskID, kind) == nil
+}
+
+// BaselineFor returns the task's baseline run of a kind: of the runs taken
+// before the first edit, the one with the fewest failures (the newest on a
+// tie), so fixing a broken environment and running again replaces it, but
+// a worse run never excuses more failures. A test run where every test
+// failed says the environment was broken, not how the code stood, so it
+// isn't one.
+func BaselineFor(runs []*Run, taskID, kind string) *Run {
+	var best *Run
+	for _, r := range baselineRuns(runs, taskID, kind) {
+		test := kind == KindTest || kind == KindRelated || kind == KindE2E
+		if test && r.Ran > 1 && r.Failed >= r.Ran {
+			continue
+		}
+		bad, bestBad := r.Failed, 0
+		if !test {
+			bad = r.Problems
+		}
+		if best != nil {
+			bestBad = best.Failed
+			if !test {
+				bestBad = best.Problems
+			}
+		}
+		if best == nil || bad <= bestBad {
+			best = r
+		}
+	}
+	return best
 }

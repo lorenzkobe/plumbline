@@ -24,7 +24,7 @@ A plumb line is how builders check a wall is truly straight.
 | Jira | Claude reads the ticket and its comments before the checkpoint and drafts the comment in `TICKET-123-jira-comment.md` for you to copy and post. Posts, comments, status changes and edits are refused unless your own message asks for one, and then you confirm the exact text |
 | Always | No `git push`, no `--no-verify`, no editing `.env` or key files, reading them (Read, a Grep that names them, or a command reading files from a listing that could include them, like `rg -l x | xargs cat`) asks you, and setup can add Claude Code deny rules so it skips them altogether, production and cloud commands ask you, installs ask you, Claude Code settings and plugins are protected, helpers can't start helpers |
 
-Only you can pause (`/plumbline:pause`), resume, close a task (`/plumbline:cancel`) or mark a block as wrong (`/plumbline:wrong`). Even when paused, the safety rules stay on.
+Only you can pause (`/plumbline:pause`), resume, close a task (`/plumbline:cancel`), mark a block as wrong (`/plumbline:wrong`) or keep a risky change small (`/plumbline:size small`). Even when paused, the safety rules stay on.
 
 The same refusal twice in a row tells Claude to stop and ask you instead of trying again. Proof runs are sealed with a key kept on your laptop and count only for the task and the saved command that made them. "Small" is refused at the checkpoint when the plan changes a high-impact kind of file.
 
@@ -50,8 +50,9 @@ No Go needed: prebuilt binaries for Apple Silicon, Intel Mac and Linux ship in `
 | `/plumbline:design what to design` | The design workflow: brand kit, 3 mockup directions, your pick, then the task workflow |
 | `/plumbline:standup [day]` | Your own work that day, by ticket, across the repos it touched (not unrelated projects), what's next from open tasks and Jira, and suggested updates to your sprint file |
 | `/plumbline:status` | Where the task is, what's proven, what's missing |
-| `/plumbline:stats` | Blocks per rule, send-backs, waivers, blocks marked wrong |
+| `/plumbline:stats` | Blocks per rule, send-backs, waivers, blocks marked wrong, tokens per task |
 | `/plumbline:pause`, `/plumbline:resume`, `/plumbline:cancel`, `/plumbline:wrong` | Yours only |
+| `/plumbline:size small [why]` | Yours only: keeps a low-impact change to a risky file small (not for files that decide which checks run) |
 
 Claude uses the `plumbline` command (on its PATH) to start tasks and record proof: `plumbline run test`, `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run proof api -- curl ...`. Only runs recorded this way count as proof, and results go stale the moment the code changes. Builders' copies: `plumbline builder list`, `plumbline builder merge <n>`, `plumbline builder drop <n>`.
 

@@ -14,11 +14,19 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - Real-session prompt tests (N11) are a script the user runs by hand before a release, never on their own.
 - Release 2 takes the small related fixes the study found (N14 to N19), not only the WF items.
 
+## Decisions for release 3b (2026-11-18)
+- P4: `plumbline run e2e` is required (when the setup saves an e2e command) if the task changes frontend files, or the plan proves an API change and the project has a frontend (frontend files in the repo, or the setup's `frontend_repo`). A backend change with no API impact doesn't need it. `plumbline waive e2e` is the way out.
+- N7: a case's test counts when the last passing run on the current code names it in its output (the file, or its Go package), or it was passed to `plumbline run related --files`. If that run skipped tests, the report's Weakened tests line names the file.
+- R4 and N8: the user's `/plumbline:size small` keeps a risky-file change small, but never files that decide what runs (CI, git hooks, test and lint config, CLAUDE.md and AGENTS.md, `.claude/`, plugin skills, agents and hooks). Those always get the full review.
+- N13: a test run whose database or service settings point off the laptop is refused. One that would use the dev database asks the user once per task, and stays quiet for Django, Rails and Laravel (they switch to a test database on their own). Values are never shown, only setting names.
+- From Claude Code's docs (checked 2026-11-18): hooks get `transcript_path`, SubagentStop also gets `agent_transcript_path`, and the transcript format is internal and may change, so P5 counts what it can read and marks the rest unknown. After compaction an invoked skill is re-attached capped at 5,000 tokens (25,000 for all of them), and SKILL.md should stay under 500 lines (N12).
+
 ## Done
 - Release 1: 0.6.1 (commit 95c298f): L5, G9, G7, G8, G2, G10, L3, B9, B10, D2, P6, G5, L1, G12, B4.
 - Release 3a: 0.6.2 (commit ac01882): L2, G3, G4, G6, G11, O1, O2. It moved mvdan.cc/sh to v3.14.1, which needs Go 1.26 to build (go.mod's `go` line went from 1.24.7 to 1.26.0; users run the prebuilt binaries).
 - Reference repo study: [repo-study.md](repo-study.md).
-- Release 2: 0.6.3: WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
+- Release 2: 0.6.3 (commit 89a2845): WF1, WF2, WF5, WF6, N1, N2, N14, N15, N16, N17, N18, N19, and R6 (ticked as closed by G6 in 0.6.2). Builds now pass `VERSION=0.6.3` to `make build`, so `plumbline version` prints the release.
+- Release 3b: 0.6.4: P3, P4, P5, L4, R4, R5, N7, N8, N9, N12, N13, N21.
 
 ### Release 2 items (0.6.3), shipped
 - [x] WF1: the reuse rule and checklist items, with the input-checking rule above.
@@ -36,16 +44,16 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] R6: ticked in known-gaps.md as closed by G6 in 0.6.2 (the lead's Grep naming a secret file asks; `--deny-secrets` covers folder-wide searches).
 - How to write it: say the wanted behavior, keep "never" for hard limits, no "unless it matters" clauses, keep rules.md about its current size (long lists go in the review checklist), and make a rule a hook check wherever it can be one (repo-study.md, "How to word release 2").
 
-## Next: release 3b, proof and finish
-- P3 (weakened tests in the diff), P4 (full-stack e2e), P5 (token counts), L4 (baseline without test ids), R5 (bad news first), R4 (`/plumbline:size small`).
-- N7: a case's test must have run and passed in the last suite, not just exist; skipped tests count as not run.
-- N8: size by what the change runs: a small change to a gate, CI, a hook or agent instructions still gets the full review (with R4).
-- N9: temporary debug logs carry a `[PLB-DEBUG]` tag; the finish check refuses while the diff has one.
-- N12: a test keeps skill files under the size Claude Code may cut them to after compaction (confirm the limit in Claude Code's docs first).
-- N13: before `plumbline run test` or a migration, check its database and service settings point at throwaway targets, never the dev database.
-- N21: package upgrades: run the suite before the first change and save it, rerun the same commands after, and list every test the upgrade edited.
+### Release 3b items (0.6.4), shipped
+- [x] P3, P4, P5, L4, R4, R5: ticked in known-gaps.md with what was built and what's left.
+- [x] N7: a case's test counts when a passing run on the final code names it in its output (the file, or its Go package) or was given it with `plumbline run related --files`; a run that skipped more tests than before the task counts only when the Weakened tests line names the file. Without a related command that takes `{files}`, a full suite that passes against the baseline counts.
+- [x] N8: files that decide which checks run (CI, git hooks, test, lint and type config, CLAUDE.md, AGENTS.md, `.claude/`, plugin skills, agents and hooks, `.plumbline.json`) are never small, even with the user's `/plumbline:size small`, and always get the plan reviewer, also when changed outside the plan. Open question for the user: whether such a file changed outside the plan should be refused like a risky file (today it's allowed and listed). Test config inside `package.json` or `pyproject.toml` counts as risky, not as a gate file, and the Makefile is neither. Plumbline's own gate code (internal/core) isn't on the list; add it with `risky_paths` if wanted.
+- [x] N9: the finish check refuses while an added line carries `[PLB-DEBUG]` (prose files are skipped).
+- [x] N12: a test keeps each SKILL.md under 500 lines and 17,500 characters (5,000 tokens at 3.5 characters a token).
+- [x] N13: before `plumbline run test|related|e2e` or a test runner typed directly, settings for a database, queue, cache or mail server (set, exported or loaded from an env file on the command line, the session's environment, then `.env.test.local`, `.env.test`, `.env.testing`, `.env` in the folder the command runs in and the root) pointing off the laptop refuse the run; a test database equal to the dev one asks once per task (quiet for Django, Rails, Laravel's phpunit.xml and Phoenix). A migration aimed off the laptop, read with the development settings, asks. `test_targets_ok` in the setup lists settings the tests never connect to. Left: values made at runtime (a config file, a secrets manager, a script that sets them) aren't seen.
+- [x] N21: a plan that changes packages needs the suite, lint and build baselines before the checkpoint, and the report names every test file the task changed.
 
-## Release 3c, helpers and builders
+## Next: release 3c, helpers and builders
 - R1 (specialists by content), R3 (findings pasted into a reviewer's prompt), B2, B3, B5, B7, B8, D1.
 - N3: findings carry a short quote that Go checks near the cited file:line.
 - N4: the code reviewer marks every changed file covered or not; any file not covered means not Ready.

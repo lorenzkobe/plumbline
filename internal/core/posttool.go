@@ -166,6 +166,7 @@ func (c *hookCtx) afterBash() Output {
 	cmd := in.Str("command")
 	out := responseText(in.ToolResponse)
 	segs := ParseShell(cmd, in.Cwd)
+	c.noteDevDBAllowed(segs)
 	// Bind a task to this session only on a real plumbline task start or
 	// adopt: printing the id line some other way binds nothing.
 	onlyPlumbline := len(segs) > 0
@@ -534,6 +535,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.ApprovedCmds = pc.Approved
 			t.CaseTests = pc.CaseTests
 			t.CasesStored = true
+			t.Upgrade = upgradePlan(pc)
 			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
 			if t.ApprovalPrint == "" {

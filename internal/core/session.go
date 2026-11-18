@@ -119,8 +119,8 @@ func UserPromptSubmit(in *HookInput) Output {
 }
 
 // UserPromptExpansion runs the user-only commands. These fire only when you
-// type the command yourself, so Claude can't pause, resume, cancel or mark
-// a block wrong.
+// type the command yourself, so Claude can't pause, resume, cancel, mark a
+// block wrong or keep a risky change small.
 func UserPromptExpansion(in *HookInput) Output {
 	name := strings.ToLower(strings.TrimPrefix(in.CommandName, "/"))
 	switch {
@@ -173,14 +173,20 @@ func UserPromptExpansion(in *HookInput) Output {
 		if t == nil {
 			return say("no such task.")
 		}
+		wasOpen := t.Open()
 		t.Phase = PhaseCancelled
 		_ = SaveTask(t)
 		LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: c.projectKey()})
+		if wasOpen { // a closed task logged its tokens already
+			LogTokens(t, c.projectKey())
+		}
 		note := ""
 		if left := LeftCopies(t); len(left) > 0 {
 			note = fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (remove one with git worktree remove --force <path>).", strings.Join(left, ", "))
 		}
 		return say(fmt.Sprintf("task %s was closed by the user. Its changes stay in the working tree; nothing was undone.%s", t.ID, note))
+	case "size":
+		return say(userSize(c, in.CommandArgs))
 	case "wrong":
 		e, err := MarkLastBlockWrong(in.CommandArgs)
 		if err != nil {
@@ -189,4 +195,31 @@ func UserPromptExpansion(in *HookInput) Output {
 		return say(fmt.Sprintf("marked the last block (%s) as wrong. It counts against that rule in /plumbline:stats.", e.Rule))
 	}
 	return nil
+}
+
+// userSize is /plumbline:size small (R4): the user keeps a low-impact change
+// to a risky file small (copy on a login page). Only before approval, and
+// files that decide which checks run still need the full review.
+func userSize(c *hookCtx, args string) string {
+	f := strings.Fields(args)
+	if len(f) == 0 || strings.ToLower(f[0]) != "small" {
+		return "only /plumbline:size small is yours to type; for normal or big, Claude runs plumbline task size normal|big --why \"...\"."
+	}
+	if c.root == "" || c.task == nil {
+		return "no task is open here, so there's nothing to size."
+	}
+	t := c.task
+	if t.Phase != PhaseUnderstanding && t.Phase != PhasePlanning {
+		return fmt.Sprintf("task %s is at the %s step; the size is fixed once the plan is approved (Claude can replan to change it).", t.ID, t.Phase)
+	}
+	why := strings.TrimSpace(strings.Join(f[1:], " "))
+	if why == "" {
+		why = "kept small by the user"
+	}
+	t.Size, t.SizeWhy, t.SizeByUser = "small", why, true
+	if err := SaveTask(t); err != nil {
+		return "couldn't save the size: " + err.Error() + "."
+	}
+	LogEvent(Event{Type: "task", Task: t.ID, Size: t.Size, Project: c.projectKey(), Rule: "size-by-user"})
+	return fmt.Sprintf("task %s is small, set by the user: risky files in the plan won't make it normal, so there's no challenger and only the code reviewer plus any specialist the files call for. Files that decide which checks run (CI, git hooks, test or lint config, AI instructions) still need the full review. Ask the checkpoint again.", t.ID)
 }

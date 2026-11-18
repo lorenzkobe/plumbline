@@ -9,26 +9,27 @@ import (
 
 // HookInput holds the fields Plumbline reads from Claude Code's hook input.
 type HookInput struct {
-	SessionID      string          `json:"session_id"`
-	TranscriptPath string          `json:"transcript_path"`
-	Cwd            string          `json:"cwd"`
-	ScratchpadDir  string          `json:"scratchpad_dir"`
-	PermissionMode string          `json:"permission_mode"`
-	Event          string          `json:"hook_event_name"`
-	ToolName       string          `json:"tool_name"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	ToolResponse   json.RawMessage `json:"tool_response"`
-	ToolUseID      string          `json:"tool_use_id"`
-	AgentID        string          `json:"agent_id"`
-	AgentType      string          `json:"agent_type"`
-	Source         string          `json:"source"`
-	Prompt         string          `json:"prompt"`
-	StopHookActive bool            `json:"stop_hook_active"`
-	LastMessage    string          `json:"last_assistant_message"`
-	ExpansionType  string          `json:"expansion_type"`
-	CommandName    string          `json:"command_name"`
-	CommandArgs    string          `json:"command_args"`
-	CommandSource  string          `json:"command_source"`
+	SessionID       string          `json:"session_id"`
+	TranscriptPath  string          `json:"transcript_path"`
+	Cwd             string          `json:"cwd"`
+	ScratchpadDir   string          `json:"scratchpad_dir"`
+	PermissionMode  string          `json:"permission_mode"`
+	Event           string          `json:"hook_event_name"`
+	ToolName        string          `json:"tool_name"`
+	ToolInput       json.RawMessage `json:"tool_input"`
+	ToolResponse    json.RawMessage `json:"tool_response"`
+	ToolUseID       string          `json:"tool_use_id"`
+	AgentID         string          `json:"agent_id"`
+	AgentType       string          `json:"agent_type"`
+	AgentTranscript string          `json:"agent_transcript_path"`
+	Source          string          `json:"source"`
+	Prompt          string          `json:"prompt"`
+	StopHookActive  bool            `json:"stop_hook_active"`
+	LastMessage     string          `json:"last_assistant_message"`
+	ExpansionType   string          `json:"expansion_type"`
+	CommandName     string          `json:"command_name"`
+	CommandArgs     string          `json:"command_args"`
+	CommandSource   string          `json:"command_source"`
 }
 
 func (in *HookInput) Input() map[string]any {

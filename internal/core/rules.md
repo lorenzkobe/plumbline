@@ -34,11 +34,11 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`: Plumbline runs the saved command and records the result. Only these runs count as proof.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
-- `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files.
+- `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files (the user can keep a low-impact one small with /plumbline:size small) and always for files that decide which checks run (CI, git hooks, test and lint config, AI instructions).
 - `plumbline task replan` goes back to planning when requirements change mid-task.
 - `plumbline task finish` closes the task after the report and the user's commit decision.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
-- Pause, resume, cancel and "this block was wrong" are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong.
+- Pause, resume, cancel, "this block was wrong" and keeping a risky change small are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small.
 
 ## Checkpoints (Claude Code's question prompt, answered by the user)
 The user usually hands over the task and comes back later: research and plan without stopping, stop once at the checkpoint, then build and prove to the end without stopping (except for real decisions).
@@ -71,6 +71,7 @@ The user usually hands over the task and comes back later: research and plan wit
 - Deploy the way the project deploys (the setup's `deploy_notes`). When a pipeline deploys (`deploy_pipeline`), never deploy by hand: Plumbline refuses it. Say what's ready; the user pushes.
 - Dry run first where a command has one (terraform plan, --dry-run, a migration preview); before a database change outside local, check a backup exists and say how in the plan.
 - Secrets are used through commands only (load and use in one step), never shown, repeated or written down. Only variable names are listed.
+- Test runs use throwaway targets: a test run whose database or service settings point off the laptop is refused, and one on the dev database asks the user once per task. Point tests at their own database in `.env.test`.
 
 ## Jira
 - Read the ticket and every comment with the Jira tools before the checkpoint (company tasks on a ticket need it).
@@ -78,11 +79,13 @@ The user usually hands over the task and comes back later: research and plan wit
 - Draft the comment in `<TICKET>-jira-comment.md` in the notes folder (format in the task skill); the suggested status goes under "For you".
 
 ## Finishing
-- Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end.
+- Build: branch per the git rules, a failing test first, the fix, a test per case, related tests while building, the full suite near the end. Each case's test must have run and passed on the final code (`plumbline run related --files <case tests>`). A change that reaches the frontend needs `plumbline run e2e` when the setup saves one.
+- Temporary debug logs carry the tag `[PLB-DEBUG]`, and the finish check refuses while one is left in the diff.
 - Report (`report.md`, then a short chat version, bad news first): the verdict, what changed, proof (runs and counts, every waiver), review, common-sense calls, outside-the-ticket findings, weakened tests (skipped, removed, loosened), "For you" (anything needing the user, or "nothing"), and the question about committing. The finish check needs each of these:
   - `## Verdict`: Ready, Ready with noted limitations, or Not ready, with why, and a `Rollback:` line.
   - A check that couldn't run is an error, never "skipped": write "couldn't run", why, and the exact command to run later in backticks. That, a waiver or an upheld finding means at best Ready with noted limitations.
-  - `## Common-sense calls`, every waiver, a `Should-fix not fixed:` line under `## Review` when a reviewer marked any, `## For you`, and a "For you" line in the closing chat message.
+  - `## Common-sense calls`, every waiver, a `Should-fix not fixed:` line under `## Review` when a reviewer marked any, `## For you`, and a "For you" line in the closing chat message, as its first line when the report's "For you" isn't "nothing".
+  - The "Weakened tests:" line under Proof names each file the diff weakens, with why (the finish check lists them: skips, silenced checks, CI steps allowed to fail, removed tests or assertions). After a package change, the report names every test file the task changed.
 - Commits: only after the user says so. Company: `TICKET-123: What changed`. Personal: `feat:`/`fix:`/`chore:`. Short, plain, no AI markers. The user pushes.
 - A flaky test: re-run it several times to see how often it fails, then find the cause. Passing on a retry is not passing.
 - 3 strikes: after 3 failed fix attempts, stop and give options. The same block twice in a row means stop and tell the user (Plumbline says so on the second one); don't work around it.

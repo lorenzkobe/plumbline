@@ -122,7 +122,7 @@ Rollback: <how to undo it: revert the commit, the down migration> / <why it can'
 - Full suite: <ran>, <failed> (<new failures: none>); lint, build: pass
 - Real-world: <the api call and what the response shows changed / clicks / query>
 - <check>: couldn't run, because <why>; run later: `<exact command>`
-- Weakened tests: <skipped, removed or loosened tests, or "none">
+- Weakened tests: <each file the diff weakens (skipped, removed or loosened tests, silenced checks, a CI step allowed to fail), with why, or "none">
 - Waivers: <or "none">
 
 ## Review

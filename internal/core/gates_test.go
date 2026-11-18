@@ -23,6 +23,7 @@ func newHarness(t *testing.T) *harness {
 	home := t.TempDir()
 	t.Setenv("PLUMBLINE_HOME", filepath.Join(home, "data"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "claude"))
+	clearServiceEnv(t) // a DATABASE_URL in the shell running the tests doesn't reach them
 	repo := filepath.Join(home, "repo")
 	must(t, os.MkdirAll(filepath.Join(repo, "src"), 0o755))
 	run(t, repo, "git", "init", "-q", "-b", "main")
@@ -32,7 +33,7 @@ func newHarness(t *testing.T) *harness {
 	write(t, filepath.Join(repo, "src", "b.go"), "package src\n\nfunc B() int { return 2 }\n")
 	write(t, filepath.Join(repo, ".gitignore"), "coverage/\n")
 	// the "test suite": prints pytest-style output, fails when FAIL file exists
-	write(t, filepath.Join(repo, "test.sh"), "#!/bin/sh\nif [ -f FAIL ]; then echo 'FAILED tests/t.py::test_new'; echo '== 1 failed, 2 passed in 0.1s =='; exit 1; fi\necho '== 3 passed in 0.1s =='\n")
+	write(t, filepath.Join(repo, "test.sh"), "#!/bin/sh\nif [ -f FAIL ]; then echo 'FAILED tests/t.py::test_new'; echo '== 1 failed, 2 passed in 0.1s =='; exit 1; fi\necho 'PASS test.sh'; echo '== 3 passed in 0.1s =='\n")
 	must(t, os.Chmod(filepath.Join(repo, "test.sh"), 0o755))
 	run(t, repo, "git", "add", "-A")
 	run(t, repo, "git", "commit", "-q", "-m", "init")
@@ -400,6 +401,10 @@ func TestCombinedCheckpoint(t *testing.T) {
 	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
 	h2.docs(DocPlan, "## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n## Challenge note\n- nothing changed\n")
 	h2.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
+	// The plan installs a package (N21): the suite's before-state comes first.
+	h2.expect(h2.pre("AskUserQuestion", q), "deny", "plumbline run test")
+	_, err := Execute(h2.repo, h2.task(), KindTest, "", "./test.sh", nil, io.Discard)
+	must(t, err)
 	h2.expect(h2.pre("AskUserQuestion", q), "", "")
 	h2.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Go?": "Approve"}})
 	if h2.task().Phase != PhaseBuilding {

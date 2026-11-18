@@ -56,9 +56,9 @@ The user's answers on how to handle the list:
 ## Proof and state
 - [ ] P1. The task-state and run seals use a key in the data folder; a process Claude starts while building could read it and forge a record. (Known limits; after 0.4.1)
 - [ ] P2. Runs recorded before 0.4.1 have no seal and are skipped, baselines included. (after 0.4.1)
-- [ ] P3. Weakened-test detection is instructions only; no gate checks the diff for skipped or loosened tests. (Known limits)
-- [ ] P4. Full-stack e2e: nothing requires `plumbline run e2e` for full-stack tasks. (Known limits)
-- [ ] P5. Hooks can't see token usage, so logs don't record tokens. (Known limits)
+- [x] P3. (0.6.4: the finish check scans the task's added and removed lines, new files included, and the report's "Weakened tests:" line must name each file it finds: skips and `.only` in test files, silenced lint, type and coverage checks, CI steps allowed to fail, deleted test files, fewer assertions in a test file, a lowered threshold in config, a snapshot or golden file changed without its test, product code branching on CI or NODE_ENV=test. Still pattern-based: a loosened assertion that keeps its line count (`toBe` to `toBeTruthy`) or a mock widened in a helper isn't seen; the reviewers' checklist covers those) Weakened-test detection is instructions only; no gate checks the diff for skipped or loosened tests. (Known limits)
+- [x] P4. (0.6.4: when the setup saves an e2e command, the finish check needs a passing `plumbline run e2e` on the final code if the task changes frontend files, or the plan proves an API change and the project has a frontend (frontend files in the repo, or `frontend_repo`); `plumbline waive e2e` lets it go. Judged by paths and the plan, not by tracing which screen calls the API) Full-stack e2e: nothing requires `plumbline run e2e` for full-stack tasks. (Known limits)
+- [x] P5. (0.6.4: the Stop and SubagentStop hooks count the tokens in the session's and each helper's transcript from the task's start, each message once; `task finish` and `/plumbline:cancel` log them, `/plumbline:stats` and `plumbline status` show them. The transcript format is internal to Claude Code, so a format change shows as "some unknown", not a wrong count. Builders' and helpers' tokens count only if their SubagentStop fires) Hooks can't see token usage, so logs don't record tokens. (Known limits)
 - [x] P6. (0.6.1) A binary that exists but can't run blocks the gates but leaves nothing in errors.log. (after 0.4.1)
 - [ ] P7. A task without `StartCommit` (before 0.3.0) falls back to HEAD for `ChangedSince`. (after 0.4.1)
 
@@ -66,8 +66,8 @@ The user's answers on how to handle the list:
 - [ ] R1. Specialists are called for by file paths only. (after 2a)
 - [ ] R2. `UserAsksJira` is a keyword match ("add a comment to this function" lets a Jira post reach the confirm prompt). (after 2a)
 - [ ] R3. Reviewer independence is path based: a path built at run time without "plumb" in it, or findings pasted into a reviewer's prompt, aren't caught. (after 2a)
-- [ ] R4. "Small" is refused for any risky-list file, even a copy-only change. (after 0.4.1)
-- [ ] R5. The closing-message check can't check that bad news comes first. (after 0.4.1)
+- [x] R4. (0.6.4: the user-only `/plumbline:size small [why]` keeps a task small although its plan has risky files, before approval only. Files that decide which checks run (N8) still make it normal) "Small" is refused for any risky-list file, even a copy-only change. (after 0.4.1)
+- [x] R5. (0.6.4: when the report's "For you" lists anything besides "nothing" and the commit question, the closing message's first line must be the "For you" line. Other bad news (a check that couldn't run) is checked in the report's verdict, not in the chat order) The closing-message check can't check that bad news comes first. (after 0.4.1)
 - [x] R6. (0.6.2, with G6: the lead's Grep that names a secret file asks, and `--deny-secrets` makes Claude Code skip `.env` and key files for folder-wide Grep and Glob too. The lead's other searches stay unchecked so they stay fast; G6's leftovers apply: the deny rules are opt-in and best effort) Grep and Glob go through PreToolUse only for helpers. (after 2a)
 
 ## Builders, blind QA, tracers, tester (2b)
@@ -97,7 +97,7 @@ The user's answers on how to handle the list:
 - [x] L1. (0.6.1 for npx/bunx/pnpx of a project tool; `pip install -r requirements.txt` is still an install, by design) False blocks: `npx tsc --noEmit`, `pip install -r requirements.txt` refused as installs during a task.
 - [x] L2. (0.6.2: a read-only command's output counts like Read for the files it names: cat, bat, head, tail, nl, tac, less, more, sed (when it prints), awk, grep and rg (not `-c`, `-l`, `-q`, `-o`). Only output that reaches Claude: not redirected, captured in `$(...)` or piped into anything but head, tail, grep, sed, cat and the like. A folder search, files xargs adds and a command that also changes something don't count. Like Read with a line range, a partial print counts for the whole file) Only the Read tool counts as "opened"; `cat`/`sed -n`/`rg` reads give a false "didn't open this file".
 - [x] L3. (0.6.1) Logs hold commit subjects and absolute paths in Detail.
-- [ ] L4. Without failing-test ids, the baseline compares counts only; a broken-environment baseline sticks.
+- [x] L4. (0.6.4: failing test names are read for Vitest (whole files that fail to load too), mocha, RSpec, cargo and PHPUnit; failures without a name may not grow; of the runs before the first edit, the one with the fewest failures is the baseline, so fixing a broken environment and running again replaces it but a worse run never excuses more; a baseline where every test failed isn't one, and the finish check says so. Runners whose output shows no names, or a custom tests_ran_pattern, still compare counts) Without failing-test ids, the baseline compares counts only; a broken-environment baseline sticks.
 - [x] L5. (0.6.1) `test:` matches inside words like "latest:".
 - [ ] L6. If the AskUserQuestion response is a plain string, the `"Q"="A"` fallback could be spoofed.
 

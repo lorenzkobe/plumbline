@@ -946,6 +946,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			continue
 		}
 		quiet := ReadOnly(s)
+		c.testTargetVerdict(segs, i, v)
 		switch {
 		case name == "claude":
 			switch s.Arg(1) {
@@ -1277,14 +1278,9 @@ func (c *hookCtx) scanForCommit(ci CommitInfo, addsAll bool) []string {
 			if paths != nil && !pathspecMatch(paths, p) {
 				continue
 			}
-			full := filepath.Join(c.root, p)
 			if _, err := gitOut(c.root, "ls-files", "--error-unmatch", p); err != nil {
-				if fi, err := os.Stat(full); err == nil && fi.Size() < 1<<20 && !fi.IsDir() {
-					b, _ := os.ReadFile(full)
-					diff += "\n+++ b/" + p + "\n@@ -0,0 +1 @@\n"
-					for _, l := range strings.Split(string(b), "\n") {
-						diff += "+" + l + "\n"
-					}
+				if b, ok := readableNewFile(c.root, p); ok {
+					diff += "\n" + addedFileDiff(p, b)
 				}
 			}
 		}
@@ -1345,6 +1341,9 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 		miss = append(miss, "no test command is saved (run /plumbline:setup)")
 	} else {
 		full := Judge(LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp), BaselineFor(runs, t.ID, KindTest))
+		if !full.OK && brokenBaseline(runs, t.ID, KindTest) {
+			full.Reason += "; the run before the first edit failed every test (a broken environment, like a database that was down), so it isn't the starting point and every failure counts: tell the user which failures were there before"
+		}
 		if final && !full.OK {
 			miss = append(miss, "full test suite: "+full.Reason+" (run: plumbline run test)")
 		}
@@ -1493,6 +1492,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, c.challengeProblems(text)...)
 			p = append(p, c.teamProblems(text, pc.Files)...)
 			p = append(p, c.sizeProblems(pc.Files)...)
+			p = append(p, c.upgradeProblems(pc)...)
 			p = append(p, c.designProblems(text, pc)...)
 		}
 	}
@@ -1502,17 +1502,26 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 // sizeProblems: "small" means low impact, not few lines. A plan that changes
 // a high-impact kind of file (auth, permissions, payments, user data,
 // secrets, migrations, queries, money math, dependencies, config, deploy)
-// isn't small, so the challenger and the plan reviewer still run.
+// isn't small, so the challenger and the plan reviewer still run; the user's
+// /plumbline:size small keeps it small anyway. A file that decides which
+// checks run (GateFile) is never small, whoever sized it.
 func (c *hookCtx) sizeProblems(files []string) []string {
 	if c.task.Size != "small" {
 		return nil
 	}
-	var vague, risky []string
+	var vague, risky, gates []string
 	for _, f := range files {
 		// A folder or a pattern would let a risky file in unseen (InPlan
 		// matches both), so a small plan names each file.
 		if strings.HasSuffix(f, "/") || strings.ContainsAny(f, "*?[") {
 			vague = append(vague, f)
+			continue
+		}
+		if GateFile(f) {
+			gates = append(gates, f)
+			continue
+		}
+		if c.task.SizeByUser {
 			continue
 		}
 		hit := RiskyPath(filepath.ToSlash(f), c.setup)
@@ -1528,7 +1537,10 @@ func (c *hookCtx) sizeProblems(files []string) []string {
 		p = append(p, fmt.Sprintf(`a small task's "## Files" names each file it changes, not folders or patterns (%s), so its impact can be checked`, strings.Join(vague, ", ")))
 	}
 	if len(risky) > 0 {
-		p = append(p, fmt.Sprintf(`the task is sized small, but the plan changes high-impact files (%s), so it isn't small: run plumbline task size normal --why "..." (or big), then ask the checkpoint again`, strings.Join(risky, ", ")))
+		p = append(p, fmt.Sprintf(`the task is sized small, but the plan changes high-impact files (%s), so it isn't small: run plumbline task size normal --why "..." (or big), then ask the checkpoint again. If the change is truly low impact (copy on a login page), the user can keep it small by typing /plumbline:size small`, strings.Join(risky, ", ")))
+	}
+	if len(gates) > 0 {
+		p = append(p, fmt.Sprintf(`the plan changes files that decide which checks run (%s), so it isn't small: one line there can switch a check off, so they always get the full review: run plumbline task size normal --why "..." (or big), then ask the checkpoint again`, strings.Join(gates, ", ")))
 	}
 	return p
 }

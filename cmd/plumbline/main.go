@@ -336,7 +336,7 @@ func cmdTask(args []string) error {
 		if t.Phase == core.PhaseBuilding || !t.Open() {
 			return fmt.Errorf("task is at the %s step; the size is fixed once the plan is approved (replan to change it)", t.Phase)
 		}
-		t.Size, t.SizeWhy = pos[0], f["why"]
+		t.Size, t.SizeWhy, t.SizeByUser = pos[0], f["why"], false
 		core.LogEvent(core.Event{Type: "task", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "size"})
 		fmt.Printf("Task %s is now %s (%s). Say why in the checkpoint.\n", t.ID, t.Size, t.SizeWhy)
 		return core.SaveTask(t)
@@ -367,6 +367,7 @@ func cmdTask(args []string) error {
 		}
 		t.Phase = core.PhaseDone
 		core.LogEvent(core.Event{Type: "phase", Task: t.ID, Rule: core.PhaseDone, Size: t.Size, Project: core.ProjectKey(root), Detail: fmt.Sprintf("commits=%d", t.Commits)})
+		core.LogTokens(t, core.ProjectKey(root))
 		fmt.Printf("Task %s is done.\n", t.ID)
 		return core.SaveTask(t)
 	case "adopt":
@@ -423,6 +424,7 @@ func cmdRun(args []string) (int, error) {
 		return 0, terr
 	}
 	var command, sub string
+	var files []string // the related run's files
 	switch kind {
 	case "test":
 		command = s.Commands.Test
@@ -433,9 +435,13 @@ func cmdRun(args []string) (int, error) {
 			command, kind = s.Commands.Test, core.KindTest
 			break
 		}
-		files := []string{}
 		if f["files"] != "" {
 			files = strings.Split(f["files"], ",")
+			for _, x := range files {
+				if strings.HasPrefix(strings.TrimSpace(x), "-") {
+					return 0, fmt.Errorf("--files takes file paths, not flags (%q): the runner would read it as an option", strings.TrimSpace(x))
+				}
+			}
 		} else {
 			d, _ := core.DirtyFiles(root)
 			for p := range d {
@@ -453,6 +459,9 @@ func cmdRun(args []string) (int, error) {
 			q = append(q, shellQuote(strings.TrimSpace(x)))
 		}
 		command = strings.ReplaceAll(s.Commands.TestRelated, "{files}", strings.Join(q, " "))
+		if !strings.Contains(s.Commands.TestRelated, "{files}") {
+			files = nil // the command doesn't take them, so they didn't run because of it
+		}
 		kind = core.KindRelated
 	case "lint":
 		command, kind = s.Commands.Lint, core.KindLint
@@ -483,7 +492,15 @@ func cmdRun(args []string) (int, error) {
 		return 0, fmt.Errorf("no %s command is saved for this project (run /plumbline:setup)", args[0])
 	}
 	fmt.Printf("plumbline: running %s: %s\n", args[0], command)
-	r, err := core.Execute(root, t, kind, sub, command, s, os.Stdout)
+	if t != nil && (kind == core.KindTest || kind == core.KindRelated || kind == core.KindE2E) {
+		core.MarkDevDBAllowed(root, t.ID, s) // the hook asked before this ran
+	}
+	var r *core.Run
+	if kind == core.KindRelated {
+		r, err = core.ExecuteRelated(root, t, command, files, s, os.Stdout)
+	} else {
+		r, err = core.Execute(root, t, kind, sub, command, s, os.Stdout)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -538,6 +555,9 @@ func cmdStatus(args []string) error {
 		return nil
 	}
 	fmt.Printf("Task %s \"%s\": %s step (%s).\nNotes: %s\n", t.ID, t.Title, t.Phase, t.Size, core.TaskDocsDir(root, t.ID))
+	if tc, ok := t.TokenTotal(); ok {
+		fmt.Printf("Tokens so far: %s\n", tc)
+	}
 	if t.Kind == core.KindDesign {
 		fmt.Printf("Design task. Direction picked: %s\n", orNone(t.Direction))
 	}

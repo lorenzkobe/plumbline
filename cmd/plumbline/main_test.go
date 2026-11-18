@@ -89,7 +89,9 @@ func TestTaskSize(t *testing.T) {
 	home := t.TempDir()
 	repo := gitRepo(t)
 	t.Setenv("PLUMBLINE_HOME", home) // for the core calls below
-	tk := &core.Task{ID: core.NewID(), Title: "fix A", Size: "small", Root: repo, Branch: core.CurrentBranch(repo), Phase: core.PhaseUnderstanding, Created: core.Now()}
+	// SizeByUser: the user typed /plumbline:size small; Claude's own resize
+	// below takes that back.
+	tk := &core.Task{ID: core.NewID(), Title: "fix A", Size: "small", SizeByUser: true, Root: repo, Branch: core.CurrentBranch(repo), Phase: core.PhaseUnderstanding, Created: core.Now()}
 	if err := core.SaveTask(tk); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +105,7 @@ func TestTaskSize(t *testing.T) {
 		t.Fatalf("resize before approval: exit %d, %s", code, out)
 	}
 	got, err := core.LoadTask(repo, tk.ID)
-	if err != nil || got.Size != "normal" || got.SizeWhy != "touches auth" {
+	if err != nil || got.Size != "normal" || got.SizeWhy != "touches auth" || got.SizeByUser {
 		t.Fatalf("size not saved: %+v %v", got, err)
 	}
 	// Once the plan is approved, the size is fixed.
@@ -164,5 +166,26 @@ func TestBuilderCommands(t *testing.T) {
 	}
 	if out, _ := plumbline(t, repo, home, "", "builder", "list"); !strings.Contains(out, "builder 1: merged") {
 		t.Fatalf("list after merge: %s", out)
+	}
+}
+
+// --files takes paths: one that starts with "-" would reach the runner as a
+// flag (--deselect a case test) while the run still names the file.
+func TestRelatedFilesRefuseFlags(t *testing.T) {
+	home := t.TempDir()
+	repo := gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	s := &core.Setup{Kind: "personal"}
+	s.Commands.Test = "true"
+	s.Commands.TestRelated = "echo {files}"
+	if _, err := core.SaveSetup(repo, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.ConfirmSetup(repo); err != nil {
+		t.Fatal(err)
+	}
+	out, code := plumbline(t, repo, home, "", "run", "related", "--files", "tests/test_x.py,--deselect,tests/test_x.py::test_case")
+	if code == 0 || !strings.Contains(out, "not flags") {
+		t.Fatalf("a flag in --files should be refused: %d %s", code, out)
 	}
 }

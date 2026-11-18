@@ -49,47 +49,27 @@ func entropy(s string) float64 {
 // kind of secret. The value itself is never printed.
 func ScanSecrets(diff string) []string {
 	var out []string
-	file := ""
-	line := 0
-	for _, l := range strings.Split(diff, "\n") {
-		switch {
-		case strings.HasPrefix(l, "+++ "):
-			file = strings.TrimPrefix(strings.TrimPrefix(l, "+++ "), "b/")
-		case strings.HasPrefix(l, "@@"):
-			// @@ -a,b +c,d @@
-			if i := strings.Index(l, "+"); i >= 0 {
-				rest := l[i+1:]
-				n := 0
-				for _, ch := range rest {
-					if ch < '0' || ch > '9' {
-						break
-					}
-					n = n*10 + int(ch-'0')
-				}
-				line = n
-			}
-		case strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
-			body := l[1:]
-			if isTemplateFile(file) {
-				line++
+	for _, f := range parseDiff(diff) {
+		if isTemplateFile(f.Path) {
+			continue
+		}
+		for _, l := range f.Lines {
+			if !l.Add {
 				continue
 			}
 			for _, p := range secretPatterns {
-				if p.re.MatchString(body) {
-					out = append(out, fmt.Sprintf("%s:%d looks like a %s", file, line, p.name))
+				if p.re.MatchString(l.Text) {
+					out = append(out, fmt.Sprintf("%s:%d looks like a %s", f.Path, l.N, p.name))
 				}
 			}
-			if m := reAssign.FindStringSubmatch(body); m != nil {
+			if m := reAssign.FindStringSubmatch(l.Text); m != nil {
 				v := m[2]
 				low := strings.ToLower(v)
 				placeholder := strings.Contains(low, "example") || strings.Contains(low, "changeme") || strings.Contains(low, "your") || strings.HasPrefix(v, "${") || strings.HasPrefix(v, "process.env") || strings.Contains(low, "xxxx") || strings.Contains(low, "dummy") || strings.Contains(low, "test")
 				if !placeholder && entropy(v) >= 3.0 {
-					out = append(out, fmt.Sprintf("%s:%d looks like a hard-coded %s", file, line, strings.ToLower(m[1])))
+					out = append(out, fmt.Sprintf("%s:%d looks like a hard-coded %s", f.Path, l.N, strings.ToLower(m[1])))
 				}
 			}
-			line++
-		case strings.HasPrefix(l, " "):
-			line++
 		}
 	}
 	return out

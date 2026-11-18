@@ -37,7 +37,11 @@ type Setup struct {
 	TestsRanPattern string   `json:"tests_ran_pattern,omitempty"` // regex with a (?P<ran>\d+) group
 	IgnoreChanges   []string `json:"ignore_changes,omitempty"`    // globs that the changed-files check skips
 	RiskyPaths      []string `json:"risky_paths,omitempty"`       // extra globs never touched outside the plan
-	SuiteSeconds    int      `json:"suite_seconds,omitempty"`
+	// TestTargetsOK: service settings (DATABASE_URL, ...) that point off
+	// the laptop but that the tests never connect to, so a test run isn't
+	// refused for them. Only the user adds these.
+	TestTargetsOK []string `json:"test_targets_ok,omitempty"`
+	SuiteSeconds  int      `json:"suite_seconds,omitempty"`
 
 	FrontendRepo string `json:"frontend_repo,omitempty"`
 	DeployNotes  string `json:"deploy_notes,omitempty"`
@@ -152,9 +156,17 @@ func LoadSetup(root string) (*Setup, bool, error) {
 			}
 			s.IgnoreChanges = both
 			s.MCPReadTools = bothReadTools(s.MCPReadTools, was.MCPReadTools)
+			var ok []string
+			for _, k := range s.TestTargetsOK {
+				if contains(was.TestTargetsOK, k) {
+					ok = append(ok, k)
+				}
+			}
+			s.TestTargetsOK = ok
 		} else {
 			s.IgnoreChanges = nil
 			s.MCPReadTools = nil
+			s.TestTargetsOK = nil
 		}
 	}
 	return &s, ok, nil

@@ -53,6 +53,9 @@ type Task struct {
 	Ticket  string `json:"ticket,omitempty"`
 	Size    string `json:"size"` // small | normal | big
 	SizeWhy string `json:"size_why,omitempty"`
+	// SizeByUser: the user typed /plumbline:size small, so a risky file
+	// doesn't make the task normal (files that decide what runs still do).
+	SizeByUser bool `json:"size_by_user,omitempty"`
 	// Kind is "design" for a design task (mockups and the user's pick of a
 	// direction before the plan), "" for the usual task.
 	Kind        string    `json:"kind,omitempty"`
@@ -82,6 +85,12 @@ type Task struct {
 	// deleting a case from plan.md later doesn't drop its test.
 	CaseTests   []string `json:"case_tests,omitempty"`
 	CasesStored bool     `json:"cases_stored,omitempty"`
+	// Upgrade: the approved plan changes packages, so the report names
+	// every test file the task changed.
+	Upgrade bool `json:"upgrade,omitempty"`
+	// DevDBOK: the user allowed a test run on the dev database once, so
+	// the task doesn't ask again.
+	DevDBOK bool `json:"dev_db_ok,omitempty"`
 
 	// Files touched outside the plan (allowed, must be in the report) and
 	// files Claude was refused (must be under "For you" in the report).
@@ -104,7 +113,10 @@ type Task struct {
 	Sendbacks      []Sendback `json:"sendbacks,omitempty"`
 	Waivers        []Waiver   `json:"waivers,omitempty"`
 	Reported       bool       `json:"reported,omitempty"`
-	Commits        int        `json:"commits,omitempty"`
+	// Tokens per transcript ("main:<session>", "agent:<id>"), from the
+	// task's start.
+	Tokens  map[string]TokenCount `json:"tokens,omitempty"`
+	Commits int                   `json:"commits,omitempty"`
 }
 
 // NewID makes a short, sortable id.

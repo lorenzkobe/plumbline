@@ -20,17 +20,18 @@ func FinishMissing(t *Task, s *Setup) []string {
 	miss := ProofMissing(t, s, true)
 	fp, _ := Fingerprint(t.Root, s.IgnoreChanges)
 	runs := LoadRuns(t.Root)
-	caseTests := t.CaseTests
-	if !t.CasesStored { // approved before 0.3.1
-		if text, _, err := ReadDoc(t, DocPlan); err == nil {
-			caseTests = CheckPlan(text).CaseTests
-		}
+	report, fi, err := ReadDoc(t, DocReport)
+	changes, derr := taskChanges(t, s.IgnoreChanges)
+	if derr != nil {
+		miss = append(miss, "diff: "+derr.Error()+" (the weakened-tests and debug-log checks need it)")
 	}
-	for _, tf := range caseTests {
-		if _, err := os.Stat(filepath.Join(t.Root, filepath.FromSlash(tf))); err != nil {
-			miss = append(miss, fmt.Sprintf("case test %s doesn't exist yet", tf))
-		}
+	var changed []string
+	for _, f := range changes {
+		changed = append(changed, f.Path)
 	}
+	miss = append(miss, caseRunMissing(t, s, fp, runs, report)...)
+	miss = append(miss, e2eMissing(t, s, fp, runs, changed)...)
+	miss = append(miss, debugMissing(changes)...)
 	for _, k := range t.ProofKinds {
 		if waived(t, "proof:"+k, fp) {
 			continue
@@ -45,7 +46,6 @@ func FinishMissing(t *Task, s *Setup) []string {
 			miss = append(miss, fmt.Sprintf("real-world proof (%s): %s; %s, with: plumbline run proof %s -- <command>", k, v.Reason, how, k))
 		}
 	}
-	report, fi, err := ReadDoc(t, DocReport)
 	var reportTime time.Time
 	if err == nil {
 		reportTime = fi.ModTime()
@@ -85,6 +85,8 @@ func FinishMissing(t *Task, s *Setup) []string {
 		}
 		miss = append(miss, reportShapeMissing(t, report)...)
 		miss = append(miss, verdictMissing(t, s, fp, report)...)
+		miss = append(miss, weakenedMissing(changes, report)...)
+		miss = append(miss, upgradeMissing(t, changes, report)...)
 	}
 	return miss
 }
@@ -293,12 +295,41 @@ var (
 )
 
 // finalMessageMissing: the chat message that closes a proven task is the
-// short report, so it needs a "For you" line the user can act on.
-func finalMessageMissing(m string) string {
-	if reForYou.MatchString(m) {
-		return ""
+// short report, so it needs a "For you" line the user can act on. When the
+// report's "For you" holds something, that line opens the message (R5):
+// what needs the user is the bad news that comes first.
+func finalMessageMissing(m, report string) string {
+	if !reForYou.MatchString(m) {
+		return `final message: end the task with the short report in chat: bad news first, what changed, the proof, the review, and a "For you" line (or "For you: nothing"), then the commit question`
 	}
-	return `final message: end the task with the short report in chat: bad news first, what changed, the proof, the review, and a "For you" line (or "For you: nothing"), then the commit question`
+	if forYouHasItems(report) && !reForYou.MatchString(firstLine(m)) {
+		return `final message: the report's "For you" needs the user, so open the message with the "For you" line (what they must do or decide), then what changed, the proof, the review and the commit question`
+	}
+	return ""
+}
+
+// forYouHasItems: the report's "## For you" lists something besides the
+// commit question, not just "nothing".
+func forYouHasItems(report string) bool {
+	for _, l := range Section(report, "for you") {
+		p := strings.ToLower(strings.TrimRight(plainLine(l), ".!"))
+		p = strings.TrimSpace(strings.TrimPrefix(p, "for you:"))
+		if p == "" || p == "nothing" || p == "none" || strings.HasPrefix(p, "commit?") || strings.HasPrefix(p, "commit ") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// firstLine: the message's first line with words on it.
+func firstLine(m string) string {
+	for _, l := range strings.Split(m, "\n") {
+		if strings.TrimSpace(reLeadingMarkup.ReplaceAllString(l, "")) != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // gone: the file doesn't exist now and isn't in the last commit.
@@ -333,6 +364,10 @@ func Stop(in *HookInput) Output {
 	c := newCtx(in)
 	defer c.close()
 	note := longConversationNote(in)
+	if c.task != nil && c.task.Open() && in.TranscriptPath != "" {
+		c.task.recordTokens("main:"+safeName(in.SessionID), in.TranscriptPath)
+		_ = SaveTask(c.task)
+	}
 	if c.root == "" || c.paused || c.task == nil || c.task.Phase != PhaseBuilding {
 		return noteOnly(note)
 	}
@@ -360,7 +395,8 @@ func Stop(in *HookInput) Output {
 		// Just proven: the message that closes the task (usually ending with
 		// the commit question) must be the short report. Reported resets
 		// when the code changes, so a later fix is reported again.
-		if m := finalMessageMissing(in.LastMessage); m != "" {
+		report, _, _ := ReadDoc(t, DocReport)
+		if m := finalMessageMissing(in.LastMessage, report); m != "" {
 			if n := len(t.Sendbacks); n > 0 && t.Sendbacks[n-1].Reason == firstRule([]string{m}) {
 				// Sent back for this once already: it's the format, not the
 				// proof, so don't hold the user up over it (or ask again on

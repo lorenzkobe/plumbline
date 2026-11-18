@@ -134,7 +134,8 @@ var signalWhy = map[string]string{
 
 // ReviewersFor: the reviewers a change needs, by size and by the files it
 // touches (relative to root, so a home folder like /Users/... isn't read as
-// user data). Small tasks get one reviewer (the code reviewer).
+// user data). Small tasks get one reviewer (the code reviewer), unless a
+// file decides which checks run (GateFile): that gets the full review.
 func ReviewersFor(size, root string, files []string) []string {
 	need := map[string]bool{HelperCodeReviewer: true}
 	if size != "small" {
@@ -146,6 +147,7 @@ func ReviewersFor(size, root string, files []string) []string {
 				f = r
 			}
 		}
+		need[HelperPlanReviewer] = need[HelperPlanReviewer] || GateFile(f)
 		f = reCamel.ReplaceAllString(filepath.ToSlash(f), "${1}_${2}")
 		need[HelperSecurity] = need[HelperSecurity] || reSecuritySignal.MatchString(f)
 		need[HelperData] = need[HelperData] || reDataSignal.MatchString(f)
@@ -652,6 +654,7 @@ func SubagentStop(in *HookInput) Output {
 	case HelperQA:
 		detail = fmt.Sprintf("%d test files", len(run.Wrote))
 	}
+	t.recordTokens("agent:"+in.AgentID, in.AgentTranscript)
 	_ = SaveTask(t)
 	if !t.findingsExist(*run) {
 		detail = strings.TrimSpace(detail + " no findings file")

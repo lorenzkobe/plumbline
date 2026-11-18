@@ -90,7 +90,7 @@ func TestClosingMessageIsTheShortReport(t *testing.T) {
 	}
 	for m, ok := range map[string]bool{"I fixed it for you. Commit?": false, "Ready for your review.": false,
 		"For you: nothing": true, "- **For you:** run the migration": true, "Done.\n\nFor you\n- nothing": true} {
-		if got := finalMessageMissing(m) == ""; got != ok {
+		if got := finalMessageMissing(m, "") == ""; got != ok {
 			t.Errorf("finalMessageMissing(%q) passes = %v, want %v", m, got, ok)
 		}
 	}
