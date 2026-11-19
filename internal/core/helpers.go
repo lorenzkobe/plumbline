@@ -956,6 +956,36 @@ func (c *hookCtx) challengeProblems(plan string) []string {
 	return p
 }
 
+// onlyTestsOrDocs: everything that changed between two versions of the code
+// is a test file or a doc, and none decides which checks run. After such a
+// change only the code reviewer looks again (it watches for weakened tests);
+// the other reviews still hold (RV1).
+func onlyTestsOrDocs(root string, s *Setup, a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	changed, err := treeChanges(root, a, b)
+	if err != nil || len(changed) == 0 {
+		return false
+	}
+	for _, p := range changed {
+		if GateFile(p) || !(TestFile(p, s) || docFile(p)) {
+			return false
+		}
+	}
+	return true
+}
+
+// docFile: prose for people, not code (README.md, docs/*.md). A file in
+// docs/ can be code (examples), so the kind of file decides, not the folder.
+func docFile(rel string) bool {
+	switch strings.ToLower(filepath.Ext(rel)) {
+	case ".md", ".mdx", ".txt", ".rst", ".adoc":
+		return true
+	}
+	return false
+}
+
 // reviewMissing: the finish check needs, from every required reviewer, a
 // finished review of the current code, and a "## Review" section in a report
 // written after the last of them.
@@ -978,7 +1008,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 			notRun = append(notRun, name)
 		case runs[len(runs)-1].alive():
 			running = append(running, name)
-		case last == nil || !t.counts(*last) || last.PrintAfter != fp:
+		case last == nil || !t.counts(*last) || last.PrintAfter != fp && !(k != HelperCodeReviewer && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)):
 			if len(runs) >= MaxReviews {
 				capped = append(capped, name)
 			} else {

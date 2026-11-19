@@ -385,3 +385,46 @@ func TestUserChangeBeforeAReadIsntBlamed(t *testing.T) {
 		t.Fatalf("a writing command should still be checked: %s", o)
 	}
 }
+
+// RV1: after a test or doc fix, only the code reviewer looks again; a change
+// to the app's code, or to a file that decides which checks run, sends
+// every reviewer back.
+func TestTestOnlyFixNeedsOnlyTheCodeReviewer(t *testing.T) {
+	h := provenTask(t)
+	tk := h.task()
+	tk.Size = "normal" // the plan reviewer is required too
+	must(t, SaveTask(tk))
+	for _, k := range []string{HelperCodeReviewer, HelperPlanReviewer} {
+		id, _ := h.startHelper(k)
+		write(t, h.findingsPath(id), h.complete(k, "# Review 1\nnothing at 80 or more\n"))
+		h.stopHelper(id, k)
+	}
+	if m := h.finishMissing(); strings.Contains(m, "run these again") {
+		t.Fatalf("fresh reviews: %s", m)
+	}
+	again := func() string {
+		m := h.finishMissing()
+		i := strings.Index(m, "run these again")
+		if i < 0 {
+			return ""
+		}
+		return strings.SplitN(m[i:], ";", 2)[0]
+	}
+	// A test comment and a doc: the code reviewer only.
+	write(t, filepath.Join(h.repo, "src", "a_test.go"), "package src\n\n// fixed comment\n")
+	write(t, filepath.Join(h.repo, "README.md"), "# fixed\n")
+	if a := again(); !strings.Contains(a, "plumbline:code-reviewer") || strings.Contains(a, "plan-reviewer") {
+		t.Fatalf("after a test and doc fix: %q", a)
+	}
+	// A file that decides which checks run: everyone.
+	write(t, filepath.Join(h.repo, "CLAUDE.md"), "# rules\n")
+	if a := again(); !strings.Contains(a, "plan-reviewer") {
+		t.Fatalf("after a CLAUDE.md change: %q", a)
+	}
+	must(t, os.Remove(filepath.Join(h.repo, "CLAUDE.md")))
+	// The app's code: everyone.
+	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 2 } // x\n")
+	if a := again(); !strings.Contains(a, "plan-reviewer") || !strings.Contains(a, "code-reviewer") {
+		t.Fatalf("after a code change: %q", a)
+	}
+}

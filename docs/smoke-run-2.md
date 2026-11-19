@@ -101,3 +101,11 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 
 ## Rerun of step B, setup (session cc9ddede, log retest072c.log)
 - **CC2 (bug):** after `/plumbline:cancel` and the user's `! git restore` of the four files, Claude's `git status --short` was stopped: "a terminal command changed files before any plan was approved". The snapshot only refreshes after Claude's own tools, so the user's restore landed on the next read. Fixed in 0.7.2 (committed with it): read-only commands record their start, and files changed before it aren't blamed.
+
+## Rerun of step B (session in retest072d.log, Plumbline 0.7.2 + CC2): PASS
+- Normal from the start, with the server-load reason. Plan question approved on the first ask (no refusal). No red boxes in the main chat. "Commit it" was the last question and the only stop for the commit; the task closed (commit aec9620, no trailer). Final message: 3 short lines.
+- Still costly: 25 minutes (about 8 of them waiting on the user). Code and plan reviewers ran 3 rounds each because each round's small wording fix (a test comment) made the review stale (RV1 again).
+- Short went a bit far: no chat summary before the plan question (no goal line, no plan-for-you path) and none before "Commit it?" (no checks, review or goal line). The question text carried the essentials.
+- Claude read the cancelled attempt's notes at the start ("so I don't repeat its mistakes").
+- Helpers (not shown to the user): 5 refusals (missing quotes, python3, cat >).
+- Decisions (user, 2026-11-19): RV1, after a test- or doc-only fix only the code reviewer looks again (files that decide checks still send everyone); and add the goal line plus the plan-for-you path before the plan question, and one "Checks / Review / Goal" line before "Commit it?". Built in 0.7.2.

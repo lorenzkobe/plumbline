@@ -586,7 +586,7 @@ const noSizeNote = `No size was given, so this task is normal. Size is impact, n
 // startChecklist: what the plan question will need, said up front so
 // Claude meets it instead of being refused (UX2).
 func startChecklist(size string) string {
-	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). Show the user a short plain summary first, opening with the goal, without task ids, notes paths or plumbline commands, and any suggestions from plan.md's ## Suggestions ("Related, want it in?" and "Not related, just noticed", apart).`
+	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). Show the user a short plain summary first: the goal line ("Done when: ..."), the path to plan-for-you.md for a normal task, without task ids, notes paths or plumbline commands, and any suggestions from plan.md's ## Suggestions ("Related, want it in?" and "Not related, just noticed", apart).`
 	after := "After Approve: plumbline run checks before the first edit, build, run it again at the end, then the review and a short report."
 	if size == "small" {
 		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: ## Goal first (one line, \"Done when: ...\", in the user's words); what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"). No separate understanding note, no challenger, one code review. " + ask + " " + after

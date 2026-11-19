@@ -714,7 +714,7 @@ func (c *hookCtx) afterReport(abs string) Output {
 	if miss := c.commitNotReady(); len(miss) > 0 {
 		return Context("PostToolUse", msg("before the commit question, the finish check still needs: "+strings.Join(miss, "; ")+". Do these first (update the report if they change anything), then ask."))
 	}
-	return Context("PostToolUse", msg(`the finish check has nothing left but the commit. If the task's changes aren't committed, ask the commit question now: AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted".`))
+	return Context("PostToolUse", msg(`the finish check has nothing left but the commit. If the task's changes aren't committed, say in one line "Checks: all pass. Review: clean. Goal: met." (or what isn't), then ask the commit question: AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted".`))
 }
 
 // isCommitQ: the question Claude asks before committing (header "Commit").

@@ -15,6 +15,8 @@ Found in retest step A (a one-word label change). The user chose to fix all four
 - Sizing: a change to how often or how much the app talks to a server, or to what runs in the background (retries, polling, timers, caching), is never small. Reviewers' shared checklist gets a cost line (server calls, rendering, memory, time, with the size of it).
 - Short messages: the plan card and the closing message say only what matters and what the user must know or decide; how it was checked stays in report.md.
 - CC2: the user's own change between Claude's commands (`! git restore`, an editor) was blamed on Claude's next read-only command and stopped the work. A read-only command now records when it started, and files last changed before that aren't its doing. Commands that write keep the full check.
+- RV1: after the reviews, a fix that only touches test files or docs (not files that decide which checks run) sends only the code reviewer back; the other reviews still hold. A change to the app's code still sends everyone back.
+- Before the plan question Claude shows the goal line and, for a normal task, the path to plan-for-you.md; before "Commit it?" one line: checks, review, goal.
 - Suggestions: on the plan card, Claude lists what you may have missed, "Related, want it in?" apart from "Not related, just noticed" (plan.md's ## Suggestions, plan-for-you.md for normal tasks). Approve doesn't do them; Change something adds one.
 
 ## 0.7.1: the plan in plain words
