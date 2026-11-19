@@ -520,6 +520,9 @@ func (c *hookCtx) gateMCP() Output {
 	if jira, read := JiraTool(c.in.ToolName); jira && !read {
 		return c.gateJiraWrite()
 	}
+	if o := c.gateBrowser(); o != nil {
+		return o
+	}
 	kind := c.mcpKind()
 	if kind == "" {
 		return nil

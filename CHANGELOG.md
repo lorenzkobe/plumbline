@@ -17,6 +17,9 @@ Found in retest step A (a one-word label change). The user chose to fix all four
 - CC2: the user's own change between Claude's commands (`! git restore`, an editor) was blamed on Claude's next read-only command and stopped the work. A read-only command now records when it started, and files last changed before that aren't its doing. Commands that write keep the full check.
 - RV1: after the reviews, a fix that only touches test files or docs (not files that decide which checks run) sends only the code reviewer back; the other reviews still hold. A change to the app's code still sends everyone back.
 - Before the plan question Claude shows the goal line and, for a normal task, the path to plan-for-you.md; before "Commit it?" one line: checks, review, goal.
+- PR2: fetching a page or file (curl, wget, httpie) isn't accepted as the ui proof (a curl of a source file was). A Claude in Chrome screenshot of the local app, taken after the last edit, is recorded as the ui proof instead.
+- DATA1: setup asks whether the app on this laptop uses real data (`local_real_data`). While it does (or the setup doesn't say), browser clicks, typing, forms and page scripts ask first; screenshots, reading, resizing and opening a page don't.
+- FP3: "4.6:1" (a contrast ratio) is no longer read as a file reference.
 - Suggestions: on the plan card, Claude lists what you may have missed, "Related, want it in?" apart from "Not related, just noticed" (plan.md's ## Suggestions, plan-for-you.md for normal tasks). Approve doesn't do them; Change something adds one.
 
 ## 0.7.1: the plan in plain words

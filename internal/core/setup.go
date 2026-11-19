@@ -58,8 +58,12 @@ type Setup struct {
 	DeployNotes  string `json:"deploy_notes,omitempty"`
 	// DeployPipeline: a pipeline deploys this project, so Claude never
 	// deploys by hand (vercel --prod, sls deploy, kubectl apply, ...).
-	DeployPipeline bool     `json:"deploy_pipeline,omitempty"`
-	ProdAccess     string   `json:"prod_access,omitempty"` // method only, never values
+	DeployPipeline bool   `json:"deploy_pipeline,omitempty"`
+	ProdAccess     string `json:"prod_access,omitempty"` // method only, never values
+	// LocalRealData: the app run on this laptop uses real data (a hosted
+	// database, the user's real account). Unset counts as yes: browser
+	// clicks, typing and page scripts then ask first (DATA1).
+	LocalRealData  *bool    `json:"local_real_data,omitempty"`
 	FrontendChecks []string `json:"frontend_checks,omitempty"`
 	BrandKit       string   `json:"brand_kit,omitempty"`
 	Mockups        string   `json:"mockups,omitempty"`

@@ -144,6 +144,7 @@ func PostToolUse(in *HookInput) Output {
 	case in.ToolName == "Grep":
 		c.noteSearchHits(responseText(in.ToolResponse), []string{in.Cwd, c.root})
 	case strings.HasPrefix(in.ToolName, "mcp__"):
+		c.afterBrowser()
 		if strings.Contains(strings.ToLower(in.ToolName), "socraticode") {
 			c.noteSearchHits(responseText(in.ToolResponse), []string{c.root, in.Cwd})
 		}

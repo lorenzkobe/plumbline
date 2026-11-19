@@ -60,8 +60,8 @@ func Refs(text string) []Ref {
 	seen := map[string]bool{}
 	for _, m := range reRef.FindAllStringSubmatch(text, -1) {
 		p := m[1]
-		if strings.Contains(p, "://") {
-			continue
+		if strings.Contains(p, "://") || !strings.ContainsAny(strings.ToLower(p), "abcdefghijklmnopqrstuvwxyz") {
+			continue // a URL, or a number like "4.6:1" (a contrast ratio), not a file (FP3)
 		}
 		k := p + ":" + m[2]
 		if seen[k] {

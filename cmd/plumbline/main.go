@@ -530,6 +530,9 @@ func cmdRun(args []string) (int, error) {
 		if core.TrivialProof(command) {
 			return 0, errors.New("that command passes whatever the code does, so it proves nothing. Run something that uses the change: call the API (curl the endpoint), click it in the app (Playwright), or query the schema")
 		}
+		if sub == "ui" && core.FetchProof(command) {
+			return 0, errors.New("fetching a page or a file doesn't show the screen works: nothing renders it or clicks it. Drive the running app (npx playwright test, or a Playwright script), or open the changed screen in the local app with Claude in Chrome and take a screenshot (Plumbline records that). If neither is possible, ask the user")
+		}
 		if sub == "ui" && core.UnitTestProof(command) {
 			return 0, errors.New("unit and component tests aren't the real app, so they don't prove the screen works (they count as tests already). Drive the running app instead: npx playwright test, or a Playwright script that opens the changed screen and clicks the changed thing. If no browser tool is set up, ask the user: they look at it themselves (then waive proof:ui with their reason), or you use their Chrome")
 		}

@@ -340,6 +340,10 @@ func TestUIProofNeedsTheApp(t *testing.T) {
 	if code == 0 || !strings.Contains(out, "aren't the real app") {
 		t.Fatalf("vitest as ui proof should be refused: %d %s", code, out)
 	}
+	out, code = plumbline(t, dir, home, "", "run", "proof", "ui", "--", "curl", "-s", "http://localhost:5173/src/a.tsx")
+	if code == 0 || !strings.Contains(out, "doesn't show the screen works") {
+		t.Fatalf("curl as ui proof should be refused: %d %s", code, out)
+	}
 }
 
 // taskID: the id that plumbline task start printed.

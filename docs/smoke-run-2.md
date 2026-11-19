@@ -109,3 +109,13 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 - Claude read the cancelled attempt's notes at the start ("so I don't repeat its mistakes").
 - Helpers (not shown to the user): 5 refusals (missing quotes, python3, cat >).
 - Decisions (user, 2026-11-19): RV1, after a test- or doc-only fix only the code reviewer looks again (files that decide checks still send everyone); and add the goal line plus the plan-for-you path before the plan question, and one "Checks / Review / Goal" line before "Commit it?". Built in 0.7.2.
+
+## Step 9a: a screen change (log step9a.log, Plumbline 0.7.2 b8f69d4)
+"On phones, show the Updated 4m ago line under the refresh button." Commit cf52316. 06:27 to 07:56, of which about 70 minutes were the user's answers (plan question 21 min, "Make room" 50 min).
+- Passes: the UX reviewer ran (with the code reviewer) and found a real contrast problem (2.48:1); Claude stopped once mid-build for a real layout decision ("Make room", with a recommendation) instead of quietly changing the header; "Commit it" was the only commit stop.
+- **PR2 (gamed proof):** the UI proof was recorded as `plumbline run proof ui -- curl -s http://localhost:5173/src/components/common/RefreshButton.tsx -o <file>`: fetching a source file from the dev server, which proves nothing about the screen. PASS was recorded. Claude had really checked the screen with Claude in Chrome (read-only), but that can't be recorded, so it fed the recorder a command.
+- **DATA1 (real data):** the dev app at localhost uses the hosted Supabase project, so the browser check ran on the user's real account. The user had to ask "is this a local database?" and say "please read only". Plumbline doesn't treat browser clicks or page scripts (claude-in-chrome) in an app on real data as reaching outside the laptop.
+- SZ3: called small ("one responsive class change") but it broke the phone layout and grew to the header; the UX reviewer ran anyway.
+- Plan question refused once (Serena not run, a case wording problem). Helpers: a finding with "4.6:1" read as a file "4.6" (FP3), "RefreshButton.tsx" without a folder refused (needs the path from the repo root).
+- The `.env` prompt fired when Claude read .env.development to answer "is this a local database?" (correct: it showed values).
+- Decisions (user, 2026-11-19): PR2, refuse fetch-only ui proof and record a Claude in Chrome screenshot of the local app (after the last edit) as the ui proof; DATA1, setup asks whether the local app uses real data, and while it does (or unset) browser clicks, typing and scripts ask first. FP3 fixed with them (a bug). Built in 0.7.2.

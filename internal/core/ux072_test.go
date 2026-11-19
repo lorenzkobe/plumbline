@@ -428,3 +428,107 @@ func TestTestOnlyFixNeedsOnlyTheCodeReviewer(t *testing.T) {
 		t.Fatalf("after a code change: %q", a)
 	}
 }
+
+// DATA1: in the browser, clicks, typing and page scripts ask first while
+// the local app uses real data (or the setup doesn't say); looking doesn't.
+func TestBrowserOnRealData(t *testing.T) {
+	h := newHarness(t)
+	h.setup() // no local_real_data: counts as real
+	chrome := func(tool string, in map[string]any) string {
+		d, _ := decision(h.pre("mcp__claude-in-chrome__"+tool, in))
+		return d
+	}
+	for _, c := range []struct {
+		tool string
+		in   map[string]any
+	}{
+		{"computer", map[string]any{"action": "left_click", "coordinate": []int{10, 10}}},
+		{"computer", map[string]any{"action": "type", "text": "x"}},
+		{"computer", map[string]any{"action": "key", "text": "Enter"}},
+		{"form_input", map[string]any{"ref": "a", "value": "x"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "1"}},
+		{"browser_batch", map[string]any{}},
+	} {
+		if d := chrome(c.tool, c.in); d != "ask" {
+			t.Errorf("%s %v on real data: %q, want ask", c.tool, c.in, d)
+		}
+	}
+	for _, c := range []struct {
+		tool string
+		in   map[string]any
+	}{
+		{"computer", map[string]any{"action": "screenshot"}},
+		{"computer", map[string]any{"action": "zoom", "region": []int{0, 0, 10, 10}}},
+		{"computer", map[string]any{"action": "scroll"}},
+		{"navigate", map[string]any{"url": "http://localhost:5173/app"}},
+		{"read_page", map[string]any{}},
+		{"get_page_text", map[string]any{}},
+		{"resize_window", map[string]any{"width": 360, "height": 780}},
+		{"tabs_context_mcp", map[string]any{}},
+	} {
+		if d := chrome(c.tool, c.in); d == "ask" || d == "deny" {
+			t.Errorf("%s %v only looks: %q", c.tool, c.in, d)
+		}
+	}
+	// A test database: no prompts.
+	no := false
+	s, _, _ := LoadSetup(h.repo)
+	s.LocalRealData = &no
+	_, err := SaveSetup(h.repo, s)
+	must(t, err)
+	must(t, ConfirmSetup(h.repo))
+	if d := chrome("computer", map[string]any{"action": "left_click"}); d == "ask" {
+		t.Fatal("a click asked with a test database")
+	}
+}
+
+// PR2: a screenshot of the local app after the last edit is the ui proof;
+// fetching a file over HTTP isn't.
+func TestBrowserScreenshotIsUIProof(t *testing.T) {
+	h := groundedTask(t, "small")
+	h.docs(DocPlan, strings.Replace(goodPlan, "- does not apply, because no API or UI\n", "- ui: the header shows the line at 360px\n", 1))
+	h.approve()
+	a := filepath.Join(h.repo, "src", "a.go")
+	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
+	h.post("Edit", map[string]any{"file_path": a}, nil)
+	ui := func() bool { return strings.Contains(h.finishMissing(), "real-world proof (ui)") }
+	if !ui() {
+		t.Fatal("the ui proof should be missing")
+	}
+	shot := func() { h.post("mcp__claude-in-chrome__computer", map[string]any{"action": "screenshot"}, "ok") }
+	h.post("mcp__claude-in-chrome__navigate", map[string]any{"url": "https://example.com"}, "ok")
+	shot()
+	if !ui() {
+		t.Fatal("a screenshot of another site counted")
+	}
+	h.post("mcp__claude-in-chrome__navigate", map[string]any{"url": "http://localhost:5173/app"}, "ok")
+	shot()
+	if ui() {
+		t.Fatalf("a screenshot of the local app after the edit: %s", h.finishMissing())
+	}
+	// The code changes after it: a new screenshot is needed.
+	write(t, a, "package src\n\nfunc A() int { return 2 } // x\n")
+	h.post("Edit", map[string]any{"file_path": a}, nil)
+	if !ui() {
+		t.Fatal("a screenshot of older code counted")
+	}
+
+	for _, c := range []string{"curl -s http://localhost:5173/src/components/common/RefreshButton.tsx -o /tmp/x.js", "wget -qO- http://localhost:5173/app", "http :5173/app"} {
+		if !FetchProof(c) {
+			t.Errorf("%q should not count as ui proof", c)
+		}
+	}
+	for _, c := range []string{"npx playwright test", "curl -s http://localhost:5173/app && npx playwright test"} {
+		if FetchProof(c) {
+			t.Errorf("%q drives the app", c)
+		}
+	}
+}
+
+// FP3: "4.6:1" (a contrast ratio) isn't a file reference.
+func TestNumbersAreNotFileRefs(t *testing.T) {
+	refs := Refs("contrast 4.6:1 and 2.48:1, see src/a.go:3")
+	if len(refs) != 1 || refs[0].Path != "src/a.go" {
+		t.Fatalf("refs: %+v", refs)
+	}
+}

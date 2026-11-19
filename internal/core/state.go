@@ -190,6 +190,9 @@ type Task struct {
 	CommitOK string `json:"commit_ok,omitempty"`
 	// Goal: the approved plan's goal line; the report says whether it's met.
 	Goal string `json:"goal,omitempty"`
+	// BrowserURL: the local app page the lead's browser last opened, for a
+	// screenshot to count as the ui proof (PR2).
+	BrowserURL string `json:"browser_url,omitempty"`
 	// Seen: lines the lead saw in search results (RD2).
 	Seen map[string]Seen `json:"seen,omitempty"`
 }

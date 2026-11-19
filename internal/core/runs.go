@@ -665,6 +665,25 @@ func UnitTestProof(command string) bool {
 	return unit
 }
 
+// FetchProof reports a ui proof command that only fetches over HTTP (curl,
+// wget, httpie): it downloads a page or a file, but nothing renders it or
+// clicks anything, so it doesn't show the screen works (PR2: curl of a
+// source file from the dev server was recorded as ui proof).
+func FetchProof(command string) bool {
+	segs := Segments(command)
+	fetch := false
+	for _, s := range segs {
+		switch name := s.Name(); {
+		case name == "" || trivialProof[name]:
+		case name == "curl" || name == "wget" || name == "http" || name == "https" || name == "xh":
+			fetch = true
+		default:
+			return false
+		}
+	}
+	return fetch
+}
+
 // LatestFor returns the task's newest run of a kind (and sub) on the given
 // code. A non-empty command is the saved command the run must have used, so
 // a run from an older setup, or another task's run, doesn't count.
