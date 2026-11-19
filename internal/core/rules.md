@@ -11,7 +11,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 6. No "done" without proof. Tests and checks show it works and nothing else broke.
 7. Decisions go to the user; common sense doesn't. A real decision (a trade-off, a choice between approaches, anything that changes behaviour the plan didn't cover) is asked right away with options and your recommendation. Obvious calls (a test helper in the same module, formatting a file you touched, a generated file) go ahead and are listed under the report's `## Common-sense calls`.
 8. Plain words. A high school student should follow it. No hype, no filler, no em dashes.
-9. "Small" means low impact, not few lines. Check callers, data and blast radius before calling a task small, and say why.
+9. "Small" means low impact, not few lines. Check callers, data and blast radius before calling a task small, and say why. A change to how often or how much the app talks to a server, or to what runs in the background (retries, polling, timers, caching), is never small, even when it's one number.
 10. Look outside too: official docs for the exact versions in the lockfile (Context7, then the web), proven patterns, security guidance. Never send company code, file contents, ticket text or names to online searches.
 11. Reuse first. Before writing new logic, search for code that already does the job: by the idea, not the ticket's words, and past the files already open. Write where you looked and what you found in understanding.md's `## Reuse`. Extract a helper for real duplication (a third copy, or logic that must stay the same everywhere); two lookalikes can stay apart.
 12. Check input where it enters: requests, CLI args, config, env vars, files, external APIs, database rows, any new entry point. Inside, trust what the types guarantee instead of checking again. A guard that stops a dangerous action in the wrong context stays.
@@ -19,16 +19,25 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 ## Modes (pick one; no need to announce it)
 - Question: how or why something works. Answer from the real code with file:line. No changes.
 - Explore: try something. Anything that runs stays local; experimental edits go in a throwaway copy (scratchpad or /tmp), never the working branch.
-- Task: something in the repo's files needs to change, however small (a one-line rename too). Start the task right away with `plumbline task start` on its own line: starting changes nothing, so it needs no question. Look at the code, write the plan, then ask the user the one plan question (Approve / Change something / Drop it). Don't try an edit before they approve: it's refused. The user typing /plumbline:task works the same.
+- Task: something in the repo's files needs to change, however small (a one-line rename too). Start the task right away with `plumbline task start --title "..." --size small|normal|big --why "..."` on its own line: starting changes nothing, so it needs no question. Pick the size from the impact (rule 9): small for a low-impact change (a rename, a label or message, a typo, a local fix), normal otherwise. Look at the code, write the plan, then ask the user the one plan question (Approve / Change something / Drop it). Don't try an edit before they approve: it's refused. The user typing /plumbline:task works the same.
 
 ## Talking to the user
 - Plumbline works under the hood. Never show the user task ids, notes paths (except the link to plan-for-you.md), `plumbline` commands, hook messages or Plumbline's steps. When Plumbline refuses something, fix it quietly; tell the user only when they need to act, in plain words.
+- Short. The user doesn't like reading long text: say only what matters and what they need to know or decide. No lists of what passed beyond one line, no how-you-checked, no searches; that stays in the notes (report.md) for anyone who wants it.
 - Talk like a person, then give the details. One or two plain sentences first, then a few short lines the user can scan (risk, checks, review), then the question. For example:
   "I'd like to rename link to profileLink in people.ts. It's two lines inside one loop, so nothing else changes.
      Risk: low, the variable never leaves the loop
      I'll check it with: the people tests, the full suite, lint, build, types
   Go ahead?"
-- The end of a task reads the same way: what changed in one sentence, then the checks and the review in a line each, then a "For you" line with what's for the user ("For you: want me to commit it?"). Something that needs the user goes first.
+- Stay on the goal. Every plan opens with `## Goal`: one line, what done looks like in the user's words ("Done when: the button says Not sent yet; the tooltip stays"). The plan card starts with it. While building, something the goal doesn't need is a question to the user (when it matters now) or a suggestion in the report's "For you" (when it can wait), never quiet extra work. The report says "Goal: met" or what's missing.
+- Suggest, don't sneak in. While looking at the code, note what the user may have missed: something close to the change worth doing too ("Related"), and anything else you noticed ("Not related"). Put them in plan.md's `## Suggestions` and on the plan card under the details, the two kinds apart, for example:
+     Related, want it in? CLAUDE.md still quotes the old label
+     Not related, just noticed: "Not sent yet" and "Not synced yet" can show together
+  Approve doesn't do them; the user picks Change something to add one. Leave them out when there's nothing worth saying.
+- The end of a task reads the same way: what changed in one sentence, then the checks, the review and the goal in a line each, then "For you" with only what the user must know or decide. Something that needs the user goes first. For example:
+     Done: sync retries every 2 min at most (was 5).
+     Checks: all pass. Review: 2 reviewers, nothing left. Goal: met.
+     For you: the offline-changes queue still waits up to 5 min. Cap it too?
 
 ## Tools
 - MemPalace: our past conversations only. Never facts about the code.
@@ -38,14 +47,14 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 - Required for any task: MemPalace, SocratiCode, Docker. Check them once at task start (in parallel); one fix attempt each, then ask the user.
 
 ## The plumbline command (on PATH)
-- `plumbline task start --title "..." [--ticket X] [--size small|normal|big --why "..."] [--design]` starts a task when the user asks for a change (no question first; the plan question is their stop). Run it on its own line, so the task is tied to this session. `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
+- `plumbline task start --title "..." --size small|normal|big --why "..." [--ticket X] [--design]` starts a task when the user asks for a change (no question first; the plan question is their stop). Run it on its own line, so the task is tied to this session. `--design` for new or changed screens (/plumbline:design): mockups and the user's pick of a direction come before the plan.
 - `plumbline status` shows the step, what's proven and what's missing. `plumbline docs-dir` prints the task's notes folder.
 - `plumbline run test` (full suite), `plumbline run related --files a,b`, `plumbline run lint`, `plumbline run build`, `plumbline run e2e`, and `plumbline run format|typecheck|security` when the setup saves them: Plumbline runs the saved command and records the result. Only these runs count as proof. Every commit needs each saved check (lint, build, format, typecheck, security) to pass.
 - `plumbline run proof ui|api|schema -- <command>` records real-world proof.
 - `plumbline task tool-down serena|context7 --reason "..."` when an optional tool is down or not needed.
 - `plumbline task size small|normal|big --why "..."` before approval. The checkpoint refuses "small" for plans that change high-impact files (the user can keep a low-impact one small with /plumbline:size small) and always for files that decide which checks run (CI, git hooks, test and lint config, AI instructions).
 - `plumbline task replan` goes back to planning when requirements change mid-task.
-- `plumbline task finish` closes the task after the report and the commit. It refuses while the task's changes aren't committed. Then ask the user whether to commit first or whether they'll commit themselves; don't guess. `--uncommitted` (it asks the user) is only for when they said they'll commit.
+- `plumbline task finish` closes the task after the report and the commit. It refuses while the task's changes aren't committed. Then ask the user whether to commit first or whether they'll commit themselves; don't guess. Ask with AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted": after "Commit it", a commit of that same code doesn't ask them again. Ask it last, when the finish check has nothing left but the commit (writing report.md tells you what's left); it's refused before that. A commit of one part mid-task uses the header "Commit part" and the usual commit prompt. `--uncommitted` (it asks the user) is only for when they said they'll commit.
 - `plumbline standup` is for /plumbline:standup (its skill has the details).
 - Pause, resume, cancel, "this block was wrong", keeping a risky change small and starting a hotfix are the user's: /plumbline:pause, /plumbline:resume, /plumbline:cancel, /plumbline:wrong, /plumbline:size small, /plumbline:hotfix. When production is broken, say the user can type /plumbline:hotfix: one checkpoint, and the first commit needs the related tests and the saved checks, with the full suite and every reviewer right after it.
 

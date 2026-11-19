@@ -73,6 +73,34 @@ func Refs(text string) []Ref {
 	return out
 }
 
+// seenProblem: a file:line in a file Claude didn't open. A line a search
+// showed is enough for a file the plan only mentions (RD2); a file the plan
+// changes must be opened. "" when the search showed it.
+func seenProblem(t *Task, r Ref) string {
+	notOpened := fmt.Sprintf("%s:%d: Claude didn't open this file during the task", r.Path, r.Line)
+	abs := filepath.Join(t.Root, filepath.FromSlash(r.Path))
+	s, ok := t.Seen[abs]
+	if !ok {
+		if hit := findSeenBySuffix(t, r.Path); hit != "" {
+			abs, s, ok = hit, t.Seen[hit], true
+		}
+	}
+	if !ok {
+		return notOpened
+	}
+	rel := filepath.ToSlash(strings.TrimPrefix(abs, t.Root+string(filepath.Separator)))
+	if contains(planFiles(t), rel) {
+		return fmt.Sprintf("%s:%d: the plan changes this file, so open it (a search shows a line, not the code around it)", r.Path, r.Line)
+	}
+	if fileHash(abs) != s.Hash {
+		return fmt.Sprintf("%s:%d: the file changed after the search showed it; open it", r.Path, r.Line)
+	}
+	if !s.near(r.Line) {
+		return fmt.Sprintf("%s:%d: the search showed other lines of this file, not this one; open it", r.Path, r.Line)
+	}
+	return ""
+}
+
 // CheckRefs makes sure every file and line points to a file read during this
 // task (by the lead or a helper) that has not changed since it was read.
 func CheckRefs(t *Task, text string) []string {
@@ -88,7 +116,9 @@ func CheckRefs(t *Task, text string) []string {
 			}
 		}
 		if !ok {
-			problems = append(problems, fmt.Sprintf("%s:%d: Claude didn't open this file during the task", r.Path, r.Line))
+			if p := seenProblem(t, r); p != "" {
+				problems = append(problems, p)
+			}
 			continue
 		}
 		if fileHash(abs) != rd.Hash {
@@ -212,6 +242,23 @@ func vaguePlanLines(text string) []string {
 // A case's test: "test: path" or "test: path::name", in backticks when the
 // name has spaces ("test: `a.test.ts::refunds twice`"). "test" must be a
 // whole word, so "latest: x" is not a link.
+// caseTestLink: the case's first "test:" link that names a file (a path,
+// or a name with an extension), as "file" or "file::test name". bad is the
+// first word after "test:" when none does.
+func caseTestLink(b string) (ref, bad string) {
+	for _, m := range reTestLink.FindAllStringSubmatch(b, -1) {
+		r := strings.TrimSpace(m[1] + strings.TrimRight(m[2], ").,;"))
+		f := strings.SplitN(r, "::", 2)[0]
+		if strings.Contains(f, "/") || filepath.Ext(f) != "" {
+			return r, ""
+		}
+		if bad == "" {
+			bad = f
+		}
+	}
+	return "", bad
+}
+
 var reTestLink = regexp.MustCompile("(?i)\\btest:\\s*(?:`([^`]+)`|([^\\s`]+))")
 
 const notApply = "does not apply, because"
@@ -230,9 +277,12 @@ type PlanCheck struct {
 	// SharedTests: named tests (file::name) that are the proof for more than
 	// one case, for the challenger and reviewers to check.
 	SharedTests []string
-	ProofKinds  []string // ui, api, schema that must be proven
-	Approved    []string // commands in "Needs your OK" (packages, outside-laptop commands)
-	Problems    []string
+	// Goal: the plan's "## Goal" line, what done looks like in the user's
+	// words; reviewers and the report check the work against it.
+	Goal       string
+	ProofKinds []string // ui, api, schema that must be proven
+	Approved   []string // commands in "Needs your OK" (packages, outside-laptop commands)
+	Problems   []string
 }
 
 func CheckPlan(text string) PlanCheck { return CheckPlanSized(text, false) }
@@ -242,6 +292,15 @@ func CheckPlan(text string) PlanCheck { return CheckPlanSized(text, false) }
 // read the same way (UX1).
 func CheckPlanSized(text string, small bool) PlanCheck {
 	var pc PlanCheck
+	for _, l := range Section(text, "goal") {
+		if g := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(l), "-* ")); g != "" {
+			pc.Goal = g
+			break
+		}
+	}
+	if pc.Goal == "" {
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Goal" line first: what done looks like, in the user's words ("Done when: ..."), so the work can be checked against it`)
+	}
 	for _, l := range Section(text, "files") {
 		if b, ok := bullet(l); ok {
 			f := strings.Trim(strings.Fields(b)[0], "`")
@@ -263,8 +322,12 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 		}
 		b = reTestNotApply.ReplaceAllString(b, "$1")
 		lower := strings.ToLower(b)
-		if m := reTestLink.FindStringSubmatch(b); m != nil {
-			ref := strings.TrimSpace(m[1] + strings.TrimRight(m[2], ").,;"))
+		if ref, bad := caseTestLink(b); ref != "" || bad != "" {
+			if ref == "" {
+				// "same test: at 120 s" isn't a link to a file named "at" (PL2)
+				pc.Problems = append(pc.Problems, fmt.Sprintf("case %q: %q isn't a test file; write \"test: <path to the test file>\" (a path or a file name like a_test.go), or \"does not apply, because ...\"", short(b), bad))
+				continue
+			}
 			pc.CaseTests = append(pc.CaseTests, strings.SplitN(ref, "::", 2)[0])
 			if strings.HasPrefix(b, "[bug]") {
 				pc.BugTests = append(pc.BugTests, ref)

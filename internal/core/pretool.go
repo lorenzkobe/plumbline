@@ -943,9 +943,50 @@ func protectedBase(t string) bool {
 	return false
 }
 
+// commitNotReady: what the finish check still needs before the commit
+// question, so the user's "Commit it" is the last step (CF1). A hotfix's
+// first commit comes before its full suite and reviews, so it isn't held.
+func (c *hookCtx) commitNotReady() []string {
+	t := c.task
+	if t == nil || t.Phase != PhaseBuilding || c.paused || !c.setupOK || c.setup == nil {
+		return nil
+	}
+	if t.Hotfix() && t.Commits == 0 {
+		return nil
+	}
+	return FinishMissing(t, c.setup)
+}
+
+// leadNotesOnly: the lead writing its own task notes from the terminal
+// (cat >> plan.md <<EOF, tee, echo, printf). The Write tool may write the
+// same files, so the terminal may too. Helpers' findings files and anything
+// else in Plumbline's folder stay refused, and helpers write with Write.
+func (c *hookCtx) leadNotesOnly(s Segment) bool {
+	if c.task == nil || c.in.AgentID != "" || s.Opaque != "" {
+		return false
+	}
+	switch s.Name() {
+	case "cat", "tee", "echo", "printf":
+	default:
+		return false
+	}
+	targets := WriteTargets(s)
+	if len(targets) == 0 {
+		return false
+	}
+	docs := Abs(TaskDocsDir(c.root, c.task.ID), "/")
+	for _, t := range targets {
+		abs := targetAbs(s, t)
+		if abs == "" || !IsInside(abs, docs) || filepath.Dir(abs) != docs || !strings.HasSuffix(abs, ".md") || reFindings.MatchString(filepath.Base(abs)) {
+			return false
+		}
+	}
+	return true
+}
+
 // ownFilesFromShell: a terminal write into Plumbline's data folder. Task
 // notes have their own way in (UX2: the refusal names it).
-const ownFilesFromShell = "Plumbline's own files can't be changed from the terminal. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool; anything else goes through the plumbline command."
+const ownFilesFromShell = "Plumbline's own files can't be changed from the terminal. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool (the lead may also use cat, tee, echo or printf into its own notes); anything else goes through the plumbline command."
 
 // buildFile is the building-phase rule for one file outside the plan, shared
 // by edits, terminal commands and MCP tools. pending counts other new
@@ -1071,6 +1112,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			continue
 		}
 		quiet := ReadOnly(s)
+		notes := c.leadNotesOnly(s)
+		if notes {
+			quiet = true // the lead's own notes, as the Write tool may write them
+		}
 		c.testTargetVerdict(segs, i, v)
 		switch {
 		case name == "claude":
@@ -1245,7 +1290,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case abs == "" && strings.Contains(strings.ToLower(t), "plumbline"):
 				v.d("own-files", "Plumbline's own files can't be changed from the terminal, and this writes in a folder Plumbline can't work out.")
 			case abs != "" && isInsideFold(abs, DataDir()):
-				v.d("own-files", ownFilesFromShell)
+				if !notes {
+					v.d("own-files", ownFilesFromShell)
+				}
 			case abs != "" && c.root != "" && foldPath(abs) == foldPath(filepath.Join(ProjectRoot(c.root), RepoSetupFile)):
 				v.a("setup-change", "this changes Plumbline's saved project setup from the terminal. Until the user confirms it again with /plumbline:setup, its saved commands don't run and nothing in it switches a rule off.")
 			case abs != "" && c.root != "" && TrackerPath(c.root) != "" && foldPath(abs) == foldPath(TrackerPath(c.root)):
@@ -1316,7 +1363,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if len(v.deny) == 0 {
 		// every commit in the line, each in its own repo
 		for _, s := range commits {
-			switch d, rule, reason := c.gateCommit(s, addsAll, added); d {
+			switch d, rule, reason := c.gateCommit(s, addsAll, added, len(commits) == 1); d {
 			case "deny":
 				v.d(rule, reason)
 			case "ask":
@@ -1356,7 +1403,7 @@ func contains(s []string, x string) bool {
 
 // gateCommit is the commit rule: no commit without proof on the current code.
 // A commit in another repo (git -C, cd) is checked against that repo's task.
-func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision, rule, reason string) {
+func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string, single bool) (decision, rule, reason string) {
 	ctx := c
 	if d := gitDir(s); d != "" {
 		if r := RepoRoot(d); r != "" && r != c.root {
@@ -1413,6 +1460,10 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string) (decision,
 		kind = "hotfix commit, related tests and the saved checks passed; the full suite and every reviewer run right after it"
 	case final:
 		kind = "last commit of the task, full suite passed"
+	}
+	if single && ctx.task.CommitOK != "" && ctx.task.CommitOK == commitPrint(ctx.root, ctx.ignore()) {
+		// The user just answered "Commit it" on this code: one stop, not two.
+		return "", "", ""
 	}
 	return "ask", "commit", fmt.Sprintf("commit \"%s\" (%s).", subject, kind)
 }
@@ -1602,6 +1653,17 @@ func (c *hookCtx) gateQuestion() Output {
 	if cp == 0 {
 		if dirs > 0 {
 			return c.gateDirection(dq, answers)
+		}
+		for _, q := range qs {
+			if !isCommitQ(q) {
+				continue
+			}
+			if len(answers) > 0 {
+				return c.deny("self-approval", "the commit question can't come pre-answered. Only the user answers it.")
+			}
+			if miss := c.commitNotReady(); len(miss) > 0 {
+				return c.deny("commit-early", "not ready to ask about the commit yet, so the user's yes would come before the work is done. The finish check still needs: "+strings.Join(miss, "; ")+". Do these first, then ask.")
+			}
 		}
 		return nil
 	}

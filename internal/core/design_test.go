@@ -8,7 +8,7 @@ import (
 
 const designDoc = "# Design\n## Brand kit\n- docs/brand.md\n## Directions\n- Direction A: bold, https://claude.ai/artifact/a\n- Direction B: calm, https://claude.ai/artifact/b\n- Direction C: dense, https://claude.ai/artifact/c\n"
 
-const designPlan = "# Plan\n## Files\n- src/a.go\n## Cases\n- [normal] list shows -> test: test.sh\n## Real-world proof\n- ui: screenshots at 360, 768 and 1280 px against the mockup\n## Needs your OK\n- none\n## Design\nDirection B, mockup https://claude.ai/artifact/b\n"
+const designPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [normal] list shows -> test: test.sh\n## Real-world proof\n- ui: screenshots at 360, 768 and 1280 px against the mockup\n## Needs your OK\n- none\n## Design\nDirection B, mockup https://claude.ai/artifact/b\n"
 
 // designTaskH: a small design task, grounded, ready for the directions.
 func designTaskH(t *testing.T) *harness {

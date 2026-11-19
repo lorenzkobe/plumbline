@@ -84,7 +84,7 @@ func (h *harness) complete(kind, text string) string {
 	return text
 }
 
-const goodPlan = "# Plan\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
+const goodPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
 
 // groundedTask: a normal task with lookups done, the file read and the
 // understanding written, ready for the plan.

@@ -298,7 +298,7 @@ func TestTaskStartChecklist(t *testing.T) {
 		t.Fatalf("setup: %d %s", code, out)
 	}
 	out, _ := plumbline(t, dir, home, "", "task", "start", "--title", "x", "--size", "small", "--why", "one local rename")
-	for _, want := range []string{"plan.md", "Write tool", "Drop it", "plumbline run checks"} {
+	for _, want := range []string{"plan.md", "## Goal", "Write tool", "Drop it", "plumbline run checks"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("small checklist lacks %q: %s", want, out)
 		}
@@ -310,4 +310,44 @@ func TestTaskStartChecklist(t *testing.T) {
 	if !strings.Contains(out, "plan-for-you.md") || !strings.Contains(out, "understanding.md") {
 		t.Fatalf("normal checklist lacks the plain plan or the understanding: %s", out)
 	}
+	if strings.Contains(out, "No size was given") {
+		t.Fatalf("a task started with a size was told it had none: %s", out)
+	}
+	// SZ1: started without a size, it's normal, and Claude is told to judge
+	// it; switching to small prints the small steps.
+	out, _ = plumbline(t, dir, home, "", "task", "start", "--title", "z")
+	if !strings.Contains(out, "(normal,") || !strings.Contains(out, "No size was given") || !strings.Contains(out, "plumbline task size small") {
+		t.Fatalf("a task without a size should say so: %s", out)
+	}
+	out, code := plumbline(t, dir, home, "", "task", "size", "small", "--why", "a label", "--task", taskID(out))
+	if code != 0 || !strings.Contains(out, "Next (small)") || strings.Contains(out, "Start the challenger") {
+		t.Fatalf("task size small should print the small steps: %d %s", code, out)
+	}
+}
+
+// PR1: a unit test runner isn't accepted as the real-app proof; the
+// plan question asks Claude to show its suggestions.
+func TestUIProofNeedsTheApp(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	if out, code := plumbline(t, dir, home, `{"kind": "personal", "commands": {"test": "true"}}`, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	out, _ := plumbline(t, dir, home, "", "task", "start", "--title", "x", "--size", "small", "--why", "a label")
+	if !strings.Contains(out, "## Suggestions") {
+		t.Fatalf("the checklist doesn't mention suggestions: %s", out)
+	}
+	out, code := plumbline(t, dir, home, "", "run", "proof", "ui", "--task", taskID(out), "--", "npx", "vitest", "run", "a.test.tsx")
+	if code == 0 || !strings.Contains(out, "aren't the real app") {
+		t.Fatalf("vitest as ui proof should be refused: %d %s", code, out)
+	}
+}
+
+// taskID: the id that plumbline task start printed.
+func taskID(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "plumbline-task-id: ") {
+			return strings.TrimSpace(strings.TrimPrefix(l, "plumbline-task-id: "))
+		}
+	}
+	return ""
 }

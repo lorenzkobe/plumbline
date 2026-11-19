@@ -35,7 +35,7 @@ func smallTask(t *testing.T, riskyPaths []string, file string) *harness {
 // A small plan: what changes, the files, the cases. No understanding.md,
 // no proof or "Needs your OK" sections (none means none).
 func smallPlan(file string) string {
-	return "# Plan\nRename the local in F (" + file + ":3).\n## Files\n- " + file + "\n## Cases\n- [normal] F still returns 1 -> test: test.sh\n"
+	return "# Plan\n## Goal\nDone when: A works as planned.\nRename the local in F (" + file + ":3).\n## Files\n- " + file + "\n## Cases\n- [normal] F still returns 1 -> test: test.sh\n"
 }
 
 func TestSmallPlanNeedsNoUnderstanding(t *testing.T) {
@@ -140,7 +140,9 @@ func TestRefusalsNameTheWay(t *testing.T) {
 		t.Fatalf("baseline refusal doesn't name run checks: %s", r)
 	}
 	docs := TaskDocsDir(h.repo, h.task().ID)
-	_, r = decision(h.pre("Bash", map[string]any{"command": "cat > " + docs + "/report.md <<'EOF'\nx\nEOF"}))
+	// 0.7.2: cat, tee, echo and printf may write the lead's notes; other
+	// writers are still refused, and the refusal names the way.
+	_, r = decision(h.pre("Bash", map[string]any{"command": "python3 -c 'print(1)' > " + docs + "/report.md"}))
 	if !strings.Contains(r, "Write or Edit tool") {
 		t.Fatalf("notes-from-the-shell refusal doesn't name the Write tool: %s", r)
 	}

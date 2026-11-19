@@ -95,7 +95,7 @@ func TestUnderstandingNeedsReuse(t *testing.T) {
 
 // report builds a report around a verdict block and a proof section.
 func r2Report(verdict, proof string) string {
-	return "# Report\n## Verdict\n" + verdict + "\n## Proof\n" + proof + "\n## Review\n- fine\n## Common-sense calls\n- none\n## For you\n- nothing\n"
+	return "# Report\n## Verdict\n" + verdict + "\nGoal: met\n## Proof\n" + proof + "\n## Review\n- fine\n## Common-sense calls\n- none\n## For you\n- nothing\n"
 }
 
 func TestReportVerdict(t *testing.T) {

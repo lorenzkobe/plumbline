@@ -184,6 +184,14 @@ type Task struct {
 	// task's start.
 	Tokens  map[string]TokenCount `json:"tokens,omitempty"`
 	Commits int                   `json:"commits,omitempty"`
+	// CommitOK: the user answered "Commit it" to the commit question with
+	// HEAD and the code as this records them. A commit on exactly that asks
+	// no second time; any later change or commit ends it.
+	CommitOK string `json:"commit_ok,omitempty"`
+	// Goal: the approved plan's goal line; the report says whether it's met.
+	Goal string `json:"goal,omitempty"`
+	// Seen: lines the lead saw in search results (RD2).
+	Seen map[string]Seen `json:"seen,omitempty"`
 }
 
 // NewID makes a short, sortable id.
@@ -380,6 +388,47 @@ func takeSessionLookups(sessionID string) map[string]Lookup {
 	for fam, l := range m {
 		if Now().Sub(l.At) > sessionLookupWindow {
 			delete(m, fam)
+		}
+	}
+	return m
+}
+
+// sessionReadsPath holds the files the lead opened while no task was open,
+// with what they held then (RD1, like FR1's searches).
+func sessionReadsPath(sessionID string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".reads.json")
+}
+
+func noteSessionRead(sessionID, abs, h string) {
+	if sessionID == "" {
+		return
+	}
+	m := map[string]Read{}
+	if b, err := os.ReadFile(sessionReadsPath(sessionID)); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	m[abs] = Read{Hash: h, At: Now()}
+	b, _ := json.Marshal(m)
+	_ = os.MkdirAll(filepath.Dir(sessionReadsPath(sessionID)), 0o700)
+	_ = writeFileAtomic(sessionReadsPath(sessionID), b)
+}
+
+// takeSessionReads returns the reads of the last sessionLookupWindow and
+// clears them. The hash stays: a file changed since counts as not read.
+func takeSessionReads(sessionID string) map[string]Read {
+	p := sessionReadsPath(sessionID)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	_ = os.Remove(p)
+	m := map[string]Read{}
+	if json.Unmarshal(b, &m) != nil {
+		return nil
+	}
+	for f, r := range m {
+		if Now().Sub(r.At) > sessionLookupWindow {
+			delete(m, f)
 		}
 	}
 	return m

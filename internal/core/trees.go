@@ -459,6 +459,16 @@ func PostToolUseFailure(in *HookInput) Output {
 		segs := ParseShell(in.Str("command"), in.Cwd)
 		if in.ToolName == "Bash" {
 			moved := c.followHead(segs, true) // git checkout main && npm test moved HEAD although the line failed
+			// A read whose line ended in a grep that found nothing still
+			// showed Claude those lines (RD1).
+			if in.AgentID == "" {
+				c.noteShellReads(segs)
+				if onlyReads(segs) {
+					c.noteSearchHits(responseText(in.ToolResponse)+"\n"+in.Error, shellDirs(segs, in.Cwd))
+				}
+			} else {
+				c.noteHelperOpened(shellReadFiles(segs)...)
+			}
 			o = c.withTrackerCheck(c.withMainCheck(c.checkChanged(segs)))
 			if moved != "" {
 				o = addContext(o, moved)

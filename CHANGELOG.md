@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.2: fixes from the 0.7.1 retest
+Found in retest step A (a one-word label change). The user chose to fix all four.
+- SZ1: a task started without a size was normal, so a one-word change took the full path (challenger, plain-words plan, three reviewers). The rules now say to pick the size at start, a start without one says so and how to make it small, and `plumbline task size` prints the steps for the new size.
+- ENV1: `grep ... --include=*` asked "this shows the values in .env": a grep or rg file-name filter was read as files in the folder. A filter that names a secret file (`--include=.env`, `-g '*.pem'`) still asks.
+- The lead may write its own notes (plan.md, understanding.md, plan-for-you.md, report.md) from the terminal with cat, tee, echo or printf, as the Write tool may. Helpers' findings, Plumbline's state and helpers' terminal writes stay refused.
+- One commit stop: after the user answers "Commit it" to Claude's commit question (header "Commit"), a commit of that same code doesn't ask again. A later edit, a commit or another answer ends it; two commits in one line still ask.
+- RD1: the plan question said "Claude didn't open this file" for lines Claude had seen: a read in a command that ended in a grep finding nothing (it exits 1, so Claude Code runs the failure hook, which didn't record reads), or a read made just before the task started. Both count now; a file changed since still doesn't.
+- CF1: the commit question comes last. Writing report.md tells Claude what the finish check still needs (or that only the commit is left), and the "Commit" question is refused until nothing else is left, so the user's "Commit it" is the last step. A pre-answered commit question is refused. A part commit mid-task uses the header "Commit part". A hotfix's first commit isn't held.
+- PR1: unit and component tests (vitest, jest, npm test, go test, pytest) aren't accepted as the real-app (ui) proof; Claude drives the app or asks the user.
+- Goal: every plan opens with `## Goal`, one line of what done looks like in the user's words ("Done when: ..."). The plan card starts with it, reviewers flag work the goal doesn't need (and anything it needs that's missing), new ideas while building become a question or a "For you" suggestion instead of extra work, and the report says "Goal: met" or what's missing under the verdict. The plan question is refused without the goal line; tasks approved before 0.7.2 aren't held to the report line.
+- PL2: a case's "test:" link must name a file (a path, or a name with an extension); "same test: at 120 s" was read as a test file "at", and the approved task could never finish. Now the plan question refuses it, and a real link later in the line is used.
+- RD2: a line Claude saw in search results (grep -n or rg -n over folders, the Grep tool, SocratiCode chunks) counts for a file:line the plan only mentions, within 3 lines and while the file is unchanged. A file the plan changes must still be opened. The Grep tool now has a post hook.
+- Sizing: a change to how often or how much the app talks to a server, or to what runs in the background (retries, polling, timers, caching), is never small. Reviewers' shared checklist gets a cost line (server calls, rendering, memory, time, with the size of it).
+- Short messages: the plan card and the closing message say only what matters and what the user must know or decide; how it was checked stays in report.md.
+- Suggestions: on the plan card, Claude lists what you may have missed, "Related, want it in?" apart from "Not related, just noticed" (plan.md's ## Suggestions, plan-for-you.md for normal tasks). Approve doesn't do them; Change something adds one.
+
 ## 0.7.1: the plan in plain words
 - Normal and big tasks: before the plan question, Claude writes plan-for-you.md next to its notes (outside your project): what you asked for as it understood it, what's happening now, what changes, what could go wrong, how it'll be checked, and what it needs from you, in plain words. The chat shows the short version and the file's path. The plan question is refused until the file is there and newer than plan.md, so you approve what you read. Small tasks keep the short card.
 

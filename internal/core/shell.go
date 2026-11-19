@@ -1077,9 +1077,34 @@ func ReadsSecretFile(s Segment) string {
 	if !fileReaders[name] {
 		return ""
 	}
+	patterns := namePatternFlags[printerFamily(name)]
 	for i := 1; i < len(s.Words); i++ {
 		if s.dyn(i) {
 			continue
+		}
+		if w := s.Words[i]; patterns != nil && strings.HasPrefix(w, "-") {
+			// A file-name filter (grep --include=*, rg -g '*') is a pattern,
+			// not a file in this folder (ENV1). One that names a secret file
+			// (--include=.env) still counts: it picks that file to read.
+			val, isFilter := "", false
+			switch {
+			case patterns[w]:
+				isFilter = true
+				if i+1 < len(s.Words) && !s.dyn(i+1) {
+					val = s.Words[i+1]
+				}
+				i++
+			case strings.Contains(w, "=") && patterns[w[:strings.Index(w, "=")]]:
+				isFilter, val = true, w[strings.Index(w, "=")+1:]
+			case len(w) > 2 && w[1] != '-' && patterns[w[:2]]:
+				isFilter, val = true, w[2:]
+			}
+			if isFilter {
+				if f := secretPattern(val); f != "" && !excludeFlag(w) {
+					return f
+				}
+				continue
+			}
 		}
 		for _, c := range fileCandidates(s.Words[i]) {
 			if strings.HasPrefix(c, "-") {
@@ -1091,6 +1116,36 @@ func ReadsSecretFile(s Segment) string {
 		}
 	}
 	return ""
+}
+
+// secretPattern: a file-name filter that would pick a secret file, such as
+// .env, .env*, .env.* or *.pem (rg's ! for "not" is dropped first: -g '!.env' reads
+// everything but). It's matched as a name, not expanded in the folder.
+func secretPattern(p string) string {
+	p = strings.Trim(p, `'"`)
+	if p == "" || strings.HasPrefix(p, "!") {
+		return ""
+	}
+	for _, x := range expandBraces(p) {
+		x = strings.ReplaceAll(x, "?", "x")
+		if IsSecretFile(x) || IsSecretFile(strings.ReplaceAll(x, "*", "")) || IsSecretFile(strings.ReplaceAll(x, "*", "x")) {
+			return x
+		}
+	}
+	return ""
+}
+
+// excludeFlag: grep's --exclude and --exclude-dir leave files out, so
+// naming .env there reads less, not more.
+func excludeFlag(w string) bool {
+	return strings.HasPrefix(w, "--exclude")
+}
+
+// namePatternFlags: options whose value filters which file names are
+// searched. The value is a pattern, never a file the command reads.
+var namePatternFlags = map[string]map[string]bool{
+	"grep": set("--include --exclude --exclude-dir"),
+	"rg":   set("-g --glob --iglob"),
 }
 
 // Options of the line-printing commands that take the next word as their

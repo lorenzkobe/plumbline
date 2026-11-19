@@ -275,7 +275,8 @@ func cmdTask(args []string) error {
 			return errors.New("the Docker app isn't running. It's required (SocratiCode and the test database). Start it, then try again")
 		}
 		size := f["size"]
-		if size == "" {
+		sizeGiven := size != ""
+		if !sizeGiven {
 			size = "normal"
 		}
 		if size != "small" && size != "normal" && size != "big" {
@@ -310,6 +311,9 @@ func cmdTask(args []string) error {
 		if kind == core.KindDesign {
 			fmt.Println("Next (design task): read the task, check the tools, trace the code, find the brand kit, make at least 3 mockup directions and list them in design.md, ask the user to pick one (header \"Direction\"), then write understanding.md and plan.md (with ## Design) and ask the checkpoint.")
 			return nil
+		}
+		if !sizeGiven {
+			fmt.Println(noSizeNote)
 		}
 		fmt.Println(startChecklist(size))
 		return nil
@@ -362,6 +366,9 @@ func cmdTask(args []string) error {
 		t.Size, t.SizeWhy, t.SizeByUser = pos[0], f["why"], false
 		core.LogEvent(core.Event{Type: "task", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "size"})
 		fmt.Printf("Task %s is now %s (%s). Say why in the checkpoint.\n", t.ID, t.Size, t.SizeWhy)
+		if t.Kind != core.KindDesign {
+			fmt.Println(startChecklist(t.Size)) // the steps differ by size
+		}
 		return core.SaveTask(t)
 	case "replan":
 		t, err := lockedTask(root, f)
@@ -523,6 +530,9 @@ func cmdRun(args []string) (int, error) {
 		if core.TrivialProof(command) {
 			return 0, errors.New("that command passes whatever the code does, so it proves nothing. Run something that uses the change: call the API (curl the endpoint), click it in the app (Playwright), or query the schema")
 		}
+		if sub == "ui" && core.UnitTestProof(command) {
+			return 0, errors.New("unit and component tests aren't the real app, so they don't prove the screen works (they count as tests already). Drive the running app instead: npx playwright test, or a Playwright script that opens the changed screen and clicks the changed thing. If no browser tool is set up, ask the user: they look at it themselves (then waive proof:ui with their reason), or you use their Chrome")
+		}
 	default:
 		return 0, fmt.Errorf("unknown run kind %q", kind)
 	}
@@ -569,15 +579,19 @@ func cmdRun(args []string) (int, error) {
 	return r.Exit, nil
 }
 
+// noSizeNote: a task started without --size is normal, so Claude is told
+// to judge it, or a one-word change takes the full path (SZ1).
+const noSizeNote = `No size was given, so this task is normal. Size is impact, not lines: a low-impact change (a rename, a label or message, a typo, a local fix that callers can't notice) is small. If this one is, make it small now with plumbline task size small --why "...", which prints the small steps; otherwise keep going.`
+
 // startChecklist: what the plan question will need, said up front so
 // Claude meets it instead of being refused (UX2).
 func startChecklist(size string) string {
-	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). Show the user a short plain summary first, without task ids, notes paths or plumbline commands.`
+	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). Show the user a short plain summary first, opening with the goal, without task ids, notes paths or plumbline commands, and any suggestions from plan.md's ## Suggestions ("Related, want it in?" and "Not related, just noticed", apart).`
 	after := "After Approve: plumbline run checks before the first edit, build, run it again at the end, then the review and a short report."
 	if size == "small" {
-		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"). No separate understanding note, no challenger, one code review. " + ask + " " + after
+		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: ## Goal first (one line, \"Done when: ...\", in the user's words); what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"). No separate understanding note, no challenger, one code review. " + ask + " " + after
 	}
-	return "Next: look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write understanding.md (with ## Reuse) and plan.md in the notes folder with the Write tool, as checkpoints.md shows. Start the challenger, then add ## Challenge note to plan.md. Last, write plan-for-you.md (the plan in plain words for the user, as checkpoints.md shows) and show its short version in chat with the file's path. " + ask + " " + after
+	return "Next: look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write understanding.md (with ## Reuse) and plan.md (## Goal first: one line, \"Done when: ...\", in the user's words) in the notes folder with the Write tool, as checkpoints.md shows. Start the challenger, then add ## Challenge note to plan.md. Last, write plan-for-you.md (the plan in plain words for the user, as checkpoints.md shows) and show its short version in chat with the file's path. " + ask + " " + after
 }
 
 // runChecks runs every saved check in turn (test, lint, build, format,

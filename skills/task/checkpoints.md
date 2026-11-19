@@ -36,6 +36,9 @@ If no existing code is involved (a brand-new project), say "No existing code is 
 ```
 # Plan: <title>
 
+## Goal
+Done when: <what the user will see or be able to do, in their words; and what stays the same> (one line, first: the plan card opens with it, the reviewers and the report check the work against it)
+
 ## Approach
 <what changes and why, in a few lines; sources for anything learned online, with links>
 
@@ -60,6 +63,11 @@ If no existing code is involved (a brand-new project), say "No existing code is 
 ## Needs your OK
 - `npm install zod` (why: schema validation for the refund body; well maintained, MIT; nothing in the project does this)
 - none
+
+## Suggestions
+- Related: <something close to this change worth doing too, and what it adds> (for example: CLAUDE.md:450 still quotes the old label; update it too)
+- Not related: <something you noticed elsewhere, left alone> (for example: "Not sent yet" and "Not synced yet" can show at once on a new device)
+(Leave the section out when there's nothing worth saying. Suggestions aren't part of the plan: Approve doesn't do them. The plan card shows them; the user picks "Change something" to add one, and then it goes in the plan.)
 
 ## Checks
 Related tests while building, then the full suite, lint and build. Suite takes about <N> min.
@@ -112,6 +120,7 @@ The plan for the user, in plain words: no file:line, no jargon (explain a needed
 ```
 # <title>, in plain words
 ## What you asked for
+Done when: <the plan's goal>
 <the request as you understood it; say what you assumed>
 ## What's happening now
 <how it works today and why that's a problem, in a few sentences>
@@ -123,6 +132,8 @@ The plan for the user, in plain words: no file:line, no jargon (explain a needed
 <the tests and checks in plain words, and who reviews it>
 ## What I need from you
 <decisions or access, or "Nothing: just Approve, Change something or Drop it">
+## Also worth doing (not in this plan)
+<plan.md's suggestions in plain words, "related" and "not related" apart; leave the section out when there are none>
 ```
 
 ## report.md
@@ -132,6 +143,7 @@ The plan for the user, in plain words: no file:line, no jargon (explain a needed
 
 ## Verdict
 <Ready | Ready with noted limitations | Not ready>: <why, in one line>
+Goal: met | not met: <what's missing> (against the plan's ## Goal)
 Rollback: <how to undo it: revert the commit, the down migration> / <why it can't be undone: data deleted, sent outside, a public API removed>
 
 ## What changed

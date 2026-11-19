@@ -30,6 +30,7 @@ type HookInput struct {
 	CommandName     string          `json:"command_name"`
 	CommandArgs     string          `json:"command_args"`
 	CommandSource   string          `json:"command_source"`
+	Error           string          `json:"error"` // PostToolUseFailure
 }
 
 func (in *HookInput) Input() map[string]any {

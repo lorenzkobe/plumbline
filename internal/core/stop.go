@@ -281,12 +281,18 @@ func anyShouldFix(t *Task) bool {
 	return false
 }
 
+// reGoalLine: the report's answer to the plan's goal.
+var reGoalLine = regexp.MustCompile(`(?im)^[\s*_-]*goal\**:\**\s*\**(met|not met|partly met)\b`)
+
 // reportShapeMissing: the report's "For you" section and every waiver the
 // task was given, so nothing skipped or left for the user is hidden.
 func reportShapeMissing(t *Task, report string) []string {
 	var miss []string
 	if !reForYouHeading.MatchString(report) || len(Section(report, "for you")) == 0 {
 		miss = append(miss, `report: add a "## For you" section: anything that needs the user (refused files, packages, decisions, the commit question), or "- nothing"`)
+	}
+	if t.Goal != "" && !reGoalLine.MatchString(report) {
+		miss = append(miss, `report: say whether the plan's goal is met, on a line under the verdict: "Goal: met" or "Goal: not met: <what's missing>" (the goal: `+t.Goal+`)`)
 	}
 	// Only the report's waiver lines count, so "e2e" said elsewhere in the
 	// report doesn't list the e2e waiver.
@@ -327,7 +333,7 @@ var (
 // what needs the user is the bad news that comes first.
 func finalMessageMissing(m, report string) string {
 	if !reForYou.MatchString(m) {
-		return `final message: end the task with the short report in chat: one plain sentence on what changed (a failure first), the checks and the review in a line each, and a "For you" line ("For you: want me to commit it?")`
+		return `final message: end the task with the short report in chat: one plain sentence on what changed (a failure first), the checks, the review and the goal in a line each, and "For you" with only what the user must know or decide. Keep it short: the details stay in report.md`
 	}
 	if forYouHasItems(report) && !reForYou.MatchString(firstLine(m)) {
 		return `final message: the report's "For you" needs the user, so open the message with the "For you" line (what they must do or decide), then what changed, the proof, the review and the commit question`

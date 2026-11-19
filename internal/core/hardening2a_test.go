@@ -282,7 +282,7 @@ func TestSmallRefusedForRiskyPlans(t *testing.T) {
 }
 
 func TestSharedTests(t *testing.T) {
-	plan := "# Plan\n## Files\n- src/a.go\n## Cases\n" +
+	plan := "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n" +
 		"- [normal] refund once -> test: src/a_test.go::TestRefund\n" +
 		"- [repeat-safe] refund twice -> test: src/a_test.go::TestRefund\n" +
 		"- [edge] zero amount -> test: `src/r.test.ts::refunds zero`\n" +
@@ -580,4 +580,4 @@ func TestChangedFilesCallForSpecialists(t *testing.T) {
 
 // reportEnd: the verdict and common-sense calls every finished report has
 // (0.6.3).
-const reportEnd = "## Verdict\nReady: proven and reviewed.\nRollback: revert the commit.\n## Common-sense calls\n- none\n"
+const reportEnd = "## Verdict\nReady: proven and reviewed.\nGoal: met\nRollback: revert the commit.\n## Common-sense calls\n- none\n"

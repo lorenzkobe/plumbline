@@ -382,7 +382,7 @@ func TestCaseTestsKeptFromApproval(t *testing.T) {
 	h := groundedTask(t, "small")
 	h.docs(DocPlan, strings.Replace(goodPlan, "test: test.sh", "test: tests/a_test.go", 1))
 	h.approve()
-	h.docs(DocPlan, "# Plan\n## Files\n- src/a.go\n")
+	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n")
 	if m := h.finishMissing(); !strings.Contains(m, "tests/a_test.go") {
 		t.Fatalf("the approved case's test was dropped: %s", m)
 	}

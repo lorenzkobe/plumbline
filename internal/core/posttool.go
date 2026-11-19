@@ -77,7 +77,7 @@ func PostToolUse(in *HookInput) Output {
 	if c.root == "" {
 		return nil
 	}
-	if in.AgentID == "" && in.ToolName != "Read" && in.ToolName != "AskUserQuestion" {
+	if in.AgentID == "" && in.ToolName != "Read" && in.ToolName != "Grep" && in.ToolName != "AskUserQuestion" {
 		defer c.absorbIntoBuilders() // runs before close: still under the lock
 	}
 	switch {
@@ -87,11 +87,15 @@ func PostToolUse(in *HookInput) Output {
 		}
 		// Only the lead's own reads count: every file:line in its notes must
 		// come from a file it opened, not from a helper's report.
-		if c.task != nil && in.AgentID == "" {
+		if in.AgentID == "" {
 			abs := Abs(in.Str("file_path"), in.Cwd)
 			if h := fileHash(abs); h != "" {
-				c.task.noteRead(abs, h)
-				_ = SaveTask(c.task)
+				if c.task == nil {
+					noteSessionRead(in.SessionID, abs, h) // counts for the task that follows (RD1)
+				} else {
+					c.task.noteRead(abs, h)
+					_ = SaveTask(c.task)
+				}
 			}
 		}
 	case in.ToolName == "Edit" || in.ToolName == "Write" || in.ToolName == "MultiEdit" || in.ToolName == "NotebookEdit":
@@ -124,6 +128,9 @@ func PostToolUse(in *HookInput) Output {
 		if o := c.designReminder(abs); o != nil {
 			return o
 		}
+		if o := c.afterReport(abs); o != nil {
+			return o
+		}
 	case in.ToolName == "Bash":
 		return c.withTrackerCheck(c.withMainCheck(c.afterBash()))
 	case in.ToolName == "Monitor" && in.Str("command") != "":
@@ -134,7 +141,12 @@ func PostToolUse(in *HookInput) Output {
 		return c.afterQuestion()
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
 		return c.withTrackerCheck(c.withMainCheck(c.checkChanged(nil)))
+	case in.ToolName == "Grep":
+		c.noteSearchHits(responseText(in.ToolResponse), []string{in.Cwd, c.root})
 	case strings.HasPrefix(in.ToolName, "mcp__"):
+		if strings.Contains(strings.ToLower(in.ToolName), "socraticode") {
+			c.noteSearchHits(responseText(in.ToolResponse), []string{c.root, in.Cwd})
+		}
 		if fam := lookupFamily(in.ToolName); fam != "" && in.AgentID == "" { // a helper's searches aren't the lead's
 			if c.task == nil {
 				noteSessionLookup(in.SessionID, fam)
@@ -229,6 +241,9 @@ func (c *hookCtx) afterBash() (res Output) {
 		moved := c.followHead(segs, false)
 		if in.AgentID == "" {
 			c.noteShellReads(segs)
+			if onlyReads(segs) {
+				c.noteSearchHits(out, shellDirs(segs, in.Cwd))
+			}
 		} else {
 			c.noteHelperOpened(shellReadFiles(segs)...)
 		}
@@ -245,6 +260,14 @@ func (c *hookCtx) afterBash() (res Output) {
 func (c *hookCtx) noteShellReads(segs []Segment) {
 	files := shellReadFiles(segs)
 	if len(files) == 0 {
+		return
+	}
+	if c.task == nil {
+		for _, f := range files {
+			if h := fileHash(f); h != "" {
+				noteSessionRead(c.in.SessionID, f, h) // counts for the task that follows (RD1)
+			}
+		}
 		return
 	}
 	for _, f := range files {
@@ -389,6 +412,20 @@ func (c *hookCtx) bind(id string, mustBeNew bool) {
 	}
 	t.SessionID = c.in.SessionID
 	pre := takeSessionLookups(c.in.SessionID)
+	reads := takeSessionReads(c.in.SessionID)
+	if mustBeNew { // a new task: the files read just before it count, as they were then (RD1)
+		for f, r := range reads {
+			if !IsInside(f, t.Root) {
+				continue
+			}
+			if old, ok := t.Reads[f]; !ok || r.At.After(old.At) {
+				if t.Reads == nil {
+					t.Reads = map[string]Read{}
+				}
+				t.Reads[f] = Read{Hash: r.Hash, At: r.At}
+			}
+		}
+	}
 	if mustBeNew { // a new task: the searches that led to it count (FR1)
 		for fam, l := range pre {
 			if t.Lookups == nil {
@@ -657,6 +694,66 @@ func isDrop(answer string, q question) bool {
 	return false
 }
 
+// afterReport: once the lead writes report.md, say what the finish check
+// still needs, so the commit question comes last and isn't refused (CF1).
+func (c *hookCtx) afterReport(abs string) Output {
+	if c.task == nil || c.in.AgentID != "" || c.task.Phase != PhaseBuilding {
+		return nil
+	}
+	if foldPath(abs) != foldPath(Abs(filepath.Join(TaskDocsDir(c.root, c.task.ID), DocReport), "/")) {
+		return nil
+	}
+	if c.task.Hotfix() && c.task.Commits == 0 {
+		return nil
+	}
+	if miss := c.commitNotReady(); len(miss) > 0 {
+		return Context("PostToolUse", msg("before the commit question, the finish check still needs: "+strings.Join(miss, "; ")+". Do these first (update the report if they change anything), then ask."))
+	}
+	return Context("PostToolUse", msg(`the finish check has nothing left but the commit. If the task's changes aren't committed, ask the commit question now: AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted".`))
+}
+
+// isCommitQ: the question Claude asks before committing (header "Commit").
+func isCommitQ(q question) bool {
+	return strings.EqualFold(strings.TrimSpace(q.Header), "commit")
+}
+
+// isCommitYes: the answer is the question's own "Commit it" option. Free
+// text never counts, like the plan approval.
+func isCommitYes(answer string, q question) bool {
+	a := strings.TrimSpace(answer)
+	for _, o := range q.Options {
+		l := strings.TrimSpace(o.Label)
+		if a == l && (strings.EqualFold(l, "commit it") || strings.EqualFold(l, "commit") || strings.EqualFold(l, "commit now")) {
+			return true
+		}
+	}
+	return false
+}
+
+// commitPrint: HEAD and the code, so the user's "Commit it" covers exactly
+// what they saw: a later edit or commit changes it.
+func commitPrint(root string, ignore []string) string {
+	p, err := Fingerprint(root, ignore)
+	if err != nil || p == "" {
+		return ""
+	}
+	return HeadCommit(root) + ":" + p
+}
+
+// recordCommitAnswer keeps the user's "Commit it", so the commit that
+// follows doesn't ask them again (one stop). Any other answer drops it.
+func (c *hookCtx) recordCommitAnswer(q question) {
+	ok := ""
+	if isCommitYes(findAnswer(c.in.ToolResponse, q.Question), q) {
+		ok = commitPrint(c.root, c.ignore())
+	}
+	if c.task.CommitOK == ok {
+		return
+	}
+	c.task.CommitOK = ok
+	_ = SaveTask(c.task)
+}
+
 func (c *hookCtx) afterQuestion() Output {
 	if c.task == nil {
 		return nil
@@ -665,6 +762,10 @@ func (c *hookCtx) afterQuestion() Output {
 	for _, q := range qs {
 		cp := checkpointOf(q)
 		if cp == 0 {
+			if isCommitQ(q) && c.task.Phase == PhaseBuilding {
+				c.recordCommitAnswer(q)
+				continue
+			}
 			if isDirectionQ(q) {
 				if o := c.recordDirection(q); o != nil {
 					return o
@@ -712,6 +813,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.Phase = PhaseBuilding
 			t.Checkpoint2At = Now()
 			t.PlanFiles = pc.Files
+			t.Goal = pc.Goal
 			t.ProofKinds = pc.ProofKinds
 			t.ApprovedCmds = pc.Approved
 			t.CaseTests = pc.CaseTests

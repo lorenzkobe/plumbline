@@ -148,7 +148,7 @@ func TestDebugTagLeftIn(t *testing.T) {
 // (each Edit recorded), its suite run and its code reviewed.
 func builtTask(t *testing.T, files map[string]string) *harness {
 	h := groundedTask(t, "small")
-	plan := "# Plan\n## Files\n- src/a.go\n"
+	plan := "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n"
 	for p := range files {
 		plan += "- " + p + "\n"
 	}

@@ -153,7 +153,7 @@ func TestDocs(t *testing.T) {
 	if len(refs) != 2 || refs[0].Path != "src/a.go" || refs[1].Line != 3 {
 		t.Errorf("refs: %+v", refs)
 	}
-	plan := "## Files\n- src/a.go\n- `src/a_test.go`\n## Cases\n- [bug] x -> test: src/a_test.go\n- [edge] y, does not apply, because z\n- no label -> test: q\n## Real-world proof\n- api: POST /x returns 201\n- ui: does not apply, because no UI\n"
+	plan := "## Files\n- src/a.go\n- `src/a_test.go`\n## Cases\n- [bug] x -> test: src/a_test.go\n- [edge] y, does not apply, because z\n- no label -> test: q.go\n## Real-world proof\n- api: POST /x returns 201\n- ui: does not apply, because no UI\n"
 	pc := CheckPlan(plan)
 	if len(pc.Files) != 2 || pc.Files[1] != "src/a_test.go" {
 		t.Errorf("files: %v", pc.Files)
@@ -161,8 +161,13 @@ func TestDocs(t *testing.T) {
 	if len(pc.ProofKinds) != 1 || pc.ProofKinds[0] != "api" {
 		t.Errorf("proof kinds: %v", pc.ProofKinds)
 	}
-	if len(pc.Problems) != 2 { // the unlabelled case, and no "Needs your OK"
+	if len(pc.Problems) != 3 { // no goal, the unlabelled case, and no "Needs your OK"
 		t.Errorf("problems: %v", pc.Problems)
+	}
+	// 0.7.2: the goal is the first non-empty line under "## Goal".
+	pc = CheckPlan("## Goal\n\n- Done when: the label says Not sent yet.\n" + plan)
+	if pc.Goal != "Done when: the label says Not sent yet." || len(pc.Problems) != 2 {
+		t.Errorf("goal %q, problems %v", pc.Goal, pc.Problems)
 	}
 }
 

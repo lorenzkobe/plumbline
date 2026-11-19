@@ -615,6 +615,56 @@ func TrivialProof(command string) bool {
 	return true
 }
 
+// unitRunners run tests in a test process, not the app.
+var unitRunners = set("vitest jest mocha ava jasmine karma tap pytest rspec phpunit")
+
+// UnitTestProof reports a ui proof command that only runs unit or
+// component tests (vitest on a test file, npm test, go test): they render
+// parts in a fake page, so they don't show the real app works (PR1).
+// Anything else in the line (playwright, a script) makes it count.
+func UnitTestProof(command string) bool {
+	segs := Segments(command)
+	unit := false
+	for _, s := range segs {
+		w := s.Words
+		if len(w) == 0 || trivialProof[s.Name()] {
+			continue
+		}
+		// npx vitest, pnpm exec jest, yarn dlx mocha, bunx vitest
+		i := 0
+		switch filepath.Base(w[0]) {
+		case "npx", "bunx", "pnpx":
+			i = 1
+		case "pnpm", "yarn", "bun":
+			if len(w) > 1 && (w[1] == "exec" || w[1] == "dlx") {
+				i = 2
+			}
+		}
+		for i < len(w) && strings.HasPrefix(w[i], "-") {
+			i++
+		}
+		if i >= len(w) {
+			return false
+		}
+		name := filepath.Base(w[i])
+		rest := w[i+1:]
+		switch {
+		case unitRunners[name]:
+			unit = true
+		case (name == "go" || name == "cargo") && len(rest) > 0 && rest[0] == "test":
+			unit = true
+		case (name == "python" || name == "python3") && len(rest) > 1 && rest[0] == "-m" && rest[1] == "pytest":
+			unit = true
+		case (name == "npm" || name == "pnpm" || name == "yarn" || name == "bun") && len(rest) > 0 &&
+			(rest[0] == "test" || rest[0] == "t" || rest[0] == "run" && len(rest) > 1 && rest[1] == "test"):
+			unit = true
+		default:
+			return false // something that isn't a unit test runs too
+		}
+	}
+	return unit
+}
+
 // LatestFor returns the task's newest run of a kind (and sub) on the given
 // code. A non-empty command is the saved command the run must have used, so
 // a run from an older setup, or another task's run, doesn't count.
