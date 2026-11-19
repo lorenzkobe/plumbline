@@ -552,3 +552,26 @@ func TestPlanWriteSaysWhatsMissing(t *testing.T) {
 		t.Fatalf("nothing left, but: %s", o)
 	}
 }
+
+// Step 10b: with no task open, a terminal command that writes a project
+// file is refused like an edit (Monitor too). Git-ignored and ignore_changes
+// files, the scratchpad, /tmp and a paused project aren't.
+func TestNoTaskTerminalWrites(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	for _, c := range []string{
+		"sed -i '' 's/a/b/' src/a.go", "echo x > index.html", "cp src/a.go src/b.go", "mv src/a.go src/c.go", "tee -a src/a.go",
+	} {
+		h.expect(h.bash(c), "deny", "no task")
+	}
+	h.expect(h.pre("Monitor", map[string]any{"command": "sed -i '' 's/a/b/' src/a.go"}), "deny", "no task")
+	write(t, filepath.Join(h.repo, ".gitignore"), "out/\n")
+	for _, c := range []string{"echo x > out/log.txt", "echo x > " + filepath.Join(os.TempDir(), "plb-x.txt"), "echo x > coverage/x.json", "git status"} {
+		if d, r := decision(h.bash(c)); d == "deny" {
+			t.Errorf("%q: %s", c, r)
+		}
+	}
+	// A task open: the usual before-approval rule.
+	h.startTask("small")
+	h.expect(h.bash("echo x > index.html"), "deny", "plan isn't approved")
+}

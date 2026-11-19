@@ -22,7 +22,7 @@ func buildingTask(t *testing.T) *harness {
 // H1: a heredoc hid the rest of its tag line.
 func TestHeredocHidesNothing(t *testing.T) {
 	h := newHarness(t)
-	h.expect(h.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "", "") // outside a task: Claude Code's mode decides
+	h.expect(h.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "deny", "no task") // outside a task: writes a project file
 	h.expect(h.bash("cat <<EOF; git push\nx\nEOF"), "deny", "pushing")
 	h.expect(h.bash("cat <<'EOF'\nx\nEOF\ngit push origin main"), "deny", "pushing")
 	h.expect(h.bash("cat <<EOF >> "+filepath.Join(DataDir(), "projects", "x", "paused")+"\nx\nEOF"), "deny", "own files")

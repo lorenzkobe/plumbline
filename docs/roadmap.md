@@ -124,7 +124,7 @@ The smoke run (2026-11-18) passed steps 1, 2, 3, 6, 6b and 7, mostly passed 4, a
 
 Decided with the user:
 - Fix these now, then retest steps 3 and 5 and carry on from step 8 (rather than finish every step first).
-- Outside a task, Plumbline stops asking for ordinary commands and leaves them to Claude Code's own mode (auto mode). It still asks for its fixed list (installs, MCP and Claude Code settings changes, production and cloud, secret reads, setup save, laptop and sandbox), and PostToolUse still stops the work when a command changes repo files before a plan. Step 3's `touch foo.txt` check then expects no prompt, then the stop naming the file.
+- Outside a task, Plumbline stops asking for ordinary commands and leaves them to Claude Code's own mode (auto mode). (Changed 2026-11-19 after step 10b, user's choice: a command that plainly writes a project file is now refused with no task open, like an edit.) It still asks for its fixed list (installs, MCP and Claude Code settings changes, production and cloud, secret reads, setup save, laptop and sandbox), and PostToolUse still stops the work when a command changes repo files before a plan. Step 3's `touch foo.txt` check then expects no prompt, then the stop naming the file.
 - Skip ui-ux-pro-max for now (only `/plumbline:design` uses it).
 
 To fix (each with a test that fails first):

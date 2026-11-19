@@ -987,6 +987,21 @@ func (c *hookCtx) leadNotesOnly(s Segment) bool {
 	return true
 }
 
+// noTaskShell: a terminal command that writes a project file while no task
+// is open, refused like the Edit tool (step 10b: sed -i ran outside a task
+// and the post hook could only stop the work after the file changed).
+const noTaskShell = "no task is active, so files in the project can't change yet, from the terminal either. If the user wants a change, start the task (plumbline task start --title \"...\" on its own line, no question needed), look at the code, write the plan, then ask the plan question. For logs or experiments, write in the scratchpad or /tmp."
+
+// writeIgnored: a project file whose changes don't count (git ignores it,
+// or the setup's ignore_changes lists it), so writing it needs no task.
+func (c *hookCtx) writeIgnored(rel string) bool {
+	if c.setup != nil && MatchAny(c.setup.IgnoreChanges, rel) {
+		return true
+	}
+	_, err := gitOut(c.root, "check-ignore", "-q", "--", rel)
+	return err == nil
+}
+
 // ownFilesFromShell: a terminal write into Plumbline's data folder. Task
 // notes have their own way in (UX2: the refusal names it).
 const ownFilesFromShell = "Plumbline's own files can't be changed from the terminal. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool (the lead may also use cat, tee, echo or printf into its own notes); anything else goes through the plumbline command."
@@ -1308,6 +1323,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
 			case abs != "" && c.othersCopy(abs):
 				v.d("builder-copy", "that writes in a builder's copy of the repo. Bring a builder's work back with plumbline builder merge <n>, or drop it with plumbline builder drop <n>.")
+			case abs != "" && c.task == nil && !c.paused && c.root != "" && IsInside(abs, c.root) && !c.writeIgnored(c.rel(abs)):
+				v.d("no-task", noTaskShell+c.unboundHint())
 			case building && abs != "" && IsInside(abs, c.root):
 				rel := c.rel(abs)
 				if rule, reason := c.buildFile(rel, len(pending)); rule != "" {

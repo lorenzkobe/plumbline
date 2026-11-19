@@ -22,6 +22,7 @@ Found in retest step A (a one-word label change). The user chose to fix all four
 - FP3: "4.6:1" (a contrast ratio) is no longer read as a file reference.
 - SV1: the "isn't small" refusal no longer tells Claude about the user's /plumbline:size small, and the rules say never to suggest it (Claude passed it on in step 10a).
 - Writing plan.md tells Claude what the plan question still needs (Serena, a cited line not opened), so it's done before the question rather than after a refusal. Serena's tool-down now names "no code symbol changes" (a config value, text, a version number).
+- With no task open, a terminal command that writes a project file (sed -i, >, tee, cp, mv, rm) is refused like the Edit tool, so nothing changes before a plan (step 10b: a sed ran and the post hook could only stop the work afterwards). Git-ignored and ignore_changes files, the scratchpad and /tmp stay open; a command whose writes aren't known still goes to Claude Code's mode, with the post hook watching. Replaces part of the 0.6.12 decision, at the user's ask.
 - Suggestions: on the plan card, Claude lists what you may have missed, "Related, want it in?" apart from "Not related, just noticed" (plan.md's ## Suggestions, plan-for-you.md for normal tasks). Approve doesn't do them; Change something adds one.
 
 ## 0.7.1: the plan in plain words

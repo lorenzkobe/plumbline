@@ -126,3 +126,10 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 - Serena refused again (4th run in a row); Claude answered with `tool-down serena` ("a JSON field, not a code symbol").
 - The task was left open at planning (1119-e82e10).
 - Decisions (user, 2026-11-19): SV1, Claude never suggests /plumbline:size small (the refusal text itself had told Claude about it); Serena, a reminder of what the plan question still needs right after plan.md is written. Built in 0.7.2.
+
+## Step 10b (log step10b.log)
+- Claude wrote "plumbline task start" as chat text instead of running it, so no task was open. It then ran the user's `sed -i` through Monitor: outside a task that goes to Claude Code's own mode (the 0.6.12 decision), so index.html changed, and only then the post hook stopped the work. Behaves as decided, but the file was changed; the step's "refused" assumed a task was open.
+- The `.env` grep asked first (PASS); it was allowed, and the value was printed.
+- "Second time in a row" not exercised.
+- index.html left changed (title "Kwenta").
+- Decision (user, 2026-11-19): with no task open, terminal commands that plainly write a project file are refused up front, like the Edit tool. Built in 0.7.2.

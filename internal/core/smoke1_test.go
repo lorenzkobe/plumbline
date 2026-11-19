@@ -333,12 +333,13 @@ func TestPromptCheckReadsWordsNotPunctuation(t *testing.T) {
 }
 
 // Outside a task Plumbline leaves an ordinary command to Claude Code's own
-// mode, still asks for its fixed list, and stops the work when the command
-// changed the repo's files.
+// mode, refuses one that writes a project file (step 10b), still asks for
+// its fixed list, and stops the work when a command changed the repo's files.
 func TestOutsideATaskCommandsAreClaudeCodes(t *testing.T) {
 	h := newHarness(t)
 	h.setup()
-	h.expect(h.bash("touch foo.txt"), "", "")
+	h.expect(h.bash("touch foo.txt"), "deny", "no task")
+	h.expect(h.bash("./scripts/gen.sh"), "", "") // what it writes isn't known: the post hook watches it
 	h.expect(h.bash("serena --help && claude mcp list"), "", "")
 	h.expect(h.bash("npm install left-pad"), "ask", "installs a package")
 	h.expect(h.bash("claude mcp add serena -- serena"), "ask", "MCP servers")

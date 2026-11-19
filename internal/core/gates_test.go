@@ -175,9 +175,10 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	// Questions mode: reading is fine, editing is not.
 	h.expect(h.bash("git status && cat src/a.go"), "allow", "")
 	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "no task")
-	// Outside a task a command is Claude Code's mode's call; the post hook
-	// stops the work if it changed the repo's files.
-	h.expect(h.bash("echo hi > src/a.go"), "", "")
+	// Outside a task a command that writes a project file is refused like
+	// an edit (step 10b); one whose effect isn't known is Claude Code's
+	// mode's call, and the post hook stops the work if it changed files.
+	h.expect(h.bash("echo hi > src/a.go"), "deny", "no task")
 
 	// Safety rules, always.
 	h.expect(h.bash("git push origin main"), "deny", "pushing")
