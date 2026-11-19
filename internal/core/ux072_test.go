@@ -446,7 +446,11 @@ func TestBrowserOnRealData(t *testing.T) {
 		{"computer", map[string]any{"action": "type", "text": "x"}},
 		{"computer", map[string]any{"action": "key", "text": "Enter"}},
 		{"form_input", map[string]any{"ref": "a", "value": "x"}},
-		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "1"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "await fetch('/rest/v1/bills', {method: 'DELETE'})"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "localStorage.setItem('x', '1')"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "document.querySelector('button').click()"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "document.querySelector('input').value = 'x'"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "window['fet' + 'ch']('/x')"}},
 		{"browser_batch", map[string]any{}},
 	} {
 		if d := chrome(c.tool, c.in); d != "ask" {
@@ -465,6 +469,9 @@ func TestBrowserOnRealData(t *testing.T) {
 		{"get_page_text", map[string]any{}},
 		{"resize_window", map[string]any{"width": 360, "height": 780}},
 		{"tabs_context_mcp", map[string]any{}},
+		// Measuring the page only reads it (the step 11b scripts).
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "const h = document.querySelector('header'); ({w: h.getBoundingClientRect().width, sw: document.documentElement.scrollWidth})"}},
+		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "document.querySelector('header').style.width = ''; getComputedStyle(document.body).fontSize === '16px'"}},
 	} {
 		if d := chrome(c.tool, c.in); d == "ask" || d == "deny" {
 			t.Errorf("%s %v only looks: %q", c.tool, c.in, d)
@@ -574,4 +581,77 @@ func TestNoTaskTerminalWrites(t *testing.T) {
 	// A task open: the usual before-approval rule.
 	h.startTask("small")
 	h.expect(h.bash("echo x > index.html"), "deny", "plan isn't approved")
+}
+
+// QA1: on a big task the lead's code edits wait until blind QA has written
+// its tests; tests, docs and a waiver don't wait, and builders work in their
+// own copies.
+func TestBigTaskQAFirst(t *testing.T) {
+	h := groundedTask(t, "big")
+	h.docs(DocPlan, goodPlan+"## Challenge note\n- nothing changed\n")
+	h.runHelper(HelperChallenger, "# Challenge 1\n## Findings\n- nothing\n")
+	h.approve()
+	a := filepath.Join(h.repo, "src", "a.go")
+	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "blind QA writes the tests from the plan first")
+	h.expect(h.bash("sed -i '' 's/1/2/' src/a.go"), "deny", "blind QA")
+	for _, f := range []string{"src/a_test.go", "README.md"} {
+		if d, r := decision(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, f)})); d == "deny" {
+			t.Errorf("%s: %s", f, r)
+		}
+	}
+	h.runHelper(HelperQA, "# QA 1\n## Tests\n- src/a_test.go: fails now\n")
+	if d, r := decision(h.pre("Edit", map[string]any{"file_path": a})); d == "deny" {
+		t.Fatalf("after QA wrote its tests: %s", r)
+	}
+	// A waiver lets the code change without QA.
+	g := groundedTask(t, "big")
+	g.docs(DocPlan, goodPlan+"## Challenge note\n- nothing changed\n")
+	g.runHelper(HelperChallenger, "# Challenge 1\n## Findings\n- nothing\n")
+	g.approve()
+	tk := g.task()
+	tk.Waivers = append(tk.Waivers, Waiver{Check: "qa", Reason: "user skipped it"})
+	must(t, SaveTask(tk))
+	if d, r := decision(g.pre("Edit", map[string]any{"file_path": filepath.Join(g.repo, "src", "a.go")})); d == "deny" {
+		t.Fatalf("with QA waived: %s", r)
+	}
+}
+
+// Looking at systems outside the laptop doesn't ask (the user's call,
+// 2026-11-19); changing them, or printing a secret, does.
+func TestOutsideReadsDontAsk(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	for _, c := range []string{
+		"gh pr view 12", "gh pr list --state open", "gh run view 123 --log", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r",
+		"aws s3 ls s3://bucket", "aws ec2 describe-instances", "aws logs tail /aws/lambda/x", "aws sts get-caller-identity",
+		"gcloud run services list", "gcloud logging read 'severity>=ERROR'", "az webapp show -n x -g y",
+		"kubectl get pods -n prod", "kubectl logs deploy/api", "kubectl describe pod x",
+		"vercel ls", "vercel logs https://x.vercel.app", "fly status", "heroku logs --tail -a x",
+		"terraform plan", "terraform state list", "supabase projects list", "supabase functions list",
+		`psql "$PROD_URL" -c "select count(*) from bills"`, `psql "$PROD_URL" -c "\dt"`, `mysql -h db.example.com -e "show tables"`,
+	} {
+		if d, r := decision(h.bash(c)); d == "ask" || d == "deny" {
+			t.Errorf("%q only looks: %s %s", c, d, r)
+		}
+	}
+	for _, c := range []string{
+		"gh pr merge 12", "gh pr create --fill", "gh api repos/o/r/issues -f title=x", "gh api -X DELETE repos/o/r",
+		"aws s3 rm s3://bucket/x", "aws ec2 terminate-instances --instance-ids i-1", "aws secretsmanager get-secret-value --secret-id x",
+		"aws ssm get-parameter --name x --with-decryption",
+		"kubectl delete pod x", "kubectl apply -f k.yaml", "kubectl get secret db -o yaml", "kubectl exec -it x -- sh",
+		"gcloud secrets versions access latest --secret x", "vercel env pull", "heroku config -a x", "terraform apply", "terraform output",
+		"supabase db push", "supabase secrets set X=1",
+		`psql "$PROD_URL" -c "delete from bills"`, `psql "$PROD_URL" -c "select setval('s', 1)"`, `psql "$PROD_URL" -c "explain analyze select 1"`,
+		`psql "$PROD_URL"`, `psql "$PROD_URL" -f fix.sql`, `psql "$PROD_URL" -c "with x as (delete from a returning *) select * from x"`,
+		"gh pr list > prs.txt",
+	} {
+		if d, _ := decision(h.bash(c)); d != "ask" && d != "deny" {
+			t.Errorf("%q changes something or shows a secret: %q, want ask", c, d)
+		}
+	}
+	// Inside a task, before approval, a look runs like a local read.
+	h.startTask("small")
+	if d, r := decision(h.bash("gh pr view 12")); d == "deny" || d == "ask" {
+		t.Fatalf("a look before approval: %s %s", d, r)
+	}
 }

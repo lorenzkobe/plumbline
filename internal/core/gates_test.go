@@ -16,9 +16,6 @@ type harness struct {
 	t    *testing.T
 	repo string
 	sid  string
-	// noForYou: plan.md is written alone. Otherwise docs() writes
-	// plan-for-you.md after it, as Claude does for a normal task (0.7.1).
-	noForYou bool
 }
 
 func newHarness(t *testing.T) *harness {
@@ -150,9 +147,6 @@ func (h *harness) docs(name, text string) string {
 	o := h.pre("Write", map[string]any{"file_path": p, "content": text})
 	h.expect(o, "allow", "")
 	write(h.t, p, text)
-	if name == DocPlan && !h.noForYou {
-		write(h.t, filepath.Join(filepath.Dir(p), DocForYou), "# The plan, in plain words\n")
-	}
 	return p
 }
 
@@ -193,8 +187,10 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.expect(h.pre("Write", map[string]any{"file_path": filepath.Join(h.repo, ".claude", "settings.json")}), "deny", "protected")
 	h.expect(h.bash("sed -i s/x/y/ ~/.claude/settings.json"), "deny", "")
 	h.expect(h.bash("npm install left-pad"), "ask", "package")
-	h.expect(h.bash("aws s3 ls"), "ask", "outside your laptop")
-	h.expect(h.bash("psql -h prod.db.internal -c 'select 1'"), "ask", "")
+	h.expect(h.bash("aws s3 ls"), "allow", "") // looking outside the laptop doesn't ask (2026-11-19)
+	h.expect(h.bash("aws s3 rm s3://b/x"), "ask", "outside your laptop")
+	h.expect(h.bash("psql -h prod.db.internal -c 'select 1'"), "allow", "")
+	h.expect(h.bash("psql -h prod.db.internal -c 'delete from t'"), "ask", "")
 	h.expect(h.pre("Agent", map[string]any{}), "", "")
 	sub := h.in("Agent", map[string]any{}, nil)
 	sub.AgentID = "helper-1"

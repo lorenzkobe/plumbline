@@ -2,6 +2,7 @@ package core
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -30,12 +31,32 @@ func browserChanges(tool string, input map[string]any) bool {
 		a, _ := input["action"].(string)
 		return !browserLookActions[a]
 	}
+	if n == "javascript_tool" || strings.Contains(n, "evaluate") {
+		script, _ := input["text"].(string)
+		if script == "" {
+			script, _ = input["script"].(string)
+		}
+		return !readOnlyScript(script)
+	}
 	for _, w := range []string{"click", "type", "fill", "form", "javascript", "evaluate", "upload", "press", "drag", "select", "batch", "key"} {
 		if contains(strings.Split(n, "_"), w) {
 			return true
 		}
 	}
 	return false
+}
+
+// reScriptChanges: what a page script needs to change data rather than
+// look: network calls, storage, cookies, clicks and events, forms and
+// field values, navigation, the app's own data client. Styles and reading
+// the page are fine: they change nothing that's saved.
+var reScriptChanges = regexp.MustCompile(`(?i)\bfetch\s*\(|xmlhttprequest|sendbeacon|websocket|eventsource|localstorage|sessionstorage|indexeddb|document\.cookie|\.click\s*\(|dispatchevent|\.submit\s*\(|requestsubmit|\.value\s*=[^=]|\.checked\s*=[^=]|\bsupabase\b|\.(post|put|patch|delete|insert|update|upsert|rpc)\s*\(|location\s*(\.href)?\s*=[^=]|location\.(assign|replace|reload)|window\.open|history\.(push|replace)state|\bimport\s*\(|\beval\s*\(|new\s+function|\bFunction\s*\(|\[\s*['"][a-z]*['"]\s*\+|postmessage|serviceworker|caches\.`)
+
+// readOnlyScript: a page script that only reads or measures (sizes, text,
+// styles), so it needs no prompt even on real data. One that could change
+// data, or is empty, isn't.
+func readOnlyScript(script string) bool {
+	return strings.TrimSpace(script) != "" && !reScriptChanges.MatchString(script)
 }
 
 // realData: the app run on this laptop uses real data. Unknown (a setup

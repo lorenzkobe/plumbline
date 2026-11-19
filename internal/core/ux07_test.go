@@ -1,11 +1,9 @@
 package core
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // 0.7.0: the small path (UX1, decided with the user 2026-11-19).
@@ -173,27 +171,15 @@ func TestNewTaskReplacesUnapprovedOne(t *testing.T) {
 	}
 }
 
-// 0.7.1: a normal task's plan question needs plan-for-you.md, the plan in
-// plain words for the user, written after plan.md. A small task doesn't.
-func TestPlanForYou(t *testing.T) {
+// 0.7.2: the plan in plain words is shown in the chat, not written to a
+// file (a file write shows as a diff, PLAN1), so the plan question doesn't
+// wait for plan-for-you.md.
+func TestPlanInChatNotAFile(t *testing.T) {
 	h := groundedTask(t, "normal")
-	h.noForYou = true
 	h.docs(DocPlan, goodPlan)
 	h.runHelper(HelperChallenger, "# Challenge 1\n## Findings\n- nothing\n")
 	h.docs(DocPlan, goodPlan+"## Challenge note\n- nothing changed\n")
-	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", DocForYou)
-	h.docs(DocForYou, "# The plan, in plain words\nWhat you asked for: A should return 2.\n")
 	if d, r := decision(h.pre("AskUserQuestion", checkpointQ())); d == "deny" {
-		t.Fatalf("refused with plan-for-you.md written: %s", r)
-	}
-	// The plan changed after it: the user would approve an old version.
-	future := time.Now().Add(2 * time.Second)
-	must(t, os.Chtimes(filepath.Join(TaskDocsDir(h.repo, h.task().ID), DocPlan), future, future))
-	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", DocForYou)
-
-	s := smallTask(t, nil, "src/lib/names.go")
-	s.docs(DocPlan, smallPlan("src/lib/names.go"))
-	if d, r := decision(s.pre("AskUserQuestion", checkpointQ())); d == "deny" {
-		t.Fatalf("a small task was asked for plan-for-you.md: %s", r)
+		t.Fatalf("refused without plan-for-you.md: %s", r)
 	}
 }

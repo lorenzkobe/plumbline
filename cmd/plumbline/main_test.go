@@ -307,7 +307,7 @@ func TestTaskStartChecklist(t *testing.T) {
 		t.Fatalf("small checklist asks for what small skips: %s", out)
 	}
 	out, _ = plumbline(t, dir, home, "", "task", "start", "--title", "y", "--size", "normal", "--why", "shared helper")
-	if !strings.Contains(out, "plan-for-you.md") || !strings.Contains(out, "understanding.md") {
+	if !strings.Contains(out, "in the chat") || strings.Contains(out, "plan-for-you.md") || !strings.Contains(out, "understanding.md") {
 		t.Fatalf("normal checklist lacks the plain plan or the understanding: %s", out)
 	}
 	if strings.Contains(out, "No size was given") {

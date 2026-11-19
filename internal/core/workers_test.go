@@ -576,7 +576,9 @@ func TestQAHoldFollowsActivity(t *testing.T) {
 		t.Fatal("a QA tool call should record activity")
 	}
 	set(2*time.Hour, 40*time.Minute)
-	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "", "")
+	// QA went quiet without writing its tests: the code still waits for
+	// them (QA1), and the refusal says to start QA again.
+	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "or again if an earlier run stopped")
 	set(45*time.Minute, time.Minute)
 	tk := h.task()
 	tk.Waivers = append(tk.Waivers, Waiver{Check: "qa", Reason: "user", Print: "x", At: Now()})

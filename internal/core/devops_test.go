@@ -199,10 +199,11 @@ func opsTask(t *testing.T, pipeline bool, parts map[string]bool) *harness {
 
 func TestRiskyApprovedCommandsAskEachTime(t *testing.T) {
 	h := opsTask(t, false, nil)
-	// Approved reads run as listed, except production database reads,
-	// which are asked each time (a core rule).
+	// Approved reads run as listed. Production database reads don't ask
+	// either (2026-11-19: looking changes nothing); a write does.
 	h.expect(h.bash("aws s3 ls"), "", "")
-	h.expect(h.bash(`psql -h db.example.com app -c "select count(*) from users"`), "ask", "shared or production database")
+	h.expect(h.bash(`psql -h db.example.com app -c "select count(*) from users"`), "", "")
+	h.expect(h.bash(`psql -h db.example.com app -c "update users set x = 1"`), "ask", "shared or production database")
 	// Approved, but risky: confirmed every time.
 	h.expect(h.bash("sls deploy --stage prod"), "ask", "it deploys")
 	h.expect(h.bash("sls deploy --stage prod"), "ask", "confirmed each time")

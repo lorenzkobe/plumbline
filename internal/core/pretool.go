@@ -960,6 +960,26 @@ func (c *hookCtx) commitNotReady() []string {
 	return FinishMissing(t, c.setup)
 }
 
+// approvedLook: a command that only looks at a system outside the laptop
+// (a cloud CLI read, a supabase read, a read-only query against a database
+// that isn't local). It runs before approval like a local read, with no
+// prompt. Helpers keep their own read-only list.
+func approvedLook(s Segment) bool {
+	if len(WriteTargets(s)) > 0 {
+		return false // its output goes to a file
+	}
+	name := s.Name()
+	switch {
+	case cloudCmds[name]:
+		return cloudRead(s)
+	case name == "supabase":
+		return supabaseRead(s)
+	case dbClients[name]:
+		return dbReadOnly(s)
+	}
+	return false
+}
+
 // leadNotesOnly: the lead writing its own task notes from the terminal
 // (cat >> plan.md <<EOF, tee, echo, printf). The Write tool may write the
 // same files, so the terminal may too. Helpers' findings files and anything
@@ -1016,6 +1036,9 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 			return "baseline-first", fmt.Sprintf("the lead hasn't recorded how the saved checks stand before any change (%s), so %s waits. Stop and tell the lead in your notes.", strings.Join(need, ", "), rel)
 		}
 		return "baseline-first", fmt.Sprintf("before the first change, record how the saved checks stand on the approved code: run plumbline run checks now (it runs and records every saved check; still missing: %s). A problem they show was there before the task, so it won't block the finish; without them it would. Then make the change.", strings.Join(need, ", "))
+	}
+	if c.in.AgentID == "" && !c.task.qaRunning() && c.task.qaFirst(c.setup) && !c.isTestFile(rel) && !docFile(rel) {
+		return "qa-first", fmt.Sprintf("this is a big task: blind QA writes the tests from the plan first, before any code here changes (%s), or its tests wouldn't be blind. Start it now, or again if an earlier run stopped without writing its tests (Agent tool, subagent_type plumbline:qa), even if the user asked you to hurry; tell them in one line that the tests come first. Builders (plumbline:builder) can build in their own copies meanwhile. Only the user can skip blind QA (plumbline waive qa asks them).", rel)
 	}
 	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
 		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
@@ -1130,6 +1153,11 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			continue
 		}
 		quiet := ReadOnly(s)
+		if !approvedLook(s) {
+			// keep quiet as ReadOnly says
+		} else if c.in.AgentID == "" {
+			quiet = true // looking at a system outside the laptop changes nothing there
+		}
 		notes := c.leadNotesOnly(s)
 		if notes {
 			quiet = true // the lead's own notes, as the Write tool may write them
@@ -1352,13 +1380,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		if approved {
 			// in the plan you approved: runs as listed
-		} else if cloudCmds[name] {
-			v.a("outside-laptop", fmt.Sprintf("%s reaches systems outside your laptop. Production is never changed without the user's explicit OK; reads are asked each time.", name))
+		} else if cloudCmds[name] && !cloudRead(s) {
+			v.a("outside-laptop", fmt.Sprintf("%s reaches systems outside your laptop and may change something there (or show a secret). Production is never changed without the user's explicit OK.", name))
 		}
-		if name == "supabase" && s.Arg(1) != "start" && s.Arg(1) != "stop" && s.Arg(1) != "status" {
-			v.a("outside-laptop", "supabase commands can reach the hosted project.")
+		if name == "supabase" && !supabaseRead(s) {
+			v.a("outside-laptop", "supabase commands can reach and change the hosted project.")
 		}
-		if dbClients[name] && !dbLocal(s) {
+		if dbClients[name] && !dbLocal(s) && !dbReadOnly(s) {
 			v.a("outside-laptop", fmt.Sprintf("%s without a local host may connect to a shared or production database.", name))
 		}
 		if name == "docker" && (dockerPushes(s) || s.Arg(1) == "login") {
@@ -1751,9 +1779,6 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			}
 			pc := CheckPlanSized(text, t.Size == "small")
 			p = append(p, pc.Problems...)
-			if t.Size != "small" && !t.Hotfix() {
-				p = append(p, forYouProblems(t, fi)...)
-			}
 			if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
 				p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
 			}
@@ -1767,21 +1792,6 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 		}
 	}
 	return p
-}
-
-// forYouProblems: the user approves what they read, so plan-for-you.md
-// (the plan in plain words) must be there and written after plan.md's last
-// change (0.7.1).
-func forYouProblems(t *Task, plan os.FileInfo) []string {
-	p := filepath.Join(TaskDocsDir(t.Root, t.ID), DocForYou)
-	fi, err := os.Stat(p)
-	switch {
-	case err != nil:
-		return []string{"write " + p + ": the plan in plain words for the user (what they asked for as you understood it, what's happening now, what changes, what could go wrong and how it's handled, how it'll be checked, what you need from them), no file:line or jargon. Then show its short version in chat with the file's path, and ask"}
-	case plan != nil && fi.ModTime().Before(plan.ModTime()):
-		return []string{DocForYou + " is older than plan.md, so the user would read an old plan: update it, then ask"}
-	}
-	return nil
 }
 
 // sizeProblems: "small" means low impact, not few lines. A plan that changes

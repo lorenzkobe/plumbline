@@ -14,6 +14,8 @@ import (
 const (
 	DocUnderstanding = "understanding.md"
 	DocPlan          = "plan.md"
+	// (0.7.2: the plan in plain words is shown in the chat, not written to a
+	// file; DocForYou stays so older tasks' files are still task notes.)
 	// DocForYou: the plan in plain words for the user, with the detail
 	// behind the chat summary (0.7.1). Normal and big tasks.
 	DocForYou = "plan-for-you.md"

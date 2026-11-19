@@ -38,6 +38,26 @@ func (c *hookCtx) isTestFile(rel string) bool { return TestFile(rel, c.setup) }
 
 // qaRunning: blind QA is writing tests right now (it stopped, went quiet
 // for helperAlive, or the user waived it: no longer).
+// qaFirst: a big task whose blind QA hasn't written its tests yet (no
+// finished run with findings, no waiver), so code in this checkout waits:
+// once QA could see new code it isn't blind any more (QA1).
+func (t *Task) qaFirst(s *Setup) bool {
+	if t.Size != "big" || s == nil || !s.PartOn(HelperQA) {
+		return false
+	}
+	for _, w := range t.Waivers {
+		if w.Check == "qa" {
+			return false
+		}
+	}
+	for _, r := range t.helperRuns(HelperQA) {
+		if !r.Finished.IsZero() && t.findingsExist(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *Task) qaRunning() bool {
 	for _, w := range t.Waivers {
 		if w.Check == "qa" {

@@ -345,7 +345,8 @@ func TestOutsideATaskCommandsAreClaudeCodes(t *testing.T) {
 	h.expect(h.bash("claude mcp add serena -- serena"), "ask", "MCP servers")
 	h.expect(h.bash("plumbline setup save --file s.json"), "ask", "Plumbline setup")
 	h.expect(h.bash("cat .env"), "ask", ".env")
-	h.expect(h.bash("aws s3 ls"), "ask", "outside your laptop")
+	h.expect(h.bash("aws s3 ls"), "allow", "") // a look (2026-11-19)
+	h.expect(h.bash("aws s3 rm s3://b/x"), "ask", "outside your laptop")
 	h.expect(h.bash("git push"), "deny", "pushing")
 	h.expect(h.bash("git status"), "allow", "reads only")
 	// the command ran and made a file: the work stops, naming it

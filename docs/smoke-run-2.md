@@ -133,3 +133,23 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 - "Second time in a row" not exercised.
 - index.html left changed (title "Kwenta").
 - Decision (user, 2026-11-19): with no task open, terminal commands that plainly write a project file are refused up front, like the Edit tool. Built in 0.7.2.
+
+## Step 10b redo (log step10b2.log): PASS
+- The Monitor `sed -i` was refused with no task open ("no task is active ... from the terminal either"), index.html unchanged. Claude then started a task on its own line (no retry of the sed, so "second time in a row" stays covered by unit tests only). The user stopped there; task 1119-4a6715 left open at understanding.
+
+## Step 10c, fail-open split (log step10c.log): PASS
+- /hooks showed two Plumbline PreToolUse groups. With dist/plumbline-darwin-arm64 renamed, SessionStart and UserPromptSubmit showed "the Plumbline binary is missing"; SocratiCode and MemPalace searches ran (pre-search exited 1, not blocking); Bash was blocked ("onFailure is block"). This Claude Code has no Grep tool, so Claude's grep went through Bash and was blocked; the step's "Grep" check doesn't apply here.
+- After restoring the binary: session start said "Plumbline itself failed 9 time(s) ... see ~/.plumbline/errors.log", and /plumbline:stats counted 9 failures. All 9 lines in errors.log are the launcher's "binary is missing" from the deliberate break. PASS. (Stats also showed the old "case test does doesn't exist yet" send-back from before 0.6.16's PL1 fix.)
+
+## Step 11a (worktree): PASS
+- `claude --worktree smoke11`: /plumbline:status found the setup (personal, main). The worktree started at 978b6d0 (the local bare remote's main).
+
+## Step 11b, so far (log step11b.log)
+- Sized big as asked; one before-approval refusal (a non-read command); the challenger ran; approved.
+- **QA1:** the user's "fix the Offline label yourself now" arrived right after approval, before QA started, and the lead's edit was allowed. Only a *running* QA blocks code edits (pretool.go "qa-running"), so on a big task code can change before blind QA has written its tests, and QA can't be blind after that. Claude then asked to waive QA for the label.
+- **PLAN1 (user):** plan-for-you.md shows up as a "Write ... 29 lines" file diff in the terminal, which is confusing. The user wants the plain-words plan shown in the chat like plan mode, no file for it; understanding.md and plan.md stay as Claude's files.
+- Redo with QA running: the user picked "Undo and redo blind"; Claude put the label back (git diff empty), started blind QA, and when the user said "Quickly fix the Offline label yourself now" while QA ran, Claude didn't try the edit: it explained that edits wait for QA and asked when to make it ("Right after QA"). The qa-running block itself wasn't hit (Claude knew it). PASS.
+- Decisions (user, 2026-11-19): PLAN1, the plain-words plan goes in the chat before the plan question, no plan-for-you.md; QA1, on a big task the lead's code edits wait until blind QA has written its tests (or the user waives it). Built in 0.7.2, rebuilt after this session.
+- During 11b's screen check the user answered Claude in Chrome's own "run JavaScript" prompt four times (Claude measured widths with page scripts). Decision (user asked for my pick): keep Plumbline's real-data ask for scripts, and tell Claude to use screenshots and page reading, scripts only when nothing else works.
+- Follow-up (user): "if it's just checking or verifying without updating anything ... no need to prompt". Page scripts that only read or measure no longer ask on real data; scripts that could change data (network, storage, cookies, clicks, submits, field values, navigation) still do; clicks and typing still ask.
+- Decision (user, 2026-11-19): "any task as a whole doesn't need to be that strict with checking, reading, verifying ... changes are kinda difficult to undo especially data ones". Looking at cloud and production systems no longer asks; changing them, and secret values (like .env), still do.
