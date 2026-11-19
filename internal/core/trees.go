@@ -206,6 +206,70 @@ func readOnlyLine(segs []Segment) bool {
 	return true
 }
 
+// startsPath: when this session's read-only commands started, by tool use
+// id, so their changed-files check can tell what changed before they ran.
+func startsPath(snap, root string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(snap)+"."+treeKey(root)+".starts.json")
+}
+
+// noteStart records a read-only command's start (CC2).
+func (c *hookCtx) noteStart() {
+	unlock := lockTree(c.root)
+	defer unlock()
+	p := startsPath(c.snapID(), c.root)
+	m := map[string]time.Time{}
+	if b, err := os.ReadFile(p); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	for id, at := range m {
+		if Now().Sub(at) > time.Hour { // a call whose post hook never ran
+			delete(m, id)
+		}
+	}
+	m[c.in.ToolUseID] = Now()
+	b, _ := json.Marshal(m)
+	_ = writeFileAtomic(p, b)
+}
+
+// takeStart returns and forgets a read-only command's start.
+func (c *hookCtx) takeStart() time.Time {
+	if c.in.ToolUseID == "" {
+		return time.Time{}
+	}
+	unlock := lockTree(c.root)
+	defer unlock()
+	p := startsPath(c.snapID(), c.root)
+	m := map[string]time.Time{}
+	b, err := os.ReadFile(p)
+	if err != nil || json.Unmarshal(b, &m) != nil {
+		return time.Time{}
+	}
+	at, ok := m[c.in.ToolUseID]
+	if !ok {
+		return time.Time{}
+	}
+	delete(m, c.in.ToolUseID)
+	b, _ = json.Marshal(m)
+	_ = writeFileAtomic(p, b)
+	return at
+}
+
+// changedAfter keeps the files whose last change came at or after start (a
+// removed file has no time, so it stays). A read-only command can't have
+// changed a file before it ran: that was the user (a ! command, an editor)
+// between Claude's commands (CC2).
+func changedAfter(root string, files []string, start time.Time) []string {
+	var keep []string
+	for _, p := range files {
+		fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
+		if err == nil && fi.ModTime().Before(start.Add(-500*time.Millisecond)) {
+			continue
+		}
+		keep = append(keep, p)
+	}
+	return keep
+}
+
 // noteBusy records a tool call that may change files, before it runs, so
 // another session's read-only command leaves its changes to its own check.
 func (c *hookCtx) noteBusy() {
@@ -222,6 +286,7 @@ func (c *hookCtx) noteBusy() {
 		m.Paths = []string{c.rel(abs)}
 	case c.in.ToolName == "Bash" || c.in.ToolName == "Monitor":
 		if readOnlyLine(ParseShell(c.in.Str("command"), c.in.Cwd)) {
+			c.noteStart()
 			return
 		}
 		m.Any = true

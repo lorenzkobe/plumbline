@@ -488,6 +488,11 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		}
 		changed = append(changed, p)
 	}
+	if readOnlyLine(segs) {
+		if start := c.takeStart(); !start.IsZero() {
+			changed = changedAfter(c.root, changed, start)
+		}
+	}
 	if len(changed) == 0 {
 		return nil
 	}

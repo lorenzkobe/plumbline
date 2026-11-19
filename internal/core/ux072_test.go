@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 0.7.2: fixes from the 0.7.1 retest (step A).
@@ -343,4 +344,44 @@ func TestSearchHitsCount(t *testing.T) {
 func rawJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// CC2: the user's own `! git restore` between Claude's commands was blamed
+// on Claude's next read-only command, and the work stopped.
+func TestUserChangeBeforeAReadIsntBlamed(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	a := filepath.Join(h.repo, "src", "a.go")
+	call := func(id, cmd string, pre bool) string {
+		in := &HookInput{SessionID: h.sid, Cwd: h.repo, ToolName: "Bash", ToolUseID: id, ToolInput: rawJSON(map[string]any{"command": cmd})}
+		if pre {
+			PreToolUse(in)
+		}
+		in.ToolResponse = rawJSON(map[string]any{"stdout": ""})
+		return fmtOut(PostToolUse(in))
+	}
+	write(t, a, "package src\n\nfunc A() int { return 9 }\n")
+	call("t0", "git status --short", true) // the snapshot holds the dirty file
+
+	// The user restores it, then Claude reads: no stop.
+	run(t, h.repo, "git", "checkout", "--", "src/a.go")
+	past := time.Now().Add(-3 * time.Second)
+	must(t, os.Chtimes(a, past, past))
+	if o := call("t1", "git status --short", true); strings.Contains(o, "changed files") {
+		t.Fatalf("the user's own restore stopped the work: %s", o)
+	}
+	// A change made while the read ran still stops it (it may not be read-only after all).
+	in := &HookInput{SessionID: h.sid, Cwd: h.repo, ToolName: "Bash", ToolUseID: "t2", ToolInput: rawJSON(map[string]any{"command": "git status --short"})}
+	PreToolUse(in)
+	write(t, a, "package src\n\nfunc A() int { return 7 }\n")
+	in.ToolResponse = rawJSON(map[string]any{"stdout": ""})
+	if o := fmtOut(PostToolUse(in)); !strings.Contains(o, "changed files") {
+		t.Fatalf("a change during the read should stop the work: %s", o)
+	}
+	// A command that writes keeps the full check, whenever the change came.
+	run(t, h.repo, "git", "checkout", "--", "src/a.go")
+	must(t, os.Chtimes(a, past, past))
+	if o := call("t3", "touch notes.txt", true); !strings.Contains(o, "src/a.go") {
+		t.Fatalf("a writing command should still be checked: %s", o)
+	}
 }

@@ -98,3 +98,6 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 - **LONG1 (user):** "i hate reading long texts ... i just want like the essentials or things that i should know". The closing message was about 30 lines.
 - **SEC2 (minor):** after approval, `cd <notes folder> && python3 -` rewrote plan.md (the shell can't see a script's writes); `sed -i` on it was refused. State files are sealed, so it's notes only.
 - Cost: challenger, then code and plan reviewers 3 rounds each, for one number. The reviews did find two real test gaps.
+
+## Rerun of step B, setup (session cc9ddede, log retest072c.log)
+- **CC2 (bug):** after `/plumbline:cancel` and the user's `! git restore` of the four files, Claude's `git status --short` was stopped: "a terminal command changed files before any plan was approved". The snapshot only refreshes after Claude's own tools, so the user's restore landed on the next read. Fixed in 0.7.2 (committed with it): read-only commands record their start, and files changed before it aren't blamed.
