@@ -20,6 +20,8 @@ Found in retest step A (a one-word label change). The user chose to fix all four
 - PR2: fetching a page or file (curl, wget, httpie) isn't accepted as the ui proof (a curl of a source file was). A Claude in Chrome screenshot of the local app, taken after the last edit, is recorded as the ui proof instead.
 - DATA1: setup asks whether the app on this laptop uses real data (`local_real_data`). While it does (or the setup doesn't say), browser clicks, typing, forms and page scripts ask first; screenshots, reading, resizing and opening a page don't.
 - FP3: "4.6:1" (a contrast ratio) is no longer read as a file reference.
+- SV1: the "isn't small" refusal no longer tells Claude about the user's /plumbline:size small, and the rules say never to suggest it (Claude passed it on in step 10a).
+- Writing plan.md tells Claude what the plan question still needs (Serena, a cited line not opened), so it's done before the question rather than after a refusal. Serena's tool-down now names "no code symbol changes" (a config value, text, a version number).
 - Suggestions: on the plan card, Claude lists what you may have missed, "Related, want it in?" apart from "Not related, just noticed" (plan.md's ## Suggestions, plan-for-you.md for normal tasks). Approve doesn't do them; Change something adds one.
 
 ## 0.7.1: the plan in plain words

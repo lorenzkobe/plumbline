@@ -1809,7 +1809,7 @@ func (c *hookCtx) sizeProblems(files []string) []string {
 		p = append(p, fmt.Sprintf(`a small task's "## Files" names each file it changes, not folders or patterns (%s), so its impact can be checked`, strings.Join(vague, ", ")))
 	}
 	if len(risky) > 0 {
-		p = append(p, fmt.Sprintf(`the task is sized small, but the plan changes high-impact files (%s), so it isn't small: run plumbline task size normal --why "..." (or big), then ask the checkpoint again. If the change is truly low impact (copy on a login page), the user can keep it small by typing /plumbline:size small`, strings.Join(risky, ", ")))
+		p = append(p, fmt.Sprintf(`the task is sized small, but the plan changes high-impact files (%s), so it isn't small: run plumbline task size normal --why "..." (or big), then ask the checkpoint again. Don't suggest to the user that they keep it small: that override is theirs to think of (SV1)`, strings.Join(risky, ", ")))
 	}
 	if len(gates) > 0 {
 		p = append(p, fmt.Sprintf(`the plan changes files that decide which checks run (%s), so it isn't small: one line there can switch a check off, so they always get the full review: run plumbline task size normal --why "..." (or big), then ask the checkpoint again`, strings.Join(gates, ", ")))
@@ -1834,7 +1834,7 @@ func (c *hookCtx) groundingProblems() []string {
 	}
 	need("socraticode", "search the code with SocratiCode first")
 	need("mempalace", "check MemPalace for earlier work on this first")
-	need("serena", "look up exact callers with Serena first (or, if Serena is down or the task adds only new code: plumbline task tool-down serena --reason \"...\")")
+	need("serena", "look up exact callers with Serena first (or, if Serena is down, the task adds only new code, or no code symbol changes (a config value, text, a version number): plumbline task tool-down serena --reason \"...\")")
 	if c.jiraTask() {
 		need("jira", fmt.Sprintf("read the ticket %s and all its comments with the Jira tools first (comments often change the requirements; if Jira can't be reached: plumbline task tool-down jira --reason \"...\")", t.Ticket))
 	}

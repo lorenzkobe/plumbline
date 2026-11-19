@@ -425,7 +425,11 @@ func TestUserKeepsARiskyChangeSmall(t *testing.T) {
 	// Specialists the files call for still review a small task.
 	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/login.tsx\n", 1) + "## Team\n- lead, code-reviewer, security-reviewer, ux-reviewer\n"
 	h.docs(DocPlan, plan)
-	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "/plumbline:size small")
+	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "isn't small")
+	// SV1: the refusal doesn't point Claude at the user's override.
+	if _, r := decision(h.pre("AskUserQuestion", checkpointQ())); strings.Contains(r, "by typing /plumbline:size small") || !strings.Contains(r, "Don't suggest") {
+		t.Fatalf("the refusal suggests the override: %s", r)
+	}
 
 	if o := expand(h, "size", "normal"); !strings.Contains(fmtOut(o), "only /plumbline:size small") {
 		t.Errorf("only small is the user's: %v", o)

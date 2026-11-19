@@ -131,6 +131,9 @@ func PostToolUse(in *HookInput) Output {
 		if o := c.afterReport(abs); o != nil {
 			return o
 		}
+		if o := c.afterPlan(abs); o != nil {
+			return o
+		}
 	case in.ToolName == "Bash":
 		return c.withTrackerCheck(c.withMainCheck(c.afterBash()))
 	case in.ToolName == "Monitor" && in.Str("command") != "":
@@ -698,6 +701,30 @@ func isDrop(answer string, q question) bool {
 		}
 	}
 	return false
+}
+
+// afterPlan: once the lead writes plan.md, say which lookups and file:line
+// checks the plan question still needs, so it's done before the question
+// instead of after a refusal (Serena was refused four runs in a row).
+func (c *hookCtx) afterPlan(abs string) Output {
+	t := c.task
+	if t == nil || c.in.AgentID != "" || (t.Phase != PhasePlanning && t.Phase != PhaseUnderstanding) {
+		return nil
+	}
+	docs := Abs(TaskDocsDir(c.root, t.ID), "/")
+	if foldPath(abs) != foldPath(filepath.Join(docs, DocPlan)) {
+		return nil
+	}
+	p := c.groundingProblems()
+	for _, d := range []string{DocUnderstanding, DocPlan} {
+		if text, _, err := ReadDoc(t, d); err == nil {
+			p = append(p, CheckRefs(t, text)...)
+		}
+	}
+	if len(p) == 0 {
+		return nil
+	}
+	return Context("PostToolUse", msg("before the plan question, still needed: "+strings.Join(uniq(p), "; ")+". Do these now, so the question isn't refused."))
 }
 
 // afterReport: once the lead writes report.md, say what the finish check

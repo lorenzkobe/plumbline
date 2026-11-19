@@ -532,3 +532,23 @@ func TestNumbersAreNotFileRefs(t *testing.T) {
 		t.Fatalf("refs: %+v", refs)
 	}
 }
+
+// Writing plan.md says what the plan question still needs (Serena, lines
+// not opened), so it's done before the question, not after a refusal.
+func TestPlanWriteSaysWhatsMissing(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	h.startTask("small")
+	h.post("mcp__socraticode__search", nil, nil)
+	h.post("mcp__mempalace__search", nil, nil)
+	p := h.docs(DocPlan, smallPlan("src/a.go"))
+	o := fmtOut(h.post("Write", map[string]any{"file_path": p}, nil))
+	if !strings.Contains(o, "before the plan question") || !strings.Contains(o, "Serena") || !strings.Contains(o, "src/a.go:3") {
+		t.Fatalf("after plan.md without Serena or the file opened: %s", o)
+	}
+	h.post("mcp__serena__find_referencing_symbols", nil, nil)
+	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
+	if o := fmtOut(h.post("Write", map[string]any{"file_path": p}, nil)); strings.Contains(o, "before the plan question") {
+		t.Fatalf("nothing left, but: %s", o)
+	}
+}

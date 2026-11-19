@@ -119,3 +119,10 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 - Plan question refused once (Serena not run, a case wording problem). Helpers: a finding with "4.6:1" read as a file "4.6" (FP3), "RefreshButton.tsx" without a folder refused (needs the path from the repo root).
 - The `.env` prompt fired when Claude read .env.development to answer "is this a local database?" (correct: it showed values).
 - Decisions (user, 2026-11-19): PR2, refuse fetch-only ui proof and record a Claude in Chrome screenshot of the local app (after the last edit) as the ui proof; DATA1, setup asks whether the local app uses real data, and while it does (or unset) browser clicks, typing and scripts ask first. FP3 fixed with them (a bug). Built in 0.7.2.
+
+## Step 10a: package.json is never small (log step10a.log)
+- PASS: Claude started it as small ("nothing reads the version"); the plan question was refused ("isn't small") along with Serena not run and package.json:4 not opened (SocratiCode had shown it, but the plan changes it, so it must be opened: RD2 working as decided).
+- **SV1:** Claude then told the user they could type `/plumbline:size small`. SKILL.md says never to suggest it. (A version-field bump really is low impact; the floor is per file.)
+- Serena refused again (4th run in a row); Claude answered with `tool-down serena` ("a JSON field, not a code symbol").
+- The task was left open at planning (1119-e82e10).
+- Decisions (user, 2026-11-19): SV1, Claude never suggests /plumbline:size small (the refusal text itself had told Claude about it); Serena, a reminder of what the plan question still needs right after plan.md is written. Built in 0.7.2.
