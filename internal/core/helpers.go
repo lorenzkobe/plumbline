@@ -56,8 +56,11 @@ type HelperRun struct {
 	BaseCommit string `json:"base_commit,omitempty"`
 	Merged     bool   `json:"merged,omitempty"`
 	Dropped    bool   `json:"dropped,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Setup      string `json:"setup,omitempty"` // what went wrong running builder_setup in the copy
+	// MergeRefused: plumbline builder merge refused overlapping changes, so
+	// the lead may bring parts over by hand (BLD2).
+	MergeRefused bool   `json:"merge_refused,omitempty"`
+	Error        string `json:"error,omitempty"`
+	Setup        string `json:"setup,omitempty"` // what went wrong running builder_setup in the copy
 	// Blind QA: the test files it wrote.
 	Wrote []string `json:"wrote,omitempty"`
 	// Blind QA: each test file's hash when it stopped; a copy of each is
@@ -435,6 +438,9 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if why := c.disputeProblem(kind); why != "" {
 			return c.deny("dispute-evidence", why)
 		}
+		if why := c.reviewStillHolds(kind); why != "" {
+			return c.deny("review-holds", why)
+		}
 	}
 	if prompt, _ := c.in.Input()["prompt"].(string); prompt != "" {
 		if why := c.promptProblem(kind, prompt); why != "" {
@@ -442,6 +448,28 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		}
 	}
 	return nil
+}
+
+// reviewStillHolds: why a new run of this reviewer isn't needed, or "":
+// only tests and docs changed since its last review, which still counts for
+// every reviewer but the code reviewer (RV1). Step 11c reran the plan and UX
+// reviewers after a test-only fix (RV2). A rerun on unchanged code stays
+// allowed (disputes, a run the lead wants for its own reason).
+func (c *hookCtx) reviewStillHolds(kind string) string {
+	t := c.task
+	runs := t.helperRuns(kind)
+	last := t.lastFinished(kind)
+	if last == nil || len(runs) == 0 || runs[len(runs)-1].alive() || !t.counts(*last) || t.disputeOpen(kind, *last) {
+		return ""
+	}
+	fp, err := Fingerprint(t.Root, c.ignore())
+	if err != nil || fp == "" {
+		return ""
+	}
+	if kind != HelperCodeReviewer && last.PrintAfter != fp && onlyTestsOrDocs(t.Root, c.setup, last.PrintAfter, fp) {
+		return fmt.Sprintf("the %s's last review (%s) still counts: only tests or docs changed since. After such a fix only the code reviewer looks again (it watches for weakened tests); plumbline status lists the reviews still needed.", kind, last.Findings)
+	}
+	return ""
 }
 
 // disputeProblem: the lead's disputes of a reviewer's findings, written
@@ -568,7 +596,7 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 		case HelperTester:
 			runs = "Run the checks with plumbline run test|related|lint|build|e2e."
 		}
-		edit := "To change your findings file, use the Edit or Write tool."
+		edit := writeHint(kind)
 		for _, r := range s.Redirects {
 			if !harmlessRedirect(r) {
 				return c.deny("helper-read-only", fmt.Sprintf("the %s doesn't write files with the shell (%s > ...). %s %s", kind, what, edit, runs))
@@ -775,6 +803,9 @@ func SubagentStart(in *HookInput) Output {
 	docs := TaskDocsDir(t.Root, t.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "you are the %s for task %s \"%s\" (%s). Notes folder: %s.", kind, t.ID, t.Title, t.Size, docs)
+	if !isWorker(kind) {
+		b.WriteString(quoteRule + " Write your findings file with the Write tool; terminal commands only read.")
+	}
 	if isWorker(kind) {
 		c.workerStartNote(&b, run, n)
 	} else if kind == HelperChallenger {
@@ -833,6 +864,20 @@ func (c *hookCtx) stopProblems(run *HelperRun, kind string) (missing bool, probl
 	return false, problems
 }
 
+// writeHint: how a helper changes its own file. Builders and QA have the
+// Edit tool; the read-only helpers have only Write, so a send-back that said
+// "use Edit" sent them to python3 instead, refused again (HLP1, step 11c).
+func writeHint(kind string) string {
+	if kind == HelperBuilder || kind == HelperQA {
+		return "To change your file, use the Edit or Write tool."
+	}
+	return "To change your file, rewrite it whole with the Write tool (you have no Edit tool, and the shell can't write)."
+}
+
+// quoteRule: how a cited line is quoted, said up front so findings aren't
+// sent back for it (HLP1).
+const quoteRule = " Every file:line you cite needs a few words of that line in backticks right after it, for example (src/a.ts:12 `return total`): Plumbline checks the quote is within 3 lines and sends the file back if not."
+
 // stopReason: what a helper must do before it stops or hands back, or "".
 func stopReason(t *Task, run *HelperRun, missing bool, problems []string, verb string) string {
 	out := filepath.Join(TaskDocsDir(t.Root, t.ID), run.Findings)
@@ -840,7 +885,7 @@ func stopReason(t *Task, run *HelperRun, missing bool, problems []string, verb s
 	case missing:
 		return fmt.Sprintf("write your findings to %s before you %s (if you found nothing, say so there, with what you checked).", out, verb)
 	case len(problems) > 0:
-		return fmt.Sprintf("fix your findings file (%s) before you %s: %s.", out, verb, strings.Join(problems, "; "))
+		return fmt.Sprintf("fix your findings file (%s) before you %s: %s. %s", out, verb, strings.Join(problems, "; "), writeHint(run.Kind))
 	}
 	return ""
 }

@@ -1,6 +1,13 @@
 # Changelog
 
 ## 0.7.2: fixes from the 0.7.1 retest
+From smoke step 11c (two tracers, blind QA, two builders, the tester), all chosen by the user:
+- CTX1: Claude saw only the first 2 KB of the session-start rules: Claude Code keeps hook context over about 10,000 characters in a file and shows a preview, and the rules were 20 KB. They now come in three parts from three SessionStart hooks (each under the limit, guarded by a test), "Right now" (open tasks, setup, Docker) comes first, and at most five other sessions' open tasks are named.
+- BR1: on real data, the browser asks only for what could save, send or delete: a click whose note (action_summary) names a change, a click with no note, Enter, Delete and cmd/ctrl/alt shortcuts, and page scripts that could change data. Opening a list, Escape, Tab, arrows, typing and picking a value don't ask. A batch asks when any of its steps would.
+- BLD2: the lead and each builder are told the copy already holds the lead's uncommitted work (QA's tests too). While a copy waits for `plumbline builder merge`, the lead's hand merges (git apply, patch, copying files out of a copy) are refused; after a merge refuses overlapping parts, they're allowed.
+- REV2: a reviewer's prompt that names the repo's folder (or the notes folder, or a builder's copy) isn't refused as text copied from a builder's notes.
+- RV2: after a fix that touches only tests or docs, a plan, UX, security or data review that still counts can't be run again; only the code reviewer looks again.
+- HLP1: reviewers and the challenger are told the quote rule and to write with the Write tool when they start, and a send-back names the tool they have (it said "use Edit", which they don't have, so they tried python3). QA is told npx and npm are refused.
 Found in retest step A (a one-word label change). The user chose to fix all four.
 - SZ1: a task started without a size was normal, so a one-word change took the full path (challenger, plain-words plan, three reviewers). The rules now say to pick the size at start, a start without one says so and how to make it small, and `plumbline task size` prints the steps for the new size.
 - ENV1: `grep ... --include=*` asked "this shows the values in .env": a grep or rg file-name filter was read as files in the folder. A filter that names a secret file (`--include=.env`, `-g '*.pem'`) still asks.

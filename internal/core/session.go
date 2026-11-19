@@ -9,10 +9,25 @@ import (
 	"time"
 )
 
-//go:embed rules.md
-var coreRules string
+// The rules come in three parts because Claude Code keeps hook context over
+// about 10,000 characters in a file and shows Claude only a short preview
+// (CTX1). Each part goes out from its own SessionStart hook and must stay
+// under that limit (TestSessionPartsFit).
+var (
+	//go:embed rules.md
+	coreRules string
+	//go:embed rules-task.md
+	taskRules string
+	//go:embed rules-finish.md
+	finishRules string
+)
 
-func CoreRules() string { return coreRules }
+// CoreRules: all three parts, in order.
+func CoreRules() string { return coreRules + "\n" + taskRules + "\n" + finishRules }
+
+// maxLeftTasks: how many other sessions' open tasks session start names, so
+// a pile of old tasks can't push the start text past the limit.
+const maxLeftTasks = 5
 
 // DockerUp reports whether the Docker daemon answers within 3 seconds.
 func DockerUp() bool {
@@ -35,15 +50,16 @@ func SessionStart(in *HookInput) Output {
 	Cleanup()
 	c := newCtx(in)
 	defer c.close()
+	// "Right now" goes first: what's true in this project matters more than
+	// any rule, and nothing after it can push it out of view.
 	var b strings.Builder
-	b.WriteString(coreRules)
-	b.WriteString("\n## Right now\n")
+	b.WriteString("## Right now (Plumbline)\n")
 	failed := FailureNote()
 	if failed != "" {
 		b.WriteString("- " + failed + " Tell the user this first, with the report's path.\n")
 	}
 	out := func() Output {
-		o := Context("SessionStart", b.String())
+		o := Context("SessionStart", b.String()+"\n"+coreRules)
 		if failed != "" {
 			o["systemMessage"] = msg(failed)
 		}
@@ -87,11 +103,30 @@ func SessionStart(in *HookInput) Output {
 			left = append(left, fmt.Sprintf("%s \"%s\" (%s step, branch %s)", t.ID, t.Title, t.Phase, t.Branch))
 		}
 	}
+	if len(left) > maxLeftTasks {
+		left = append(left[:maxLeftTasks], fmt.Sprintf("and %d more (plumbline task list)", len(left)-maxLeftTasks))
+	}
 	if len(left) > 0 {
 		b.WriteString("- Open tasks of other sessions (earlier ones, or another window still working on them): " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>), unless another window is still on it. A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
 	}
 	RefreshSnapshot(in.SessionID, c.root)
 	return out()
+}
+
+// SessionRules sends rule part 2 (the task workflow) or 3 (finishing), each
+// from its own SessionStart hook. Outside a git repo there are no tasks, so
+// they stay out.
+func SessionRules(in *HookInput, part string) Output {
+	if RepoRoot(in.Cwd) == "" {
+		return nil
+	}
+	switch part {
+	case "task":
+		return Context("SessionStart", taskRules)
+	case "finish":
+		return Context("SessionStart", finishRules)
+	}
+	return nil
 }
 
 func orDash(s string) string {

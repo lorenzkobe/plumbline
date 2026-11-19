@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -445,6 +446,23 @@ func (t *Task) BuilderRun(n int) (*HelperRun, error) {
 		}
 	}
 	return nil, fmt.Errorf("task %s has no builder %d (plumbline builder list)", t.ID, n)
+}
+
+// unmergedCopies: the numbers of builder copies still waiting for
+// plumbline builder merge (not merged, dropped or refused by a merge).
+func (t *Task) unmergedCopies() []string {
+	var out []string
+	k := 0
+	for _, r := range t.Helpers {
+		if r.Kind != HelperBuilder {
+			continue
+		}
+		k++
+		if r.Worktree != "" && !r.Merged && !r.Dropped && !r.MergeRefused {
+			out = append(out, strconv.Itoa(k))
+		}
+	}
+	return out
 }
 
 // MergeBuilder brings builder n's copy into the task's code and removes the

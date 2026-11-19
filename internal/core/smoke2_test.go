@@ -163,7 +163,7 @@ func TestNoTaskNoteSaysAskFirst(t *testing.T) {
 		}
 	}
 	for _, want := range []string{"Start the task right away", "however small", "Don't try an edit before they approve", "ask the user whether to commit first", "Never show the user task ids"} {
-		if !strings.Contains(coreRules, want) {
+		if !strings.Contains(CoreRules(), want) {
 			t.Fatalf("rules.md lacks %q", want)
 		}
 	}
@@ -177,11 +177,12 @@ func TestHelperShellWriteSaysUseEdit(t *testing.T) {
 	docs := TaskDocsDir(h.repo, h.task().ID)
 	o := PreToolUse(h.helperIn(id, HelperCodeReviewer, "Bash", map[string]any{"command": "cat >> " + docs + "/code-review-1.md <<'EOF'\n- x\nEOF"}))
 	_, r := decision(o)
-	if !strings.Contains(r, "Edit or Write tool") || strings.Contains(r, `"cat" changes`) {
+	// HLP1: reviewers have no Edit tool, so the hint names Write only.
+	if !strings.Contains(r, "rewrite it whole with the Write tool") || strings.Contains(r, `"cat" changes`) {
 		t.Fatalf("shell write message: %s", r)
 	}
 	o = PreToolUse(h.helperIn(id, HelperCodeReviewer, "Bash", map[string]any{"command": "python3 fix.py 2>/dev/null"}))
-	if _, r := decision(o); !strings.Contains(r, "Edit or Write tool") || strings.Contains(r, "with the shell") {
+	if _, r := decision(o); !strings.Contains(r, "rewrite it whole with the Write tool") || strings.Contains(r, "with the shell") {
 		t.Fatalf("python3 message lacks the Edit/Write hint: %s", r)
 	}
 }

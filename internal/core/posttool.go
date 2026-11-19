@@ -144,6 +144,10 @@ func PostToolUse(in *HookInput) Output {
 		return c.afterQuestion()
 	case strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != "":
 		return c.withTrackerCheck(c.withMainCheck(c.checkChanged(nil)))
+	case (in.ToolName == "Agent" || in.ToolName == "Task") && in.AgentID == "" && c.task != nil && helperKind(in.Str("subagent_type"), true) == HelperBuilder:
+		// BLD2 (step 11c): the lead didn't know the copy holds its work, sent
+		// the builders to copy QA's tests in, and merged by hand.
+		return Context("PostToolUse", "Plumbline: this builder's copy already holds your uncommitted work, blind QA's tests too, so nothing needs copying into it. When it stops, read its notes, then bring it in with plumbline builder merge <n> (plumbline builder list shows the numbers): it checks the builders didn't change the same lines. Don't apply its diff by hand.")
 	case in.ToolName == "Grep":
 		c.noteSearchHits(responseText(in.ToolResponse), []string{in.Cwd, c.root})
 	case strings.HasPrefix(in.ToolName, "mcp__"):

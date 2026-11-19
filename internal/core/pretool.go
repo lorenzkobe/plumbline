@@ -108,6 +108,40 @@ func (c *hookCtx) othersCopy(abs string) bool {
 	return !own
 }
 
+// handMerge: a command that brings changes in by hand rather than through
+// plumbline builder merge: git apply (not --check or --stat), patch (not
+// --dry-run), or a copy out of a builder's copy (BLD2).
+func (c *hookCtx) handMerge(s Segment) bool {
+	name := s.Name()
+	if sub, args := GitSub(s); sub == "apply" {
+		for _, a := range args {
+			if a == "--check" || a == "--stat" || a == "--numstat" || a == "--summary" {
+				return false
+			}
+		}
+		return true
+	}
+	switch name {
+	case "patch":
+		for _, a := range s.Words[1:] {
+			if a == "--dry-run" || a == "-C" || a == "--check" {
+				return false
+			}
+		}
+		return true
+	case "cp", "rsync", "ditto", "install", "mv":
+		for i := 1; i < len(s.Words); i++ {
+			if s.dyn(i) || strings.HasPrefix(s.Words[i], "-") {
+				continue
+			}
+			if abs := Abs(s.Words[i], s.Dir); abs != "" && c.othersCopy(abs) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // rel is a path relative to the working tree this hook runs in: the main
 // checkout for the lead, its own copy for a builder.
 func (c *hookCtx) rel(abs string) string {
@@ -1157,6 +1191,11 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				if abs := Abs(to, s.Dir); abs != "" && c.othersCopy(abs) {
 					v.d("builder-copy", "don't cd into a builder's copy: the shell stays there for every later command, and merging, checks and proof must run in the main checkout. Look at its work from here: git -C "+abs+" diff (or plumbline builder list).")
 				}
+			}
+		}
+		if c.in.AgentID == "" && c.task != nil {
+			if ns := c.task.unmergedCopies(); len(ns) > 0 && c.handMerge(s) {
+				v.d("builder-hand-merge", "bring a builder's work in with plumbline builder merge "+ns[0]+" (copies waiting: "+strings.Join(ns, ", ")+"), not by hand: the merge checks the builders didn't change the same lines, and removes the copy. Its copy already holds your uncommitted work (QA's tests too), so nothing needs copying. Bring parts over by hand only after the merge refuses them.")
 			}
 		}
 		quiet := ReadOnly(s)

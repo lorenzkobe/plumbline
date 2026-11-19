@@ -21,22 +21,63 @@ func browserTool(tool string) bool {
 // or press keys.
 var browserLookActions = set("screenshot zoom scroll scroll_to hover mouse_move wait cursor_position")
 
-// browserChanges: the call can change something in the page or behind it
-// (a click, typing, a key, a form, a page script, a file upload, a batch of
-// actions). Looking, reading, resizing, tabs and opening a URL don't.
+// browserChanges: the call could save, send or delete something (BR1).
+// Plumbline can't see what a button does, so a click is judged by Claude's
+// own note for it (action_summary): a note naming a change asks, and so does
+// a click with no note. Escape, Tab, arrows, scrolling, typing into a field
+// and picking a value don't save anything by themselves; Enter (it submits a
+// form), Delete and key combinations do ask. Page scripts ask unless they
+// only read. A batch asks when any of its steps would.
 func browserChanges(tool string, input map[string]any) bool {
 	_, name := mcpSplit(tool)
-	n := mcpWords(name)
-	if n == "computer" {
+	return browserStepChanges(mcpWords(name), input, 0)
+}
+
+func browserStepChanges(n string, input map[string]any, depth int) bool {
+	note, _ := input["action_summary"].(string)
+	switch {
+	case n == "computer":
 		a, _ := input["action"].(string)
-		return !browserLookActions[a]
-	}
-	if n == "javascript_tool" || strings.Contains(n, "evaluate") {
+		text, _ := input["text"].(string)
+		switch {
+		case browserLookActions[a]:
+			return false
+		case a == "key":
+			return keysSubmit(text)
+		case a == "type":
+			return strings.ContainsAny(text, "\r\n") || reChangeNote.MatchString(note)
+		}
+		// clicks, drags, mouse down/up and anything new
+		return strings.TrimSpace(note) == "" || reChangeNote.MatchString(note)
+	case n == "form_input":
+		v, _ := input["value"].(string)
+		return strings.ContainsAny(v, "\r\n") || reChangeNote.MatchString(note)
+	case n == "javascript_tool" || strings.Contains(n, "evaluate"):
 		script, _ := input["text"].(string)
 		if script == "" {
 			script, _ = input["script"].(string)
 		}
 		return !readOnlyScript(script)
+	case n == "browser_batch":
+		steps, _ := input["actions"].([]any)
+		if depth > 0 || len(steps) == 0 {
+			return true
+		}
+		for _, raw := range steps {
+			step, _ := raw.(map[string]any)
+			sn, _ := step["name"].(string)
+			sin, _ := step["input"].(map[string]any)
+			if step == nil || sn == "" || sin == nil {
+				return true
+			}
+			if _, short := mcpSplit(sn); strings.HasPrefix(sn, "mcp__") {
+				sn = short
+			}
+			if browserStepChanges(mcpWords(sn), sin, depth+1) {
+				return true
+			}
+		}
+		return false
 	}
 	for _, w := range []string{"click", "type", "fill", "form", "javascript", "evaluate", "upload", "press", "drag", "select", "batch", "key"} {
 		if contains(strings.Split(n, "_"), w) {
@@ -45,6 +86,30 @@ func browserChanges(tool string, input map[string]any) bool {
 	}
 	return false
 }
+
+// keysSubmit: a key press that can submit or delete: Enter or Return,
+// Delete, or a shortcut with cmd, ctrl or alt (cmd+s, ctrl+Enter). Shift
+// with a moving key (shift+Tab) only moves.
+func keysSubmit(keys string) bool {
+	for _, k := range strings.Fields(strings.ToLower(keys)) {
+		parts := strings.Split(k, "+")
+		switch parts[len(parts)-1] {
+		case "enter", "return", "kp_enter", "delete", "del":
+			return true
+		}
+		for _, m := range parts[:len(parts)-1] {
+			switch m {
+			case "cmd", "command", "ctrl", "control", "meta", "super", "alt", "option", "opt":
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// reChangeNote: words in Claude's note for a click that mean it saves,
+// sends or deletes something.
+var reChangeNote = regexp.MustCompile(`(?i)\b(sav(e|es|ed|ing)|delet(e|es|ed|ing)|remov(e|es|ed|ing)|submit(s|ted|ting)?|send(s|ing)?|sent|pay(s|ing|ment)?|paid|confirm(s|ed|ing)?|publish(es|ed|ing)?|post(s|ed|ing)?|creat(e|es|ed|ing)|add(s|ed|ing)?|archiv(e|es|ed|ing)|approv(e|es|ed|ing)|reject(s|ed|ing)?|transfer(s|red|ring)?|invit(e|es|ed|ing)|shar(e|es|ed|ing)|upload(s|ed|ing)?|settl(e|es|ed|ing)|buy(s|ing)?|bought|purchas(e|es|ed|ing)|order(s|ed|ing)?|check ?out|reset(s|ting)?|clear(s|ed|ing)?|discard(s|ed|ing)?|accept(s|ed|ing)?|declin(e|es|ed|ing)|apply|appl(ies|ied|ying)|updat(e|es|ed|ing)|import(s|ed|ing)?|mark(s|ed|ing)?|toggl(e|es|ed|ing)|enabl(e|es|ed|ing)|disabl(e|es|ed|ing)|turn(s|ed|ing)? (on|off)|cancel(s|led|ling|ed|ing)?|leav(e|es|ing)|join(s|ed|ing)?|record(s|ed|ing)?|sign(s|ed|ing)? ?(out|up)|log(s|ged|ging)? ?out|logout|restor(e|es|ed|ing)|undo(es|ing)?|merg(e|es|ed|ing)|split(s|ting)?)\b`)
 
 // reScriptChanges: what a page script needs to change data rather than
 // look: network calls, storage, cookies, clicks and events, forms and
@@ -65,13 +130,13 @@ func realData(s *Setup) bool {
 	return s != nil && (s.LocalRealData == nil || *s.LocalRealData)
 }
 
-// gateBrowser: in the browser, clicks, typing and page scripts ask first
-// when the app uses real data (DATA1). Looking never asks.
+// gateBrowser: in the browser, what could save, send or delete asks first
+// when the app uses real data (DATA1, BR1). Looking never asks.
 func (c *hookCtx) gateBrowser() Output {
 	if !browserTool(c.in.ToolName) || !c.setupOK || !realData(c.setup) || !browserChanges(c.in.ToolName, c.in.Input()) {
 		return nil
 	}
-	return c.ask("real-data", "this clicks, types or runs a script in the browser, and the app on this laptop uses real data (your real account). Allow only if it can't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
+	return c.ask("real-data", "this could save, send or delete something in the browser, and the app on this laptop uses real data (your real account). Allow only if it can't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
 }
 
 // localURL: the app on this laptop (localhost and the like).

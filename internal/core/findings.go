@@ -336,6 +336,19 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 		allowed[r.Findings] = true
 	}
 	free := shingles(t.Title)
+	// Folder paths aren't findings: the repo's, the notes folder's and the
+	// builder copies' paths show up in every helper's notes (REV2).
+	paths := []string{t.Root, docs, filepath.Join(t.Root, ".claude", "worktrees")}
+	for _, r := range t.Helpers {
+		if r.Worktree != "" {
+			paths = append(paths, r.Worktree)
+		}
+	}
+	for _, p := range paths {
+		for s := range shingles(p) {
+			free[s] = true
+		}
+	}
 	for name := range allowed {
 		if b, err := os.ReadFile(filepath.Join(docs, name)); err == nil {
 			for s := range shingles(string(b)) {

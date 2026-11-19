@@ -429,8 +429,11 @@ func TestTestOnlyFixNeedsOnlyTheCodeReviewer(t *testing.T) {
 	}
 }
 
-// DATA1: in the browser, clicks, typing and page scripts ask first while
-// the local app uses real data (or the setup doesn't say); looking doesn't.
+// DATA1, BR1: in the browser, what could save, send or delete asks first
+// while the local app uses real data (or the setup doesn't say): clicks whose
+// note names a change or that have no note, Enter, Delete and key
+// combinations, and page scripts that could change data. Looking, opening a
+// list, Escape, typing and picking a value don't.
 func TestBrowserOnRealData(t *testing.T) {
 	h := newHarness(t)
 	h.setup() // no local_real_data: counts as real
@@ -443,9 +446,21 @@ func TestBrowserOnRealData(t *testing.T) {
 		in   map[string]any
 	}{
 		{"computer", map[string]any{"action": "left_click", "coordinate": []int{10, 10}}},
-		{"computer", map[string]any{"action": "type", "text": "x"}},
+		{"computer", map[string]any{"action": "left_click", "ref": "ref_9", "action_summary": "Saves the new bill"}},
+		{"computer", map[string]any{"action": "left_click", "ref": "ref_9", "action_summary": "Deletes the selected group"}},
+		{"computer", map[string]any{"action": "double_click", "coordinate": []int{1, 1}, "action_summary": "Signs out of the app"}},
+		{"computer", map[string]any{"action": "type", "text": "x\n"}},
 		{"computer", map[string]any{"action": "key", "text": "Enter"}},
-		{"form_input", map[string]any{"ref": "a", "value": "x"}},
+		{"computer", map[string]any{"action": "key", "text": "Tab Tab Return"}},
+		{"computer", map[string]any{"action": "key", "text": "cmd+s"}},
+		{"computer", map[string]any{"action": "key", "text": "ctrl+Enter"}},
+		{"computer", map[string]any{"action": "key", "text": "shift+Return"}},
+		{"form_input", map[string]any{"ref": "a", "value": true, "action_summary": "Turns on auto-pay"}},
+		{"browser_batch", map[string]any{"actions": []any{
+			map[string]any{"name": "computer", "input": map[string]any{"action": "screenshot"}},
+			map[string]any{"name": "computer", "input": map[string]any{"action": "left_click", "ref": "ref_2", "action_summary": "Submits the payment"}},
+		}}},
+		{"browser_batch", map[string]any{"actions": []any{"not a step"}}},
 		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "await fetch('/rest/v1/bills', {method: 'DELETE'})"}},
 		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "localStorage.setItem('x', '1')"}},
 		{"javascript_tool", map[string]any{"action": "javascript_exec", "text": "document.querySelector('button').click()"}},
@@ -462,6 +477,20 @@ func TestBrowserOnRealData(t *testing.T) {
 		in   map[string]any
 	}{
 		{"computer", map[string]any{"action": "screenshot"}},
+		// BR1 (step 11c): opening a list, Escape, typing and picking a value
+		// don't save anything by themselves.
+		{"computer", map[string]any{"action": "left_click", "ref": "ref_34", "action_summary": "Opens the bill category dropdown list"}},
+		{"computer", map[string]any{"action": "left_click", "coordinate": []int{240, 141}, "action_summary": "Opens the bill category dropdown list"}},
+		{"computer", map[string]any{"action": "key", "text": "Escape", "action_summary": "Closes the category dropdown without choosing"}},
+		{"computer", map[string]any{"action": "key", "text": "Tab ArrowDown"}},
+		{"computer", map[string]any{"action": "key", "text": "shift+Tab"}},
+		{"computer", map[string]any{"action": "type", "text": "Lunch", "action_summary": "Types Lunch into the bill title field"}},
+		{"form_input", map[string]any{"ref": "a", "value": "food", "action_summary": "Picks Food in the category list"}},
+		{"browser_batch", map[string]any{"actions": []any{
+			map[string]any{"name": "computer", "input": map[string]any{"action": "left_click", "ref": "ref_34", "action_summary": "Opens the category list"}},
+			map[string]any{"name": "mcp__claude-in-chrome__computer", "input": map[string]any{"action": "screenshot"}},
+			map[string]any{"name": "computer", "input": map[string]any{"action": "key", "text": "Escape", "action_summary": "Closes the list"}},
+		}}},
 		{"computer", map[string]any{"action": "zoom", "region": []int{0, 0, 10, 10}}},
 		{"computer", map[string]any{"action": "scroll"}},
 		{"navigate", map[string]any{"url": "http://localhost:5173/app"}},
@@ -671,5 +700,105 @@ func TestLeadDoesntCdIntoABuilderCopy(t *testing.T) {
 	}
 	if d, r := decision(PreToolUse(h.helperIn(id, HelperBuilder, "Bash", map[string]any{"command": "cd " + wt + " && git status"}))); d == "deny" && strings.Contains(r, "don't cd into a builder's copy") {
 		t.Fatalf("the builder in its own copy: %s", r)
+	}
+}
+
+// BLD2 (step 11c): the lead applied a builder's diff by hand instead of
+// merging it, so the overlap check never ran. While a copy waits for the
+// merge, hand merges are refused; after a merge refuses, they're the way.
+func TestLeadMergesBuildersWithTheCommand(t *testing.T) {
+	h := buildingTask(t)
+	id, _ := h.startHelper(HelperBuilder)
+	wt := h.run(HelperBuilder, id).Worktree
+	if wt == "" {
+		t.Fatal("no builder copy")
+	}
+	h.expect(h.bash("git -C "+wt+" diff HEAD -- src/a.go > /tmp/partA.patch; git apply /tmp/partA.patch"), "deny", "plumbline builder merge 1")
+	h.expect(h.bash("git diff "+wt+" | patch -p1"), "deny", "plumbline builder merge 1")
+	h.expect(h.bash("cp "+wt+"/src/a.go src/a.go"), "deny", "plumbline builder merge 1")
+	for _, ok := range []string{"git apply --check /tmp/partA.patch", "git -C " + wt + " diff", "cp src/a.go /tmp/a.go"} {
+		if d, r := decision(h.bash(ok)); d == "deny" && strings.Contains(r, "builder merge") {
+			t.Fatalf("%q isn't a hand merge: %s", ok, r)
+		}
+	}
+	// The builder itself isn't held to it.
+	if d, r := decision(PreToolUse(h.helperIn(id, HelperBuilder, "Bash", map[string]any{"command": "cd " + wt + " && git apply /tmp/x.patch"}))); strings.Contains(r, "builder merge") {
+		t.Fatalf("the builder in its own copy: %s %s", d, r)
+	}
+	// After the merge refused overlapping changes, bringing parts over by
+	// hand is what the merge itself says to do.
+	tk := h.task()
+	r, err := tk.BuilderRun(1)
+	must(t, err)
+	r.MergeRefused = true
+	must(t, SaveTask(tk))
+	if d, r := decision(h.bash("git apply /tmp/partA.patch")); d == "deny" && strings.Contains(r, "builder merge") {
+		t.Fatalf("after a refused merge: %s", r)
+	}
+}
+
+// BLD2: the lead and the builder are told the copy holds the lead's work.
+func TestBuilderCopyHoldsTheLeadsWork(t *testing.T) {
+	h := buildingTask(t)
+	_, o := h.startHelper(HelperBuilder)
+	if s := contextOf(o); !strings.Contains(s, "all its uncommitted changes (blind QA's tests too)") {
+		t.Fatalf("builder start note: %s", s)
+	}
+	note := contextOf(h.post("Agent", map[string]any{"subagent_type": "plumbline:builder", "prompt": "build part A"}, nil))
+	if !strings.Contains(note, "plumbline builder merge <n>") || !strings.Contains(note, "already holds your uncommitted work") {
+		t.Fatalf("lead note after starting a builder: %q", note)
+	}
+}
+
+// RV2 (step 11c): after a test-only fix the lead reran every reviewer. A
+// review that still counts can't run again; one the change sends back can.
+func TestReviewThatStillCountsDoesntRunAgain(t *testing.T) {
+	h := provenTask(t)
+	tk := h.task()
+	tk.Size = "normal"
+	must(t, SaveTask(tk))
+	for _, k := range []string{HelperCodeReviewer, HelperPlanReviewer} {
+		id, _ := h.startHelper(k)
+		write(t, h.findingsPath(id), h.complete(k, "# Review 1\nnothing at 80 or more\n"))
+		h.stopHelper(id, k)
+	}
+	start := func(kind string) Output {
+		return h.pre("Agent", map[string]any{"subagent_type": "plumbline:" + kind, "prompt": "Review the change against plan.md."})
+	}
+	// A test-only fix: the code reviewer runs, the plan reviewer doesn't.
+	write(t, filepath.Join(h.repo, "src", "a_test.go"), "package src\n\n// fixed comment\n")
+	h.expect(start(HelperPlanReviewer), "deny", "only tests or docs changed")
+	if d, r := decision(start(HelperCodeReviewer)); d == "deny" {
+		t.Fatalf("the code reviewer after a test fix: %s", r)
+	}
+	// A code change: both run.
+	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 2 } // x\n")
+	if d, r := decision(start(HelperPlanReviewer)); d == "deny" {
+		t.Fatalf("the plan reviewer after a code change: %s", r)
+	}
+}
+
+// HLP1 (step 11c): helpers are told the quote rule and their write tool up
+// front, and a send-back names the tool they have.
+func TestHelpersToldTheRulesUpFront(t *testing.T) {
+	h := provenTask(t)
+	id, o := h.startHelper(HelperCodeReviewer)
+	note := contextOf(o)
+	for _, want := range []string{"few words of that line in backticks", "with the Write tool"} {
+		if !strings.Contains(note, want) {
+			t.Fatalf("reviewer start note lacks %q: %s", want, note)
+		}
+	}
+	write(t, h.findingsPath(id), h.complete(HelperCodeReviewer, "# Code review 1\n## Findings\n- [90] must-fix: wrong value (src/a.go:3)\n"))
+	if out := fmtOut(h.stopHelper(id, HelperCodeReviewer)); !strings.Contains(out, "has no quote") || !strings.Contains(out, "rewrite it whole with the Write tool") {
+		t.Fatalf("send-back: %s", out)
+	}
+	b := buildingTask(t)
+	_, qo := b.startHelper(HelperQA)
+	if s := contextOf(qo); !strings.Contains(s, "npx, npm and the like are refused") || strings.Contains(s, "few words of that line") {
+		t.Fatalf("QA start note: %s", s)
+	}
+	if s := writeHint(HelperQA); !strings.Contains(s, "Edit or Write") {
+		t.Fatalf("QA has Edit: %s", s)
 	}
 }

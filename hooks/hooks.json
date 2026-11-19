@@ -8,6 +8,16 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook session",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook session-task",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/plumbline\" hook session-finish",
+            "timeout": 5
           }
         ]
       }

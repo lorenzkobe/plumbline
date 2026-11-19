@@ -177,6 +177,10 @@ func runHook(args []string) (code int) {
 		out = core.SubagentStop(in)
 	case "session":
 		out = core.SessionStart(in)
+	case "session-task":
+		out = core.SessionRules(in, "task")
+	case "session-finish":
+		out = core.SessionRules(in, "finish")
 	case "prompt":
 		out = core.UserPromptSubmit(in)
 	case "expansion":
@@ -859,6 +863,10 @@ func cmdBuilder(args []string) error {
 	if errors.Is(err, core.ErrConflict) {
 		core.LogEvent(core.Event{Type: "helper", Task: t.ID, Size: t.Size, Project: core.ProjectKey(root), Rule: "builder-conflict", Detail: fmt.Sprintf("%d files", len(conflicts))})
 		r, _ := t.BuilderRun(n)
+		r.MergeRefused = true // now a hand merge of the overlapping parts is the way
+		if err := core.SaveTask(t); err != nil {
+			return err
+		}
 		return fmt.Errorf("builder %d's changes overlap changes already in the task's code, in: %s. Nothing was written. Bring those parts over by hand from %s (then plumbline builder drop %d), or give the part to a builder again", n, strings.Join(conflicts, ", "), r.Worktree, n)
 	}
 	if err != nil {

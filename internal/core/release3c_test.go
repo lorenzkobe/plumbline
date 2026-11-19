@@ -354,6 +354,17 @@ func TestReviewerPromptStaysIndependent(t *testing.T) {
 	b.expect(b.pre("Agent", map[string]any{"subagent_type": "plumbline:qa", "prompt": "Write the tests. The builder moved the parsing of amounts into a new helper called parseAmount."}), "deny", "build-1.md")
 }
 
+// REV2 (step 11c): the repo's folder path is in every builder's notes, and
+// naming it in a reviewer's prompt isn't copying a finding.
+func TestReviewerPromptMayNameTheRepo(t *testing.T) {
+	b := bigTask(t)
+	docs := TaskDocsDir(b.repo, b.task().ID)
+	b.runHelper(HelperBuilder, "# Build 1\n- worked in "+b.repo+"/.claude/worktrees/plumbline-copy and ran the tests in "+b.repo+"\n- notes in "+docs+"\n## Status\n- done\n")
+	b.expect(b.pre("Agent", map[string]any{"subagent_type": "plumbline:qa", "prompt": "Repo: " + b.repo + ". Plan: " + docs + "/plan.md. Write the tests for every case."}), "", "")
+	// Real copied text is still caught.
+	b.expect(b.pre("Agent", map[string]any{"subagent_type": "plumbline:qa", "prompt": "Repo: " + b.repo + ". The builder worked in " + b.repo + "/.claude/worktrees/plumbline-copy and ran the tests."}), "deny", "build-1.md")
+}
+
 // --- N3: findings quote the line they cite ---
 
 func TestFindingsQuoteTheCitedLine(t *testing.T) {
