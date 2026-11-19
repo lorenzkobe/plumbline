@@ -655,3 +655,21 @@ func TestOutsideReadsDontAsk(t *testing.T) {
 		t.Fatalf("a look before approval: %s %s", d, r)
 	}
 }
+
+// BLD1: the lead's cd into a builder's copy left the shell there; it's
+// refused, and git -C is the way to look.
+func TestLeadDoesntCdIntoABuilderCopy(t *testing.T) {
+	h := buildingTask(t)
+	id, _ := h.startHelper(HelperBuilder)
+	wt := h.run(HelperBuilder, id).Worktree
+	if wt == "" {
+		t.Fatal("no builder copy")
+	}
+	h.expect(h.bash("cd "+wt+" && git status --short && git diff"), "deny", "git -C")
+	if d, r := decision(h.bash("git -C " + wt + " diff")); d == "deny" {
+		t.Fatalf("git -C into the copy: %s", r)
+	}
+	if d, r := decision(PreToolUse(h.helperIn(id, HelperBuilder, "Bash", map[string]any{"command": "cd " + wt + " && git status"}))); d == "deny" && strings.Contains(r, "don't cd into a builder's copy") {
+		t.Fatalf("the builder in its own copy: %s", r)
+	}
+}

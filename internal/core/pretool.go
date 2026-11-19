@@ -1152,6 +1152,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			allQuiet = false
 			continue
 		}
+		if name == "cd" && c.in.AgentID == "" && c.root != "" {
+			if to := s.Arg(1); to != "" && !s.dyn(1) {
+				if abs := Abs(to, s.Dir); abs != "" && c.othersCopy(abs) {
+					v.d("builder-copy", "don't cd into a builder's copy: the shell stays there for every later command, and merging, checks and proof must run in the main checkout. Look at its work from here: git -C "+abs+" diff (or plumbline builder list).")
+				}
+			}
+		}
 		quiet := ReadOnly(s)
 		if !approvedLook(s) {
 			// keep quiet as ReadOnly says
