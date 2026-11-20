@@ -216,7 +216,7 @@ func TestPipelineNoteOnDeployMessages(t *testing.T) {
 	}
 	for _, p := range []string{"Run vercel --prod to deploy this.", "ship it", "push this to Production", "can we go live today?", "is it deployed?"} {
 		got := note(p)
-		for _, want := range []string{"pipeline deploys this project (Vercel deploys main through its git integration.)", "Don't deploy by hand", "the user pushes"} {
+		for _, want := range []string{"pipeline deploys this project (Vercel deploys main through its git integration.)", "Don't deploy by hand (previews and test deploys too)", "don't offer to", "the user pushes"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%q: note lacks %q: %s", p, want, got)
 			}

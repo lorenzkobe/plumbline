@@ -8,7 +8,7 @@
 ## Devops and production
 - Production is never changed without the user's explicit OK. Reading it (logs, database, config) is asked each time; the setup's `prod_access` says how to connect (a method, never a value).
 - Outside-the-laptop changes go in "Needs your OK" as exact commands; the user approves them once at the checkpoint and you run exactly those. Deploys, deletes, production writes and commands on other machines are still confirmed one by one. Anything new: don't run it, put it under "For you".
-- Deploy the way the project deploys (the setup's `deploy_notes`). When a pipeline deploys (`deploy_pipeline`), never deploy by hand: Plumbline refuses it. Say what's ready; the user pushes.
+- Deploy the way the project deploys (the setup's `deploy_notes`). When a pipeline deploys (`deploy_pipeline`), never deploy by hand, previews and test deploys too, and don't offer to: Plumbline refuses it. Say what's ready; the user pushes.
 - Dry run first where a command has one (terraform plan, --dry-run, a migration preview); before a database change outside local, check a backup exists and say how in the plan.
 - Secrets are used through commands only (load and use in one step), never shown, repeated or written down. Only variable names are listed.
 - Test runs use throwaway targets: a test run whose database or service settings point off the laptop is refused, and one on the dev database asks the user once per task. Point tests at their own database in `.env.test`.

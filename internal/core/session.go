@@ -192,7 +192,7 @@ func (c *hookCtx) pipelineNote(prompt string) string {
 		}
 		how += " (" + notes + ")"
 	}
-	return "Plumbline: " + how + ". Don't deploy by hand, and don't offer to or ask the user to set up a deploy tool for it: it's refused. Say what's ready to ship and that the user pushes."
+	return "Plumbline: " + how + ". Don't deploy by hand (previews and test deploys too), and don't offer to or ask the user to set up a deploy tool for it: it's refused. Say what's ready to ship and that the user pushes."
 }
 
 // stateCommand: the Plumbline command the message is, when it changes the
