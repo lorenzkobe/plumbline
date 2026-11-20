@@ -751,6 +751,75 @@ var (
 	dbClients = map[string]bool{"psql": true, "mysql": true, "mongosh": true, "mongo": true, "redis-cli": true, "pg_dump": true, "pg_restore": true, "mysqldump": true}
 )
 
+// Commands that reach outside the laptop or run downloaded code, wherever
+// they run from: a throwaway folder doesn't make them harmless.
+var reachesOut = map[string]bool{
+	"git": true, "curl": true, "wget": true, "http": true, "https": true, "nc": true, "ncat": true,
+	"rsync": true, "sftp": true, "ftp": true, "telnet": true, "docker": true, "podman": true,
+	"supabase": true, "sudo": true, "su": true, "open": true, "osascript": true,
+}
+
+// throwawayRun (SCR1): before approval, a command that runs in the
+// scratchpad or /tmp and names nothing in the project only touches throwaway
+// files, so it isn't refused as a change. It isn't allowed outright either:
+// Claude Code's own permission mode still judges it. Commands that reach
+// outside the laptop, installs and downloads (npx), paths that leave the
+// throwaway folders and words whose value isn't known don't count; their own
+// asks still apply. If one changes project files anyway, the post hook
+// stops the work.
+func (c *hookCtx) throwawayRun(s Segment, installs bool) bool {
+	name := s.Name()
+	if c.task == nil || c.root == "" || s.Dir == "" || installs || name == "" || isPlumblineBin(name) ||
+		reachesOut[name] || cloudCmds[name] || dbClients[name] || s.unknownArgs() || !c.throwawayPath(s.Dir) {
+		return false
+	}
+	for _, w := range s.Words[1:] {
+		if strings.HasPrefix(w, "-") {
+			_, v, ok := strings.Cut(w, "=")
+			if !ok {
+				continue
+			}
+			w = v // --out=<path>
+		}
+		abs := Abs(w, s.Dir)
+		if abs != "" && c.inProject(abs) {
+			return false
+		}
+		// A path that leaves the folder it runs in (absolute, home, ..)
+		// must stay in a throwaway folder too.
+		if (strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") || w == ".." || strings.HasPrefix(w, "../") || strings.Contains(w, "/../")) && !c.throwawayPath(abs) {
+			return false
+		}
+	}
+	for _, r := range s.Redirects {
+		if abs := Abs(r, s.Dir); abs == "" || !c.throwawayPath(abs) && r != "/dev/null" {
+			return false
+		}
+	}
+	return true
+}
+
+// throwawayPath: a path in the scratchpad or a temp folder, outside the
+// project.
+func (c *hookCtx) throwawayPath(abs string) bool {
+	if abs == "" || c.inProject(abs) {
+		return false
+	}
+	for _, d := range []string{os.TempDir(), "/tmp", c.in.ScratchpadDir} {
+		// Inside, not a temp folder itself: that holds other sessions'
+		// scratchpads too. The scratchpad itself is this session's own.
+		if root := Abs(d, "/"); d != "" && (abs != root || d == c.in.ScratchpadDir) && IsInside(abs, root) {
+			return true
+		}
+	}
+	return false
+}
+
+// inProject: the path is in this checkout (case folded, like the edit rules).
+func (c *hookCtx) inProject(abs string) bool {
+	return c.root != "" && (IsInside(abs, c.root) || isInsideFold(abs, c.root))
+}
+
 func wordsEqual(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -1163,8 +1232,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	}
 	segs := ParseShell(cmd, c.in.Cwd)
 	v := &verdicts{}
-	allQuiet := true // every segment reads only, or is a saved command
-	hint := ""       // how to make the line read only, when there's a simple way
+	allQuiet := true   // every segment reads only, or is a saved command
+	throwaway := false // a segment runs only on throwaway files (SCR1)
+	hint := ""         // how to make the line read only, when there's a simple way
 	var commits []Segment
 	addsAll := false
 	var added []string
@@ -1441,7 +1511,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if (name == "curl" || name == "wget" || name == "http" || name == "https") && httpSends(s) {
 			v.a("outside-laptop", "this sends data to a server outside your laptop.")
 		}
-		if !quiet && !c.isSaved(cmd, &s) {
+		if !quiet && !c.isSaved(cmd, &s) && c.throwawayRun(s, installRe.MatchString(joined)) {
+			throwaway = true // not refused before approval, but not allowed outright either
+		} else if !quiet && !c.isSaved(cmd, &s) {
 			allQuiet = false
 			if needsDoubleDash(s) {
 				hint = doubleDashHint
@@ -1480,7 +1552,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
 	}
-	if allQuiet && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
+	if allQuiet && !throwaway && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
 		return allow("reads only, or a saved project command")
 	}
 	return nil
@@ -1823,20 +1895,30 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			if !combined && fi.ModTime().Before(t.Checkpoint1At) {
 				p = append(p, "plan.md is older than checkpoint 1; update it")
 			}
-			pc := CheckPlanSized(text, t.Size == "small")
-			p = append(p, pc.Problems...)
-			if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
-				p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
-			}
+			p = append(p, c.planRuleProblems(text)...)
 			p = append(p, CheckRefs(t, text)...)
 			p = append(p, c.challengeProblems(text)...)
-			p = append(p, c.teamProblems(text, pc.Files)...)
-			p = append(p, c.sizeProblems(pc.Files)...)
-			p = append(p, c.upgradeProblems(pc)...)
-			p = append(p, c.designProblems(text, pc)...)
-			p = append(p, hotfixProblems(t, text)...)
 		}
 	}
+	return p
+}
+
+// planRuleProblems: what the plan question would refuse in plan.md itself,
+// apart from the file:line refs and the challenge. The checkpoint uses it,
+// and so does the note after each save of plan.md (CASE1), so Claude fixes
+// a slip before it asks.
+func (c *hookCtx) planRuleProblems(text string) []string {
+	t := c.task
+	pc := CheckPlanSized(text, t.Size == "small")
+	p := append([]string(nil), pc.Problems...)
+	if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
+		p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
+	}
+	p = append(p, c.teamProblems(text, pc.Files)...)
+	p = append(p, c.sizeProblems(pc.Files)...)
+	p = append(p, c.upgradeProblems(pc)...)
+	p = append(p, c.designProblems(text, pc)...)
+	p = append(p, hotfixProblems(t, text)...)
 	return p
 }
 

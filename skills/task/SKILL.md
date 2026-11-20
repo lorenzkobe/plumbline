@@ -41,7 +41,7 @@ If the task is so unclear that planning would likely be wasted, ask your questio
 - It runs without the user, so it adds no stop. Small tasks, or a project with `"parts": {"challenger": false}` in its setup, skip it.
 
 ## 6. The checkpoint
-AskUserQuestion with header `Checkpoint`, options `Approve`, `Change something` and `Drop it` (Drop it closes the task). First show the plan in the chat as a message (not a file), as checkpoints.md's "The plan in chat" shows: the goal first, then short plain sections. No paths, task ids or Plumbline steps. Never pre-answer it.
+AskUserQuestion with header `Checkpoint`, options `Approve`, `Change something` and `Drop it` (Drop it closes the task). First show the plan in the chat as a message (not a file), as checkpoints.md's "The plan in chat" shows: the goal first, then plain sections with Title Case headings and full sentences, and the technical details left in plan.md (its path on the last line, the only path shown). No task ids or Plumbline steps. The question itself carries the problem, the fix and the risk in two or three short sentences, since it can cover the chat. Never pre-answer it.
 
 ## 7. Decisions vs common sense
 - A real decision is asked right away, with options and your recommendation: a trade-off ("fixing this changes that"), a choice between approaches, anything that changes behaviour the plan didn't cover.

@@ -1,6 +1,12 @@
 # Changelog
 
 ## 0.7.2: fixes from the 0.7.1 retest
+From smoke step 12a (a design task), all chosen by the user:
+- PLAN3: the plan in chat is plain: "Done When" first, then Title Case headings (The Problem, The Fix, What You'll Notice, Risks, How It's Checked, What I Need From You), full sentences, no file or code names. The technical details stay in plan.md, linked on the last line. Once plan.md has everything the plan question needs, Claude is told this shape at that moment.
+- HID2: the plan question's own text holds the problem, the fix and the risk in two or three sentences, because the question box covers the chat (on a phone too).
+- PKG1: an install aimed outside the project (npm's --prefix, pip's --target, -g, --user, or run from a folder outside it) no longer counts as the plan changing packages, so the plan question doesn't ask for saved check runs first.
+- CASE1: every save of plan.md tells Claude what the plan question would refuse in the plan itself (a case without its test, the design line, checks to run first), not only lookups and file:line, so it's fixed before asking.
+- SCR1: before approval, a command run in the scratchpad or /tmp that names only files there (checking a mockup's script) isn't refused. Claude Code's own permission mode still judges it, and cloud, database, network, install and git commands, and paths leaving those folders, still count as changes.
 From smoke step 11c (two tracers, blind QA, two builders, the tester), all chosen by the user:
 - CTX1: Claude saw only the first 2 KB of the session-start rules: Claude Code keeps hook context over about 10,000 characters in a file and shows a preview, and the rules were 20 KB. They now come in three parts from three SessionStart hooks (each under the limit, guarded by a test), "Right now" (open tasks, setup, Docker) comes first, and at most five other sessions' open tasks are named.
 - BR1: on real data, the browser asks only for what could save, send or delete: a click whose note (action_summary) names a change, a click with no note, Enter, Delete and cmd/ctrl/alt shortcuts, and page scripts that could change data. Opening a list, Escape, Tab, arrows, typing and picking a value don't ask. A batch asks when any of its steps would.

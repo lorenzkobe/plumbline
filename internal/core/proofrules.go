@@ -61,17 +61,51 @@ var reDepFile = regexp.MustCompile(`(?i)^(package\.json|package-lock\.json|npm-s
 // Commands that add or upgrade a project's packages.
 var reUpgradeCmd = regexp.MustCompile(`^(npm (i|install|add|update|up|upgrade)|yarn (add|upgrade|up)|pnpm (add|i|install|update|up|upgrade)|bun (add|install|i|update)|pip3? install|uv (add|lock|pip install)|poetry (add|update)|pipenv (install|update)|go get|cargo (add|update)|composer (require|update)|bundle (add|update))\b`)
 
-// upgradePlan: the plan changes packages, by its files or its approved
-// commands.
-func upgradePlan(pc PlanCheck) bool {
+// upgradePlan: the plan changes the project's packages, by its files or its
+// approved commands. An install aimed outside the project (PKG1: Playwright
+// into the scratchpad with --prefix, a global one, or one run from a folder
+// outside it) leaves the project's packages as they are.
+func upgradePlan(pc PlanCheck, root string) bool {
 	for _, f := range pc.Files {
 		if reDepFile.MatchString(path.Base(cleanRel(f))) {
 			return true
 		}
 	}
 	for _, c := range pc.Approved {
-		if reUpgradeCmd.MatchString(strings.TrimSpace(c)) {
+		for _, s := range ParseShell(c, root) {
+			if reUpgradeCmd.MatchString(strings.Join(s.Words, " ")) && !installsOutside(s, root) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// installsOutside: the install goes to a folder outside the project: npm's
+// --prefix, pip's --target, a global or user install, or a working folder
+// known to be outside. A folder that isn't known counts as inside.
+func installsOutside(s Segment, root string) bool {
+	if root == "" {
+		return false
+	}
+	outside := func(dir string) bool {
+		abs := Abs(dir, s.Dir)
+		return abs != "" && !IsInside(abs, Abs(root, "/"))
+	}
+	if s.Dir != "" && outside(s.Dir) {
+		return true
+	}
+	for i := 1; i < len(s.Words); i++ {
+		w := s.Words[i]
+		switch {
+		case w == "-g" || w == "--global" || w == "--location=global" || w == "--user":
 			return true
+		case w == "--location" && s.Arg(i+1) == "global":
+			return true
+		case (w == "--prefix" || w == "--target" || w == "-t") && i+1 < len(s.Words) && !s.dyn(i+1):
+			return outside(s.Words[i+1])
+		case strings.HasPrefix(w, "--prefix=") || strings.HasPrefix(w, "--target="):
+			return outside(w[strings.Index(w, "=")+1:])
 		}
 	}
 	return false
@@ -80,7 +114,7 @@ func upgradePlan(pc PlanCheck) bool {
 // upgradeProblems (N21): a plan that changes packages saves the checks'
 // before-state first, so the same commands can be compared after.
 func (c *hookCtx) upgradeProblems(pc PlanCheck) []string {
-	if !upgradePlan(pc) || c.setup == nil {
+	if !upgradePlan(pc, c.root) || c.setup == nil {
 		return nil
 	}
 	runs := LoadRuns(c.task.Root)

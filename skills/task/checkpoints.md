@@ -116,23 +116,34 @@ Labels: normal, edge, refused, boundary, repeat-safe, bug, performance, failure,
 Every line in the plan decides something. "TBD", "handle edge cases", "add appropriate validation" or "write tests for the above" are refused: name the cases, checks or values.
 
 ## The plan in chat (before the plan question)
-The plan for the user, in plain words, as a chat message right before the plan question (not a file: a file shows up as a diff, which is hard to read). No file:line, no jargon (explain a needed term in a few words), short sentences, only what they need to decide. Small tasks: the goal and two or three lines. Normal and big tasks:
+The plan for the user, as a chat message right before the plan question (not a file: a file shows up as a diff, which is hard to read). Most people using Plumbline want their work eased and run on its own, so this part is plain: what's wrong, what changes and what they'll notice, in full sentences, with nothing left out that they'd want to know. No file names, function names, code terms, test names or numbers only a developer reads (explain a needed term in a few words); those stay in plan.md, linked on the last line. Every heading in Title Case. Small tasks: the goal and two or three full sentences. Normal and big tasks:
 ```
-**Done when:** <the plan's goal>
-**What you asked for:** <the request as you understood it; say what you assumed>
-**What's happening now**
-<how it works today and why that's a problem, in a few sentences>
-**What I'll change**
-<each change and what the user will notice>
-**What could go wrong**
-<each real risk and how it's handled; "Nothing outside X changes" when that's true>
-**How I'll check it**
+**Done When:** <the plan's goal, as a full sentence>
+
+## The Problem
+<how it works today and why that's a problem, in a few sentences; what you assumed about the request>
+
+## The Fix
+<what changes, in plain words>
+
+## What You'll Notice
+<what the user will see or be able to do afterwards, and what stays the same>
+
+## Risks
+<each real risk and how it's handled; "Nothing outside X changes." when that's true>
+
+## How It's Checked
 <the tests and checks in plain words, and who reviews it>
-**What I need from you**
-<decisions or access, or "Nothing: just Approve, Change something or Drop it">
-**Also worth doing (not in this plan)**
-<plan.md's suggestions, "Related, want it in?" and "Not related, just noticed" apart; leave it out when there are none>
+
+## What I Need From You
+<decisions or access, or "Nothing. Just Approve, Change Something or Drop It.">
+
+## Also Worth Doing
+<plan.md's suggestions, "Related, want it in?" and "Not related, just noticed" apart; leave the section out when there are none>
+
+Technical details: <plan.md's full path>
 ```
+Then the question itself (AskUserQuestion, header `Checkpoint`) holds the problem, the fix and the risk in two or three short sentences, because the question box can cover the chat (on a phone or on the web the user may see only it). For example: "The Profile screen is one long page, with rare tools next to Sign Out. I'll group it into Account, Activity and This Device, with the rare tools in a closed section. Risk: low, since nothing about your data changes. Approve?"
 
 ## report.md
 ```

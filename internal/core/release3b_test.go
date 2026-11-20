@@ -613,12 +613,12 @@ func TestUpgradePlan(t *testing.T) {
 	yes := []PlanCheck{{Files: []string{"package.json"}}, {Files: []string{"./api/go.mod"}}, {Files: []string{"requirements-dev.txt"}}, {Approved: []string{"npm install zod@3"}}, {Approved: []string{"go get example.com/x@v2"}}, {Approved: []string{"bundle update rails"}}}
 	no := []PlanCheck{{Files: []string{"src/package.ts"}}, {Approved: []string{"npx prisma generate"}}, {Approved: []string{"brew install jq"}}}
 	for _, pc := range yes {
-		if !upgradePlan(pc) {
+		if !upgradePlan(pc, "") {
 			t.Errorf("changes packages: %+v", pc)
 		}
 	}
 	for _, pc := range no {
-		if upgradePlan(pc) {
+		if upgradePlan(pc, "") {
 			t.Errorf("doesn't change packages: %+v", pc)
 		}
 	}

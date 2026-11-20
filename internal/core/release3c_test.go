@@ -157,13 +157,15 @@ func TestDesignReminderForScreens(t *testing.T) {
 	if o := h.post("Write", map[string]any{"file_path": p}, nil); !strings.Contains(fmtOut(o), "/plumbline:design") || !strings.Contains(fmtOut(o), "Checkout.tsx") {
 		t.Fatalf("the plan changes a screen: %v", o)
 	}
-	if o := h.post("Write", map[string]any{"file_path": p}, nil); o != nil {
+	// Later saves may still name what the plan question needs (CASE1),
+	// but not the reminder.
+	if o := h.post("Write", map[string]any{"file_path": p}, nil); strings.Contains(fmtOut(o), "/plumbline:design") {
 		t.Fatalf("once per task: %v", o)
 	}
 	// No screens, no reminder; and it never holds anything.
 	h2 := groundedTask(t, "normal")
 	p2 := h2.docs(DocPlan, goodPlan)
-	if o := h2.post("Write", map[string]any{"file_path": p2}, nil); o != nil {
+	if o := h2.post("Write", map[string]any{"file_path": p2}, nil); strings.Contains(fmtOut(o), "/plumbline:design") {
 		t.Fatalf("no screens in the plan: %v", o)
 	}
 }

@@ -707,9 +707,10 @@ func isDrop(answer string, q question) bool {
 	return false
 }
 
-// afterPlan: once the lead writes plan.md, say which lookups and file:line
-// checks the plan question still needs, so it's done before the question
-// instead of after a refusal (Serena was refused four runs in a row).
+// afterPlan: once the lead writes plan.md, say which lookups, file:line
+// checks and plan rules the plan question still needs, so it's done before
+// the question instead of after a refusal (Serena was refused four runs in
+// a row; CASE1, a case left without its test after the challenge).
 func (c *hookCtx) afterPlan(abs string) Output {
 	t := c.task
 	if t == nil || c.in.AgentID != "" || (t.Phase != PhasePlanning && t.Phase != PhaseUnderstanding) {
@@ -720,13 +721,27 @@ func (c *hookCtx) afterPlan(abs string) Output {
 		return nil
 	}
 	p := c.groundingProblems()
+	plan := ""
 	for _, d := range []string{DocUnderstanding, DocPlan} {
 		if text, _, err := ReadDoc(t, d); err == nil {
 			p = append(p, CheckRefs(t, text)...)
+			if d == DocPlan {
+				plan = text
+				p = append(p, c.planRuleProblems(text)...) // CASE1: the plan's own rules too
+			}
 		}
 	}
 	if len(p) == 0 {
-		return nil
+		if len(c.challengeProblems(plan)) > 0 {
+			return nil // the challenger is next; the task skill says so
+		}
+		// PLAN3, HID2: the plan the user reads is plain, and the question
+		// repeats the gist because it can cover the chat.
+		shape := `then Title Case headings (The Problem, The Fix, What You'll Notice, Risks, How It's Checked, What I Need From You), full sentences, plain words, no file or code names (plan.md's path on the last line holds those)`
+		if t.Size == "small" {
+			shape = "then two or three full sentences in plain words, no file or code names"
+		}
+		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`))
 	}
 	return Context("PostToolUse", msg("before the plan question, still needed: "+strings.Join(uniq(p), "; ")+". Do these now, so the question isn't refused."))
 }
@@ -857,7 +872,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.CasesStored = true
 			t.BugTests = pc.BugTests
 			t.BugStored = true
-			t.Upgrade = upgradePlan(pc)
+			t.Upgrade = upgradePlan(pc, c.root)
 			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
 			if t.ApprovalPrint == "" {
