@@ -1,6 +1,8 @@
 # Changelog
 
 ## 0.7.2: fixes from the 0.7.1 retest
+From smoke step 12b (a deploy by hand), chosen by the user:
+- DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 From smoke step 12a (a design task), all chosen by the user:
 - PLAN3: the plan in chat is plain: "Done When" first, then Title Case headings (The Problem, The Fix, What You'll Notice, Risks, How It's Checked, What I Need From You), full sentences, no file or code names. The technical details stay in plan.md, linked on the last line. Once plan.md has everything the plan question needs, Claude is told this shape at that moment.
 - HID2: the plan question's own text holds the problem, the fix and the risk in two or three sentences, because the question box covers the chat (on a phone too).

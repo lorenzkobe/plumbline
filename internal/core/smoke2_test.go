@@ -200,3 +200,59 @@ func TestTestDoesNotApplyIsNotALink(t *testing.T) {
 		t.Fatalf("case tests: %v", pc.CaseTests)
 	}
 }
+
+// DP1 (smoke step 12b): in a pipeline project, a message about deploying
+// carries a reminder of how the project ships, with its deploy_notes, so
+// Claude doesn't offer a hand deploy. Off without the pipeline, with the
+// devops part off, on unrelated messages and on Plumbline commands.
+func TestPipelineNoteOnDeployMessages(t *testing.T) {
+	h := newHarness(t)
+	s := &Setup{Kind: "personal", BaseBranch: "main", DeployPipeline: true, DeployNotes: "Vercel deploys main\n through its git integration."}
+	s.Commands.Test = "./test.sh"
+	_, err := SaveSetup(h.repo, s)
+	must(t, err)
+	note := func(p string) string {
+		return contextOf(UserPromptSubmit(&HookInput{SessionID: h.sid, Cwd: h.repo, Prompt: p}))
+	}
+	for _, p := range []string{"Run vercel --prod to deploy this.", "ship it", "push this to Production", "can we go live today?", "is it deployed?"} {
+		got := note(p)
+		for _, want := range []string{"pipeline deploys this project (Vercel deploys main through its git integration.)", "Don't deploy by hand", "the user pushes"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%q: note lacks %q: %s", p, want, got)
+			}
+		}
+	}
+	for _, p := range []string{"rename the Other category", "fix the product page", "/plumbline:pause deploy later"} {
+		if got := note(p); strings.Contains(got, "pipeline deploys") {
+			t.Errorf("%q: unexpected pipeline note: %s", p, got)
+		}
+	}
+
+	// Long notes are cut; no notes still names the pipeline.
+	s.DeployNotes = strings.Repeat("é", maxDeployNotes+50)
+	_, err = SaveSetup(h.repo, s)
+	must(t, err)
+	if got := note("deploy"); !strings.Contains(got, strings.Repeat("é", maxDeployNotes)+"...)") || strings.Contains(got, strings.Repeat("é", maxDeployNotes+1)) {
+		t.Errorf("long notes not cut at %d runes: %s", maxDeployNotes, got)
+	}
+	s.DeployNotes = ""
+	_, err = SaveSetup(h.repo, s)
+	must(t, err)
+	if got := note("deploy"); !strings.Contains(got, "pipeline deploys this project. Don't deploy by hand") {
+		t.Errorf("no notes: %s", got)
+	}
+
+	// The refusal's own switches decide the note too.
+	s.Parts = map[string]bool{devopsPartName: false}
+	_, err = SaveSetup(h.repo, s)
+	must(t, err)
+	if got := note("deploy"); strings.Contains(got, "pipeline deploys") {
+		t.Errorf("devops part off: %s", got)
+	}
+	s.Parts, s.DeployPipeline = nil, false
+	_, err = SaveSetup(h.repo, s)
+	must(t, err)
+	if got := note("deploy"); strings.Contains(got, "pipeline deploys") {
+		t.Errorf("no pipeline: %s", got)
+	}
+}

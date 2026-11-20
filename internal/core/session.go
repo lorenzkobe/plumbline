@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -161,7 +162,37 @@ func UserPromptSubmit(in *HookInput) Output {
 	default:
 		line = "Plumbline: no task open. Any change to the repo's files, even a one-line rename, is a Task: start it right away (plumbline task start on its own line, no question needed), look at the code, then ask the one plan question. Don't try the edit first; it will be refused. Don't mention Plumbline to the user."
 	}
+	if c.root != "" && stateCommand(in.Prompt) == "" {
+		if note := c.pipelineNote(in.Prompt); note != "" {
+			line += "\n" + note
+		}
+	}
 	return Context("UserPromptSubmit", line)
+}
+
+// reDeployAsk: the user's message is about deploying or shipping.
+var reDeployAsk = regexp.MustCompile(`(?i)\b(deploy\w*|ship|shipping|release|go[- ]live|prod|production|vercel|netlify)\b`)
+
+// maxDeployNotes caps the setup's deploy_notes quoted in the reminder.
+const maxDeployNotes = 300
+
+// pipelineNote (DP1): in a project a pipeline deploys, a message about
+// deploying gets a reminder of how this project ships. The rule alone (part 3
+// of the session rules) was missed: Claude told the user to install and link
+// the Vercel CLI and offered to run `vercel --prod` itself. The same parts
+// the hand-deploy refusal checks decide it, so the two never disagree.
+func (c *hookCtx) pipelineNote(prompt string) string {
+	if c.setup == nil || !c.setup.DeployPipeline || !c.setup.PartOn(devopsPartName) || !reDeployAsk.MatchString(prompt) {
+		return ""
+	}
+	how := "a pipeline deploys this project"
+	if notes := strings.Join(strings.Fields(c.setup.DeployNotes), " "); notes != "" {
+		if r := []rune(notes); len(r) > maxDeployNotes {
+			notes = string(r[:maxDeployNotes]) + "..."
+		}
+		how += " (" + notes + ")"
+	}
+	return "Plumbline: " + how + ". Don't deploy by hand, and don't offer to or ask the user to set up a deploy tool for it: it's refused. Say what's ready to ship and that the user pushes."
 }
 
 // stateCommand: the Plumbline command the message is, when it changes the
