@@ -4,6 +4,8 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From smoke step 14a:
+- FL1: a failed plumbline run names its failing tests in its last line, and run checks names them in its summary (at most three), so `| tail` still shows them. Reading Plumbline's own files from the terminal is refused with a pointer to plumbline status and the run's last line.
 From smoke step 13:
 - BLD3: after approval, a normal or big task is told to start builders for simple, clear parts with model: sonnet; tricky or risky parts keep the session's model.
 From smoke step 12c:

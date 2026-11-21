@@ -312,3 +312,21 @@ func TestApprovalTellsBuilderModel(t *testing.T) {
 		t.Errorf("before building: %s", got)
 	}
 }
+
+// FL1 (smoke step 14a): a failed run names its failing tests in the one
+// result line, so | tail -3 still shows them; Claude had guessed "flaky"
+// and looked for them in Plumbline's own files.
+func TestFailedNamesInResultLine(t *testing.T) {
+	if got := FailedNames(nil); got != "" {
+		t.Errorf("none: %q", got)
+	}
+	if got := FailedNames([]string{"a > x", "b > y"}); got != "a > x; b > y" {
+		t.Errorf("two: %q", got)
+	}
+	if got := FailedNames([]string{"1", "2", "3", "4", "5"}); got != "1; 2; 3; and 2 more" {
+		t.Errorf("five: %q", got)
+	}
+	if !strings.Contains(ownFilesFromShell, "names its failing tests") {
+		t.Errorf("own-files refusal doesn't say where the failures are: %s", ownFilesFromShell)
+	}
+}

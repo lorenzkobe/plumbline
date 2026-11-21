@@ -1127,7 +1127,7 @@ func (c *hookCtx) writeIgnored(rel string) bool {
 
 // ownFilesFromShell: a terminal write into Plumbline's data folder. Task
 // notes have their own way in (UX2: the refusal names it).
-const ownFilesFromShell = "Plumbline's own files can't be changed from the terminal. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool (the lead may also use cat, tee, echo or printf into its own notes); anything else goes through the plumbline command."
+const ownFilesFromShell = "Plumbline's own files can't be read or changed from the terminal: plumbline status shows the task, and a failed plumbline run names its failing tests in its last line. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool (the lead may also use cat, tee, echo or printf into its own notes); anything else goes through the plumbline command."
 
 // buildFile is the building-phase rule for one file outside the plan, shared
 // by edits, terminal commands and MCP tools. pending counts other new

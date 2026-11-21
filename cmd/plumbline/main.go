@@ -582,9 +582,20 @@ func cmdRun(args []string) (int, error) {
 	if v.Reason != "" {
 		detail += " " + v.Reason + "."
 	}
+	lastFailed = nil
+	if status == "FAIL" {
+		lastFailed = r.FailedIDs
+		if names := core.FailedNames(r.FailedIDs); names != "" {
+			detail += " Failed: " + names + "."
+		}
+	}
 	fmt.Printf("\nplumbline: %s recorded: %s.%s\n", args[0], status, detail)
 	return r.Exit, nil
 }
+
+// lastFailed: the failing tests of the last run cmdRun recorded (FL1), so
+// run checks can name them in its one summary line.
+var lastFailed []string
 
 // noSizeNote: a task started without --size is normal, so Claude is told
 // to judge it, or a one-word change takes the full path (SZ1).
@@ -630,6 +641,9 @@ func runChecks(args []string) (int, error) {
 			status = "FAIL"
 			if exit == 0 {
 				exit = code
+			}
+			if names := core.FailedNames(lastFailed); names != "" {
+				status += " (" + names + ")"
 			}
 		}
 		summary = append(summary, c.name+": "+status)

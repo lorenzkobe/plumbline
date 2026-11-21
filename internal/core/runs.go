@@ -713,6 +713,19 @@ func commandMatches(kind, saved, ran string) bool {
 	return ran == saved
 }
 
+// FailedNames (FL1): the failing tests for the one-line result, at most
+// three, so a run cut short with | tail still names them.
+func FailedNames(ids []string) string {
+	const most = 3
+	if len(ids) == 0 {
+		return ""
+	}
+	if len(ids) <= most {
+		return strings.Join(ids, "; ")
+	}
+	return strings.Join(ids[:most], "; ") + "; and " + strconv.Itoa(len(ids)-most) + " more"
+}
+
 // unnamedFailures: failures the output gave no name for.
 func unnamedFailures(r *Run) int {
 	if n := r.Failed - len(r.FailedIDs); n > 0 {

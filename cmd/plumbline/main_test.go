@@ -355,3 +355,26 @@ func taskID(out string) string {
 	}
 	return ""
 }
+
+// FL1: a failed run names its failing tests in its last line, and run
+// checks names them in its summary, so | tail -3 still shows them.
+func TestFailedRunNamesTests(t *testing.T) {
+	home := t.TempDir()
+	repo := gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	s := &core.Setup{Kind: "personal"}
+	s.Commands.Test = "printf 'FAILED tests/test_x.py::TestSignOut - assert 1\\n===== 1 failed, 1 passed in 0.10s =====\\n'; exit 1"
+	s.Commands.Lint = "true"
+	if _, err := core.SaveSetup(repo, s); err != nil {
+		t.Fatal(err)
+	}
+	out, code := plumbline(t, repo, home, "", "run", "checks")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	last := lines[len(lines)-1]
+	if code == 0 || !strings.Contains(last, "test: FAIL (") || !strings.Contains(last, "TestSignOut") || !strings.Contains(last, "lint: PASS") {
+		t.Fatalf("summary should name the failing test: %d %q\n%s", code, last, out)
+	}
+	if !strings.Contains(out, "Failed: ") {
+		t.Fatalf("the test run's own line should name it: %s", out)
+	}
+}
