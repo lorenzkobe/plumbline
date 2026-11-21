@@ -262,6 +262,25 @@ func (c *hookCtx) afterBash() (res Output) {
 	return c.checkChanged(segs)
 }
 
+// approvalNext: what Claude does after the user approves, by step.
+func approvalNext(t *Task) string {
+	next := "Make the plan next (plan.md), then the checkpoint."
+	if t.Phase == PhaseBuilding {
+		next = "First run plumbline run checks (it records every saved check on the approved code; the first edit waits for it). Then build and prove it to the end without stopping: a failing test first where there's a bug, then the change, plumbline run checks again at the end, the review and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
+		if files := t.bugCaseFiles(); len(files) > 0 {
+			next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed.", strings.Join(files, ","))
+		}
+		if t.Size != "small" {
+			next += " " + builderModelNote
+		}
+	}
+	return next
+}
+
+// builderModelNote (BLD3, step 13): builders for one-line label changes
+// ran on the session's model; simple parts cost less on Sonnet.
+const builderModelNote = "If you hand parts to builders, start each simple, clear part (a label, a rename, a small local change) with model: \"sonnet\" on the Agent call; keep the session's model for tricky or risky parts."
+
 // noteShellReads records the files a terminal command showed lines of, as
 // the Read tool does: cat, sed -n, head, grep or rg on a named file. Only a
 // command that changes nothing counts, so the file is still what was shown.
@@ -903,13 +922,7 @@ func (c *hookCtx) afterQuestion() Output {
 		_ = SaveTask(t)
 		c.log("phase", t.Phase, "")
 		RefreshSnapshot(c.snapID(), c.root)
-		next := "Make the plan next (plan.md), then the checkpoint."
-		if t.Phase == PhaseBuilding {
-			next = "First run plumbline run checks (it records every saved check on the approved code; the first edit waits for it). Then build and prove it to the end without stopping: a failing test first where there's a bug, then the change, plumbline run checks again at the end, the review and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
-			if files := t.bugCaseFiles(); len(files) > 0 {
-				next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed.", strings.Join(files, ","))
-			}
-		}
+		next := approvalNext(t)
 		return Context("PostToolUse", msg(fmt.Sprintf("the user approved. Task %s is now at the %s step. %s", t.ID, t.Phase, next)))
 	}
 	return nil

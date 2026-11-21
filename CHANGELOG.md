@@ -4,6 +4,8 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From smoke step 13:
+- BLD3: after approval, a normal or big task is told to start builders for simple, clear parts with model: sonnet; tricky or risky parts keep the session's model.
 From smoke step 12c:
 - VER1: asking a cloud or database tool for its version or help (`aws --version`, `psql -V`, `gcloud --help`) doesn't ask. ssh, scp and the database clients count only `--version`, `-V` and `--help`, since `ssh help` names a host and `psql -h` a host.
 - RD3: a file shown on the same line as a Plumbline bookkeeping command (task start, tool-down, size, replan, adopt) counts as opened.

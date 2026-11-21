@@ -297,3 +297,18 @@ func TestCloudAskSaysTheRisk(t *testing.T) {
 		}
 	}
 }
+
+// BLD3 (smoke step 13, from the 11c logs): builders for one-line label
+// changes ran on the session's model. After approval, a normal or big task
+// is told to start simple parts on Sonnet; a small task builds itself.
+func TestApprovalTellsBuilderModel(t *testing.T) {
+	for size, want := range map[string]bool{"small": false, "normal": true, "big": true} {
+		got := approvalNext(&Task{Size: size, Phase: PhaseBuilding})
+		if strings.Contains(got, `model: "sonnet"`) != want {
+			t.Errorf("%s: builder model note present=%v, want %v: %s", size, !want, want, got)
+		}
+	}
+	if got := approvalNext(&Task{Size: "normal", Phase: PhaseUnderstanding}); strings.Contains(got, "sonnet") {
+		t.Errorf("before building: %s", got)
+	}
+}
