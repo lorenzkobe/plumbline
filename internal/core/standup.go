@@ -21,6 +21,7 @@ import (
 
 type StandupTask struct {
 	ID, Title, Ticket, Repo, Phase string
+	Outcome                        string // the report's verdict line (ST1)
 }
 
 type StandupCommit struct {
@@ -263,7 +264,7 @@ func StandupBetween(anchor string, from, to time.Time) (*StandupReport, error) {
 	tickets := map[string]bool{}
 	addTask := func(t *Task) *StandupItem {
 		it := item(t.Ticket, t.Title)
-		it.Tasks = append(it.Tasks, StandupTask{ID: t.ID, Title: t.Title, Ticket: t.Ticket, Repo: filepath.Base(ProjectRoot(t.Root)), Phase: t.Phase})
+		it.Tasks = append(it.Tasks, StandupTask{ID: t.ID, Title: t.Title, Ticket: t.Ticket, Repo: filepath.Base(ProjectRoot(t.Root)), Phase: t.Phase, Outcome: reportOutcome(t)})
 		return it
 	}
 	// Files a task opened that day outside its own repo: "read in <repo>".
@@ -465,6 +466,9 @@ func (r *StandupReport) String() string {
 		}
 		for _, t := range it.Tasks {
 			fmt.Fprintf(&b, "  - task %s %q in %s: %s\n", t.ID, t.Title, t.Repo, t.Phase)
+			if t.Outcome != "" {
+				fmt.Fprintf(&b, "    outcome: %s\n", t.Outcome)
+			}
 		}
 		for _, c := range it.Commits {
 			fmt.Fprintf(&b, "  - commit in %s: %s %s\n", c.Repo, c.Hash, c.Subject)
@@ -611,4 +615,35 @@ func RecordStandup(root string, from, at time.Time) error {
 		return err
 	}
 	return writeFileAtomic(standupMarkFile(root), b)
+}
+
+// maxOutcome caps the verdict line a standup quotes.
+const maxOutcome = 240
+
+// reportOutcome (ST1, smoke step 17): the first line under the report's
+// "## Verdict", so the standup can say what came of a task, not only that
+// it's done. "" when there's no report or no verdict.
+func reportOutcome(t *Task) string {
+	text, _, err := ReadDoc(t, DocReport)
+	if err != nil {
+		return ""
+	}
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "## ") {
+			if in {
+				return ""
+			}
+			in = strings.EqualFold(strings.TrimSpace(trim[3:]), "verdict")
+			continue
+		}
+		if in && trim != "" {
+			if r := []rune(trim); len(r) > maxOutcome {
+				trim = string(r[:maxOutcome]) + "..."
+			}
+			return trim
+		}
+	}
+	return ""
 }

@@ -226,3 +226,8 @@ Prompt: cap the sync retry wait at 2 minutes. 03:55 to 04:17 (3 minutes of it wa
 
 ## Step 16b, sandbox at work (log step16b.log)
 - PASS. `ls -a ~/.plumbline` failed with "Operation not permitted" (the sandbox's denyRead) and Claude said so. `plumbline run test` ran outside the sandbox and recorded 1248 passing. `plumbline status | head` failed inside the sandbox with Plumbline's message to run it on its own line; Claude did. `plumbline setup undo-sandbox` asked, then left .claude/settings.local.json with only the user's enabledMcpjsonServers line.
+
+## Step 17, standup (log step17.log)
+- PASS. The first `/plumbline:standup` covered Sat 2026-11-21 00:00 to now (the beginning of yesterday, first standup here), from Plumbline's tasks, git (only the user's commits) and MemPalace searched with since/before; nothing open, no Jira; it asked for a sprint file. Asked again a minute later: the same start, the same notes. `/plumbline:standup Friday` ran `plumbline standup --date 2026-11-20` and listed that day only.
+- **ST1:** for Friday's S3 check it said "done, I couldn't find any notes on what it found", though the task's report says the AWS key was invalid. Decision (user, 2026-11-22): each task in the standup data carries its report's verdict line ("outcome: ..."), cut at 240 characters. Built into 0.7.2.
+- Not exercised: sprint-file edits (no sprint file in this project).

@@ -402,3 +402,31 @@ func TestUntrackSettingsAsksAndHelpReads(t *testing.T) {
 		t.Fatalf("the refusal should hand the user the command: %v", err)
 	}
 }
+
+// ST1 (smoke step 17): a task's report verdict line is its outcome in the
+// standup, so "done" says what came of it; long lines are cut, a report
+// without a verdict gives nothing.
+func TestReportOutcome(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	tk := h.startTask("small")
+	if got := reportOutcome(tk); got != "" {
+		t.Fatalf("no report: %q", got)
+	}
+	h.docs(DocReport, "# Report\n\n## Verdict\n\nReady with noted limitations: the AWS key is invalid, so S3 couldn't be checked.\nRollback: none.\n\n## What changed\nNothing.\n")
+	if got := reportOutcome(tk); got != "Ready with noted limitations: the AWS key is invalid, so S3 couldn't be checked." {
+		t.Fatalf("outcome: %q", got)
+	}
+	h.docs(DocReport, "# Report\n\n## Verdict\n"+strings.Repeat("x", maxOutcome+10)+"\n")
+	if got := reportOutcome(tk); len([]rune(got)) != maxOutcome+3 {
+		t.Fatalf("long verdict not cut: %d", len(got))
+	}
+	h.docs(DocReport, "# Report\n\n## Verdict\n\n## What changed\nx\n")
+	if got := reportOutcome(tk); got != "" {
+		t.Fatalf("empty verdict: %q", got)
+	}
+	rep := &StandupReport{Items: []*StandupItem{{Title: "x", Tasks: []StandupTask{{ID: tk.ID, Title: "x", Repo: "r", Phase: "done", Outcome: "Ready."}}}}}
+	if !strings.Contains(rep.String(), "    outcome: Ready.") {
+		t.Fatalf("the standup text lacks the outcome: %s", rep.String())
+	}
+}

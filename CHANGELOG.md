@@ -4,6 +4,8 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From smoke step 17:
+- ST1: the standup lists each task with its report's verdict line, so it says what came of a task, not only that it's done.
 From smoke step 16a:
 - SB1: `git rm --cached` of a Claude settings file asks instead of being refused (the file stays as it is); changing or deleting it stays refused. When the sandbox can't start because .claude/settings.local.json is tracked, Claude hands the user the untrack command and the .gitignore line, with no task. `plumbline <subcommand> --help` is a read. A git commit message that names a settings file no longer counts as touching it.
 From smoke step 14c:
