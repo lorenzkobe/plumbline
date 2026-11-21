@@ -304,7 +304,7 @@ func ParseExclusions(list string) ([]string, error) {
 func EnableSandbox(root string, extra []string) ([]string, error) {
 	sp := filepath.Join(root, filepath.FromSlash(SandboxLocalFile))
 	if tracked(root, SandboxLocalFile) {
-		return nil, fmt.Errorf("%s is committed in this repo, so changing it would change it for everyone; add the sandbox settings by hand if that's intended", SandboxLocalFile)
+		return nil, fmt.Errorf("%s is committed in this repo, so the sandbox settings would go into git. Hand the user this, with no task: run `! git rm --cached %s` (the file stays as it is) and add the line %s to .gitignore, then ask for the sandbox again", SandboxLocalFile, SandboxLocalFile, SandboxLocalFile)
 	}
 	settings := map[string]json.RawMessage{}
 	existed := false

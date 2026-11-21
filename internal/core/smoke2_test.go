@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -359,5 +360,45 @@ func TestLiveOtherWindowToldUpFront(t *testing.T) {
 	start = fmtOut(SessionStart(&HookInput{SessionID: "sess-b", Cwd: h.repo, Source: "startup"}))
 	if !strings.Contains(start, "earlier sessions that have ended") || !strings.Contains(start, "plumbline task adopt") {
 		t.Fatalf("session start should list it as left over: %s", start)
+	}
+}
+
+// SB1 (smoke step 16): untracking a Claude settings file asks instead of
+// being refused (the file stays as it is); changing or deleting it is still
+// refused. plumbline <subcommand> --help is a read, while planning too,
+// except hook, which runs. The sandbox's refusal hands the user the command.
+func TestUntrackSettingsAsksAndHelpReads(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	h.expect(h.bash("git rm --cached .claude/settings.local.json"), "ask", "stops git from tracking")
+	h.expect(h.bash("git rm -q --cached -- .claude/settings.local.json"), "ask", "stops git from tracking")
+	h.startTask("normal")
+	// Before approval it's a change like any other: refused until the plan is approved.
+	h.expect(h.bash("git rm --cached .claude/settings.local.json"), "deny", "isn't approved")
+	for _, cmd := range []string{"git rm .claude/settings.local.json", "git rm -r --cached .claude", "rm .claude/settings.local.json", "echo x > .claude/settings.local.json", "git -c x=y rm --cached .claude/settings.local.json"} {
+		if d, _ := decision(h.bash(cmd)); d != "deny" {
+			t.Errorf("%q: %q, want refused", cmd, d)
+		}
+	}
+	// A commit message that names the file isn't the file.
+	if d, r := decision(h.bash("git commit -m \"chore: stop tracking .claude/settings.local.json\"")); strings.Contains(r, "protected") {
+		t.Errorf("a commit message naming the settings file was refused as the file: %s %s", d, r)
+	}
+	if d, _ := decision(h.bash("git commit -F .claude/settings.local.json")); d != "deny" {
+		t.Errorf("a commit reading the settings file isn't only a message: %q", d)
+	}
+	h.expect(h.bash("plumbline setup sandbox --help"), "allow", "")
+	h.expect(h.bash("plumbline task finish -h"), "allow", "")
+	if d, _ := decision(h.bash("plumbline hook post --help")); d == "allow" {
+		t.Error("plumbline hook --help runs the hook, so it isn't a read")
+	}
+	run(t, h.repo, "git", "add", "-f", ".plumbline.json")
+	must(t, os.MkdirAll(filepath.Join(h.repo, ".claude"), 0o755))
+	write(t, filepath.Join(h.repo, ".claude", "settings.local.json"), "{}\n")
+	run(t, h.repo, "git", "add", "-f", ".claude/settings.local.json")
+	run(t, h.repo, "git", "commit", "-q", "-m", "track settings")
+	_, err := EnableSandbox(h.repo, nil)
+	if err == nil || !strings.Contains(err.Error(), "! git rm --cached .claude/settings.local.json") || !strings.Contains(err.Error(), ".gitignore") {
+		t.Fatalf("the refusal should hand the user the command: %v", err)
 	}
 }

@@ -921,11 +921,56 @@ func wordMentionsDataDir(w string) bool {
 	return strings.Contains(w, strings.ToLower(DataDir())) || strings.Contains(w, "/.plumbline/") || strings.HasSuffix(w, "/.plumbline") || strings.HasPrefix(w, "~/.plumbline") || strings.HasPrefix(w, "$home/.plumbline") || strings.HasPrefix(w, "${home}/.plumbline") || strings.HasPrefix(w, ".plumbline/")
 }
 
+// commitMessageless: the words of a segment without a git commit's message
+// (-m, --message), which only describe the change: a message naming
+// .claude/settings.local.json isn't the file (SB1, step 16).
+func commitMessageless(s Segment) []string {
+	if sub, _ := GitSub(s); sub != "commit" && sub != "tag" {
+		return s.Words
+	}
+	var out []string
+	for i := 0; i < len(s.Words); i++ {
+		w := s.Words[i]
+		switch {
+		case w == "-m" || w == "--message":
+			i++ // its value
+			continue
+		case strings.HasPrefix(w, "--message="), strings.HasPrefix(w, "-m") && len(w) > 2 && !strings.HasPrefix(w, "--"):
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// gitUntracksOnly (SB1): git rm --cached with nothing but paths, which
+// stops git tracking files and leaves them on disk unchanged.
+func gitUntracksOnly(s Segment) bool {
+	sub, args := GitSub(s)
+	if sub != "rm" || s.dynArgs() {
+		return false
+	}
+	cached, paths := false, 0
+	for _, a := range args {
+		switch {
+		case a == "--cached":
+			cached = true
+		case a == "-q" || a == "--quiet" || a == "--":
+		case strings.HasPrefix(a, "-"):
+			return false // -r, -f, --pathspec-from-file and the rest
+		default:
+			paths++
+		}
+	}
+	configs, _ := gitGlobals(s)
+	return cached && paths > 0 && len(configs) == 0
+}
+
 func mentionsProtectedConfig(s Segment, cwd string) bool {
 	if s.Dir != "" {
 		cwd = s.Dir
 	}
-	for _, w := range append(append([]string{}, s.Words...), s.Redirects...) {
+	for _, w := range append(commitMessageless(s), s.Redirects...) {
 		low := strings.ToLower(w)
 		if strings.Contains(low, ".claude/settings") || strings.HasSuffix(low, ".claude.json") || strings.Contains(low, ".claude/plugins") || strings.Contains(low, "managed-settings") {
 			return true
@@ -947,6 +992,11 @@ func isPlumblineBin(name string) bool {
 func plumblineReads(s Segment) bool {
 	if !isPlumblineBin(s.Name()) {
 		return false
+	}
+	for _, w := range s.Words[1:] {
+		if (w == "--help" || w == "-h" || w == "-help") && s.Arg(1) != "hook" {
+			return true // a subcommand given --help prints help and runs nothing (RP1); hook does run
+		}
 	}
 	switch s.Arg(1) {
 	case "status", "docs-dir", "version", "--version", "-v", "stats", "help", "--help", "-h", "":
@@ -1293,6 +1343,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 					v.a("mcp-change", "this changes Claude Code's MCP servers.")
 				}
 			}
+		case isPlumblineBin(name) && s.Arg(1) != "hook" && plumblineReads(s):
+			quiet = true // help, status and listings only show things
 		case isPlumblineBin(name):
 			switch s.Arg(1) {
 			case "hook":
@@ -1492,7 +1544,12 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			v.d("own-files", ownFilesFromShell)
 		}
 		if !quiet && mentionsProtectedConfig(s, c.in.Cwd) {
-			v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
+			if gitUntracksOnly(s) {
+				// SB1: untracking leaves the file and its settings as they are.
+				v.a("untrack-settings", "this stops git from tracking a Claude Code settings file. The file and its settings stay as they are on this laptop; the next commit removes it from the repo.")
+			} else {
+				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
+			}
 		}
 		joined := strings.Join(s.Words, " ")
 		approved := c.task != nil && c.task.Phase == PhaseBuilding && c.task.Approved(s.Words)
