@@ -206,7 +206,7 @@ func TestRiskyApprovedCommandsAskEachTime(t *testing.T) {
 	h.expect(h.bash(`psql -h db.example.com app -c "update users set x = 1"`), "ask", "shared or production database")
 	// Approved, but risky: confirmed every time.
 	h.expect(h.bash("sls deploy --stage prod"), "ask", "it deploys")
-	h.expect(h.bash("sls deploy --stage prod"), "ask", "confirmed each time")
+	h.expect(h.bash("sls deploy --stage prod"), "ask", "asks each time")
 	h.expect(h.bash("aws s3 rm s3://bucket/old.txt"), "ask", "deletes something")
 	// Not in the plan: the usual outside-the-laptop prompt, also for
 	// commands only phase 3 knows reach outside.

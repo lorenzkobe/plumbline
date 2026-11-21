@@ -56,7 +56,8 @@ func init() {
 		stat du df diff cmp cut tr jq basename dirname realpath readlink date uname whoami id hostname true false
 		test [ cd column nl sha256sum sha1sum sha512sum shasum md5sum md5 cksum sum od hexdump strings comm join
 		paste fold expand unexpand sleep lsof ps pgrep uptime free nproc tokei exit seq printenv tac rev sw_vers
-		locale tty groups logname : read wait return break continue shift getconf arch`) {
+		locale tty groups logname : read wait return break continue shift getconf arch
+		dig nslookup host whois ping ping6 traceroute`) {
 		pureReaders[c] = true
 	}
 }
@@ -240,25 +241,33 @@ func ReadOnly(s Segment) bool {
 	case "file":
 		return !contains(args, "-C")
 	case "docker":
-		switch s.Arg(1) {
-		case "ps", "images", "logs", "inspect", "version", "info":
-			return true
-		case "compose":
-			a := s.Arg(2)
-			return a == "ps" || a == "logs" || a == "config" || a == "ls"
-		}
-		return false
+		return dockerReads(s)
 	case "brew":
 		// Where things are and what's installed; install, upgrade,
 		// services and the rest change the laptop (FR2).
 		switch s.Arg(1) {
-		case "--prefix", "--cellar", "--repository", "--version", "-v", "list", "ls", "info", "deps", "leaves", "config":
+		case "--prefix", "--cellar", "--repository", "--version", "-v", "list", "ls", "info", "deps", "leaves", "config", "outdated", "search", "desc", "uses":
 			return true
+		case "services":
+			return s.Arg(2) == "list" || s.Arg(2) == "info"
 		}
 		return false
+	case "curl":
+		return curlReads(s)
+	case "wget":
+		return wgetReads(s)
+	case "pip", "pip3", "uv", "poetry", "cargo":
+		return pkgReads(name, args)
 	case "npm", "pnpm", "yarn":
 		switch s.Arg(1) {
 		case "ls", "list", "view", "info", "outdated", "why", "explain", "-v", "--version":
+			return true
+		case "audit":
+			for _, a := range args {
+				if a == "fix" || strings.HasPrefix(a, "--fix") {
+					return false
+				}
+			}
 			return true
 		case "config":
 			return s.Arg(2) == "get" || s.Arg(2) == "list"
@@ -284,8 +293,14 @@ func ReadOnly(s Segment) bool {
 			return true
 		}
 		return false
-	case "node", "python", "python3", "ruby", "php", "java", "cargo", "rustc", "deno", "bun":
-		return len(s.Words) == 2 && (s.Words[1] == "--version" || s.Words[1] == "-v" || s.Words[1] == "-V" || s.Words[1] == "version")
+	case "python", "python3":
+		if len(args) >= 3 && args[0] == "-m" && args[1] == "pip" {
+			return pkgReads("pip", args[2:])
+		}
+		return len(s.Words) == 2 && (s.Words[1] == "--version" || s.Words[1] == "-V")
+	case "node", "ruby", "php", "java", "javac", "rustc", "deno", "bun", "claude", "make", "cmake", "gem", "bundle",
+		"composer", "dotnet", "mvn", "gradle", "swift", "dart", "flutter", "rustup", "npx", "pnpx", "bunx", "gcc", "clang":
+		return len(s.Words) == 2 && (s.Words[1] == "--version" || s.Words[1] == "-v" || s.Words[1] == "-V" || s.Words[1] == "version" || s.Words[1] == "-version")
 	}
 	return false
 }
@@ -395,6 +410,17 @@ func gitReadOnlySeg(s Segment) bool {
 		return !sets
 	case "worktree":
 		return len(args) > 0 && args[0] == "list"
+	case "ls-remote":
+		// Only listing flags: --upload-pack, its hidden --exec and their
+		// abbreviations run a program.
+		for _, a := range args {
+			if strings.HasPrefix(a, "-") && !lsRemoteFlags[a] && !strings.HasPrefix(a, "--sort=") {
+				return false
+			}
+		}
+		return true
+	case "submodule":
+		return len(args) > 0 && (args[0] == "status" || args[0] == "summary") || len(args) == 0
 	}
 	return false
 }
@@ -1017,7 +1043,17 @@ func IsSecretFile(p string) bool {
 		return true
 	case low == "id_rsa" || low == "id_ed25519" || low == "id_ecdsa" || low == "id_dsa":
 		return true
-	case low == ".npmrc" || low == ".pypirc" || low == ".netrc" || low == "credentials" || low == ".pgpass":
+	case low == ".npmrc" || low == ".pypirc" || low == ".netrc" || low == "credentials" || low == ".pgpass" || low == ".git-credentials":
+		return true
+	case strings.HasSuffix(low, ".tfstate") || strings.HasSuffix(low, ".tfstate.backup"):
+		return true // terraform state holds every resource's secrets in plain text
+	}
+	// Tool logins and cluster access (READ2).
+	slash := strings.ToLower(filepath.ToSlash(p))
+	switch {
+	case strings.HasSuffix(slash, "/.kube/config"), strings.HasPrefix(low, "kubeconfig"),
+		strings.HasSuffix(slash, "/.docker/config.json"), strings.HasSuffix(slash, "/gh/hosts.yml"),
+		strings.HasSuffix(slash, "/.config/gcloud/credentials.db"), strings.HasSuffix(slash, "/.config/gcloud/access_tokens.db"):
 		return true
 	case strings.HasPrefix(low, "secrets.") && !strings.HasSuffix(low, ".md"):
 		return true
@@ -1493,4 +1529,286 @@ func patternMaySecret(p string) bool {
 		}
 	}
 	return false
+}
+
+// dockerGlobalVals: docker's global flags that take a value.
+var dockerGlobalVals = set("--context -c -H --host --config --log-level -l --tlscacert --tlscert --tlskey")
+
+// composeVals: docker compose flags (before its command) that take a value.
+var composeVals = set("-f --file -p --project-name --env-file --profile --project-directory --ansi --progress --parallel")
+
+// dockerReads (READ2): a docker command that only shows things, after its
+// global flags: ps, logs, inspect, the ls and inspect of networks, volumes,
+// containers and images, system df, and compose ps, logs, config.
+func dockerReads(s Segment) bool {
+	w := s.Words[1:]
+	i := 0
+	for i < len(w) && strings.HasPrefix(w[i], "-") {
+		if w[i] == "--version" || w[i] == "-v" {
+			return len(w) == 1
+		}
+		f, _, hasVal := strings.Cut(w[i], "=")
+		switch {
+		case dockerGlobalVals[f] && hasVal:
+		case dockerGlobalVals[f]:
+			i++
+		case f == "-D" || f == "--debug" || f == "--tls" || f == "--tlsverify":
+		default:
+			return false // an unknown or attached flag (-cprod)
+		}
+		i++
+	}
+	if i >= len(w) {
+		return false
+	}
+	sub, rest := w[i], w[i+1:]
+	at := func(k int) string {
+		if k < len(rest) {
+			return rest[k]
+		}
+		return ""
+	}
+	switch sub {
+	case "ps", "images", "logs", "inspect", "version", "info", "top", "port", "history", "diff", "events":
+		return true
+	case "stats":
+		return contains(rest, "--no-stream")
+	case "network", "volume", "container", "image", "context", "plugin", "node", "service":
+		switch at(0) {
+		case "ls", "list", "inspect", "ps", "logs", "top", "port", "history", "diff", "du", "show":
+			return true
+		}
+	case "system":
+		return at(0) == "df" || at(0) == "info" || at(0) == "events"
+	case "compose":
+		k := 0
+		for k < len(rest) && strings.HasPrefix(rest[k], "-") {
+			if composeVals[rest[k]] {
+				k++
+			}
+			k++
+		}
+		switch at(k) {
+		case "ps", "logs", "config", "ls", "images", "top", "port", "version":
+			return true
+		}
+	}
+	return false
+}
+
+// curlReads (READ2): curl that only fetches an http(s) address and prints
+// it, with known harmless flags only. Anything else (another scheme, a
+// file written, a config file, an FTP command, data sent) isn't a look.
+func curlReads(s Segment) bool {
+	if httpSendsData(s) || !onlyHTTP(s) {
+		return false
+	}
+	w := s.Words[1:]
+	for i := 0; i < len(w); i++ {
+		a := w[i]
+		if !strings.HasPrefix(a, "-") {
+			continue // the address
+		}
+		flag, val, hasVal := strings.Cut(a, "=")
+		switch {
+		case curlBool[flag] && !hasVal:
+		case curlVal[flag]:
+			if !hasVal {
+				i++
+				if i >= len(w) {
+					return false
+				}
+				val = w[i]
+			}
+			if (flag == "-w" || flag == "--write-out") && strings.Contains(val, "%output") {
+				return false // writes to a file
+			}
+			if (flag == "-X" || flag == "--request") && !strings.EqualFold(val, "GET") && !strings.EqualFold(val, "HEAD") {
+				return false
+			}
+		case !strings.HasPrefix(a, "--") && len(a) > 1 && strings.Trim(a[1:], "sSLIivfkg") == "":
+			// bundled harmless short flags: -sSL, -sI
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+var (
+	curlBool = set("-s --silent -S --show-error -L --location -I --head -i --include -v --verbose -f --fail --fail-with-body -k --insecure --compressed -g --globoff --http1.1 --http2 -4 -6 --ipv4 --ipv6 -N --no-buffer")
+	curlVal  = set("-H --header -A --user-agent -m --max-time --connect-timeout -w --write-out -X --request -e --referer --retry --retry-delay --max-redirs -r --range")
+	wgetBool = set("-q --quiet -S --server-response --spider --no-check-certificate -nv --no-verbose -4 -6")
+	wgetVal  = set("-T --timeout -t --tries --header -U --user-agent --max-redirect")
+	// lsRemoteFlags: git ls-remote flags that only shape the listing.
+	lsRemoteFlags = set("--heads --tags --branches -h -t -b --refs -q --quiet --symref --get-url")
+)
+
+// onlyHTTP: every address the command names is http(s) or has no scheme.
+func onlyHTTP(s Segment) bool {
+	for _, a := range s.Words[1:] {
+		low := strings.ToLower(strings.Trim(a, `"'`))
+		if k := strings.Index(low, "://"); k > 0 && !strings.HasPrefix(low, "-") {
+			if sch := low[:k]; sch != "http" && sch != "https" {
+				return false
+			}
+		}
+		if strings.HasPrefix(low, "file:") {
+			return false
+		}
+	}
+	return true
+}
+
+// wgetReads (READ2): wget printing an http(s) address to the terminal
+// (-O -, -qO-) or only checking it (--spider), with known flags only.
+// Plain wget saves a file; -o, -a and -e write or set anything.
+func wgetReads(s Segment) bool {
+	if httpSendsData(s) || !onlyHTTP(s) {
+		return false
+	}
+	w := s.Words[1:]
+	toTerminal := false
+	for i := 0; i < len(w); i++ {
+		a := w[i]
+		if !strings.HasPrefix(a, "-") {
+			continue
+		}
+		flag, _, hasVal := strings.Cut(a, "=")
+		switch {
+		case a == "--spider", a == "-O-", a == "-qO-", a == "--output-document=-":
+			toTerminal = true
+		case a == "-O" || a == "--output-document" || a == "-qO":
+			if i+1 >= len(w) || w[i+1] != "-" {
+				return false
+			}
+			toTerminal = true
+			i++
+		case wgetBool[flag] && !hasVal:
+		case wgetVal[flag]:
+			if !hasVal {
+				i++
+			}
+		default:
+			return false
+		}
+	}
+	return toTerminal
+}
+
+// pkgReads (READ2): package tools showing what's installed.
+func pkgReads(name string, args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if name == "uv" && args[0] == "pip" {
+		name, args = "pip", args[1:]
+		if len(args) == 0 {
+			return false
+		}
+	}
+	switch name {
+	case "pip", "pip3":
+		for _, a := range args {
+			if a == "-i" || strings.HasPrefix(a, "--index-url") || strings.HasPrefix(a, "--extra-index-url") || strings.HasPrefix(a, "-i") && len(a) > 2 {
+				return false // asks a package server named on the line
+			}
+		}
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			return true // pip install --help prints help only
+		}
+		switch args[0] {
+		case "show", "list", "freeze", "check", "inspect", "--version", "-V":
+			return true
+		}
+	case "uv":
+		return args[0] == "--version" // uv tree can rewrite the lock file
+	case "poetry":
+		return args[0] == "show" || args[0] == "--version" || args[0] == "check"
+	case "cargo":
+		return args[0] == "--version" || args[0] == "-V" || args[0] == "install" && len(args) == 2 && args[1] == "--list" // cargo tree can write Cargo.lock
+	}
+	return false
+}
+
+// reSecretVar: an environment variable name that likely holds a secret.
+var reSecretVar = regexp.MustCompile(`(?i)(key|token|secret|pass|pwd|credential|auth|private|session|cookie|dsn|database_url|conn)`)
+
+// PrintsEnvSecrets (READ2): a command that prints the environment, where
+// keys and tokens live: env or printenv alone, printenv of a secret-looking
+// name, export -p, declare -x/-p, or set alone.
+func PrintsEnvSecrets(s Segment) bool {
+	switch s.Name() {
+	case "env":
+		return len(s.Words) == 1 || len(s.Words) == 2 && (s.Words[1] == "-0" || s.Words[1] == "--null")
+	case "printenv":
+		if len(s.Words) == 1 {
+			return true
+		}
+		for i, w := range s.Words[1:] {
+			if s.dyn(i+1) || reSecretVar.MatchString(w) {
+				return true
+			}
+		}
+	case "export":
+		return len(s.Words) == 1 || len(s.Words) == 2 && s.Words[1] == "-p"
+	case "declare", "typeset":
+		return len(s.Words) == 2 && (s.Words[1] == "-x" || s.Words[1] == "-p" || s.Words[1] == "-px")
+	case "set":
+		return len(s.Words) == 1
+	}
+	return false
+}
+
+// netLookups: commands that only look, but at any host on the internet.
+var netLookups = set("dig nslookup host whois ping ping6 traceroute")
+
+// LooksOnline (READ2): a look that reaches a host outside the laptop
+// through the network (curl or wget to a remote address, a DNS lookup,
+// ping). It isn't refused while the plan is written, but Plumbline doesn't
+// allow it outright either: the address itself can carry data out, so
+// Claude Code's own permission mode decides, as it did before.
+func LooksOnline(s Segment) bool {
+	name := s.Name()
+	if netLookups[name] {
+		return true
+	}
+	if name == "curl" || name == "wget" {
+		return !onlyLocalAddresses(s)
+	}
+	if name == "git" {
+		_, i := gitGlobals(s)
+		return i > 0 && s.Words[i] == "ls-remote"
+	}
+	if name == "docker" {
+		return dockerRemote(s)
+	}
+	return false
+}
+
+// reLocalAddr: an address on this laptop, written plainly: localhost or a
+// loopback address, an optional port and a path without curl's {} [] globs
+// or % escapes. Anything else (dict.localhost, ftp.localhost, a bad URL)
+// counts as online.
+var reLocalAddr = regexp.MustCompile(`^(?i:https?://)?(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?(/[A-Za-z0-9._~/?&=:@,+;!$*'()-]*)?$`)
+
+// onlyLocalAddresses: every address curl or wget is given is on this laptop.
+func onlyLocalAddresses(s Segment) bool {
+	w := s.Words[1:]
+	n := 0
+	for i := 0; i < len(w); i++ {
+		a := w[i]
+		if strings.HasPrefix(a, "-") {
+			f, _, hasVal := strings.Cut(a, "=")
+			if (curlVal[f] || wgetVal[f]) && !hasVal {
+				i++ // its value
+			}
+			continue
+		}
+		if s.dyn(i+1) || !reLocalAddr.MatchString(strings.Trim(a, `"'`)) {
+			return false
+		}
+		n++
+	}
+	return n > 0
 }

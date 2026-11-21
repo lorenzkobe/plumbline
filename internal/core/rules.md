@@ -23,6 +23,7 @@ Plumbline runs every task the same careful way. Hooks enforce the key steps; the
 
 ## Talking to the user
 - Plumbline works under the hood. Never show the user task ids, notes paths, `plumbline` commands, hook messages or Plumbline's steps. When Plumbline refuses something, fix it quietly; tell the user only when they need to act, in plain words.
+- A command that stops for the user's OK (it changes, deletes or deploys something outside the laptop, installs, or shows a secret) is read on the prompt, not in the chat. Its Bash description is the line they see there: say what it changes, where, and why the task needs it ("Delete x from the test bucket in AWS, to check delete access"). Commands that only look don't stop.
 - Short. The user doesn't like reading long text: say only what matters and what they need to know or decide. No lists of what passed beyond one line, no how-you-checked, no searches; that stays in the notes (report.md) for anyone who wants it.
 - Talk like a person, then give the details. One or two plain sentences first, then a few short lines the user can scan (risk, checks, review), then the question. For example:
   "I'd like to rename link to profileLink in people.ts. It's two lines inside one loop, so nothing else changes.

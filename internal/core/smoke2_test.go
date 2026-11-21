@@ -256,3 +256,44 @@ func TestPipelineNoteOnDeployMessages(t *testing.T) {
 		t.Errorf("no pipeline: %s", got)
 	}
 }
+
+// VER1 (smoke step 12c): asking a cloud or database tool for its version or
+// help only prints locally, so it doesn't ask (`aws --version` asked "reaches
+// systems outside your laptop"). The same tools with any command still go by
+// the usual rules.
+func TestCloudVersionAndHelpDontAsk(t *testing.T) {
+	h := newHarness(t)
+	for _, cmd := range []string{"aws --version", "rtk aws --version", "aws help", "gcloud --version", "kubectl version", "terraform -version", "vercel --version", "vercel -v", "ssh -V", "supabase --version", "psql --version", "psql -V", "mysql --version", "which aws; aws --version 2>&1"} {
+		if d, r := decision(h.bash(cmd)); d == "ask" || d == "deny" {
+			t.Errorf("%q: %s (%s), want no prompt", cmd, d, r)
+		}
+	}
+	for _, cmd := range []string{"aws s3 rm s3://b/x", "aws s3 rm s3://b/x --version", "aws configure", "kubectl -v 9 delete pod x", "ssh -v host", "vercel", "psql -h db.example.com -c 'delete from t'"} {
+		if d, _ := decision(h.bash(cmd)); d != "ask" && d != "deny" {
+			t.Errorf("%q: %q, want it to ask or be refused", cmd, d)
+		}
+	}
+}
+
+// ASK1 (smoke step 12c): a cloud command that asks names its risk in plain
+// words (deletes, changes, deploys), and the rules tell Claude its Bash
+// description, the line on the prompt, says what it changes and why.
+func TestCloudAskSaysTheRisk(t *testing.T) {
+	h := newHarness(t)
+	for cmd, want := range map[string]string{
+		"aws s3 rm s3://b/x":                  "deletes something in aws, outside your laptop. Deleted data may not come back.",
+		"aws s3 cp a.txt s3://b/a.txt":        "changes data or settings in aws, outside your laptop.",
+		"aws configure set region x":          "outside your laptop",
+		"gcloud compute instances delete vm1": "deletes something in gcloud",
+	} {
+		d, r := decision(h.bash(cmd))
+		if d != "ask" || !strings.Contains(r, want) {
+			t.Errorf("%q: %s (%s), want ask naming %q", cmd, d, r, want)
+		}
+	}
+	for _, want := range []string{"Its Bash description is the line they see", "why the task needs it", "Commands that only look don't stop"} {
+		if !strings.Contains(CoreRules(), want) {
+			t.Errorf("rules lack %q", want)
+		}
+	}
+}

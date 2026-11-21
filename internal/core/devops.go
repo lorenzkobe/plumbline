@@ -30,6 +30,26 @@ var opsWhat = map[string]string{
 	OpsRemote:  "it runs commands on, or copies files to, another machine",
 }
 
+// cloudAskReason: the prompt's reason for a cloud command that doesn't only
+// look, naming the risk in plain words. What the command is for is Claude's
+// own description, shown on the prompt above it.
+func cloudAskReason(s Segment, name string) string {
+	switch OpsKind(s) {
+	case OpsDestroy:
+		return "this deletes something in " + name + ", outside your laptop. Deleted data may not come back."
+	case OpsWrite:
+		return "this changes data or settings in " + name + ", outside your laptop."
+	case OpsDeploy:
+		return "this deploys with " + name + " to a live system outside your laptop."
+	case OpsRemote:
+		return "this runs commands on, or copies files to, another machine outside your laptop."
+	}
+	if cloudShowsSecret(s) {
+		return "this may show a secret's value (a token, key or password) from " + name + ". Allow only if Claude really needs to see it."
+	}
+	return name + " reaches systems outside your laptop. It may change something there or show a secret."
+}
+
 // coreAsksOutside: the 1a outside-the-laptop checks in gateBash already ask
 // about this command (they use the same helpers).
 func coreAsksOutside(s Segment) bool {
@@ -360,8 +380,8 @@ func OpsKind(s Segment) string {
 		if dockerPushes(s) {
 			return OpsDeploy
 		}
-		if dockerRemote(s) {
-			return OpsRemote
+		if dockerRemote(s) && !ReadOnly(s) {
+			return OpsRemote // looking at a remote Docker (ps, logs) changes nothing there
 		}
 		return ""
 	case "psql", "mysql", "mariadb", "mongosh", "mongo", "redis-cli", "pg_restore":
@@ -698,6 +718,19 @@ var reHostPort = regexp.MustCompile(`^[\w.-]+:\d+$`)
 // httpSends: a curl, wget or httpie command that sends data or uses a
 // method other than GET, to a host that isn't this laptop.
 func httpSends(s Segment) bool {
+	if !httpSendsData(s) {
+		return false
+	}
+	hosts := httpTargets(s)
+	if len(hosts) == 0 {
+		return true // can't tell where it goes: treat it as outside
+	}
+	return httpOutside(hosts)
+}
+
+// httpSendsData: curl, wget or httpie sends something (a method other than
+// GET or HEAD, data, a form or a file), wherever it goes.
+func httpSendsData(s Segment) bool {
 	sends := false
 	httpie := s.Name() == "http" || s.Name() == "https"
 	for i, w := range s.Words[1:] {
@@ -730,13 +763,11 @@ func httpSends(s Segment) bool {
 			sends = true // a data field or a file upload
 		}
 	}
-	if !sends {
-		return false
-	}
-	hosts := httpTargets(s)
-	if len(hosts) == 0 {
-		return true // can't tell where it goes: treat it as outside
-	}
+	return sends
+}
+
+// httpOutside: one of the hosts isn't this laptop.
+func httpOutside(hosts []string) bool {
 	for _, h := range hosts {
 		if !localHost(h) {
 			return true
@@ -920,5 +951,5 @@ func (c *hookCtx) devopsVerdict(s Segment, approved bool, v *verdicts) {
 		}
 		return
 	}
-	v.a("risky-ops", "this is in the approved plan, but "+opsWhat[kind]+", so it's confirmed each time. Check it's the exact command, the right target (not production unless meant), and that a dry run or backup came first where one applies.")
+	v.a("risky-ops", "this is in the plan you approved, but "+opsWhat[kind]+", so it asks each time. Check the target is right (not production unless you mean it).")
 }

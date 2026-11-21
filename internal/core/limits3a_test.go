@@ -56,6 +56,12 @@ func TestShellReadsCountAsOpened(t *testing.T) {
 		"cat -n src/a.go | head -20":             {a},
 		"cat src/a.go | grep -n A | head":        {a},
 		"cat src/*.go":                           {a, b},
+		// RD3: Plumbline's own bookkeeping on the same line doesn't change
+		// what was shown (smoke step 12c).
+		"plumbline task tool-down serena --reason x; sed -n 1,5p src/a.go": {a},
+		"plumbline status 2>&1 | head -40; cat src/b.go":                   {b},
+		"plumbline builder merge 1; cat src/a.go":                          nil, // merge changes files
+		"plumbline run format; cat src/a.go":                               nil,
 		// Output that doesn't reach Claude, or a command that also changes.
 		"cat src/a.go | wc -l":            nil,
 		"cat src/a.go | head | wc -l":     nil,
@@ -288,9 +294,9 @@ func TestMoreDeploysAndRemoteDocker(t *testing.T) {
 		"surge list":                               "",
 		"argocd app get api":                       "",
 		"kamal app logs":                           "",
-		"docker --context prod ps":                 OpsRemote,
+		"docker --context prod ps":                 "", // READ2: a look at a remote Docker changes nothing there
 		"docker -c prod compose up -d":             OpsRemote,
-		"docker -H ssh://me@host ps":               OpsRemote,
+		"docker -H ssh://me@host ps":               "", // READ2: a look at a remote Docker changes nothing there
 		"docker --host=tcp://10.0.0.5:2376 run x":  OpsRemote,
 		"DOCKER_HOST=ssh://me@host docker ps":      OpsRemote,
 		"DOCKER_CONTEXT=prod docker ps":            OpsRemote,
@@ -304,6 +310,8 @@ func TestMoreDeploysAndRemoteDocker(t *testing.T) {
 		"docker ps":                                "",
 		"docker compose up -d":                     "",
 		"docker context use prod":                  OpsRemote,
+		"docker --context prod exec web ls":        OpsRemote,
+		"docker -H ssh://me@host rm -f web":        OpsRemote,
 		"docker context use desktop-linux":         "",
 		"docker context ls":                        "",
 		"npm run deploy:test":                      OpsDeploy, // a test environment is still a deploy
@@ -327,8 +335,11 @@ func TestMoreDeploysAndRemoteDocker(t *testing.T) {
 		t.Errorf("current context orbstack: %q, want local", got)
 	}
 	t.Setenv("DOCKER_HOST", "ssh://me@host")
-	if got := OpsKind(ParseShell("docker ps", "/tmp")[0]); got != OpsRemote {
+	if got := OpsKind(ParseShell("docker compose up -d", "/tmp")[0]); got != OpsRemote {
 		t.Errorf("DOCKER_HOST=ssh in the session: %q, want remote", got)
+	}
+	if got := OpsKind(ParseShell("docker ps", "/tmp")[0]); got != "" {
+		t.Errorf("DOCKER_HOST=ssh in the session, docker ps: %q, want a look (READ2)", got)
 	}
 	t.Setenv("DOCKER_HOST", "")
 

@@ -746,7 +746,7 @@ var (
 		"terraform": true, "tofu": true, "pulumi": true, "gcloud": true, "az": true, "heroku": true,
 		"fly": true, "flyctl": true, "doctl": true, "firebase": true, "netlify": true, "railway": true,
 		"ssh": true, "scp": true, "cdk": true, "sam": true, "eb": true, "wrangler": true, "render": true,
-		"gh": true, "hub": true, "glab": true,
+		"gh": true, "hub": true, "glab": true, "oc": true, "gsutil": true, "bq": true, "eksctl": true, "argocd": true,
 	}
 	dbClients = map[string]bool{"psql": true, "mysql": true, "mongosh": true, "mongo": true, "redis-cli": true, "pg_dump": true, "pg_restore": true, "mysqldump": true}
 )
@@ -1234,6 +1234,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	v := &verdicts{}
 	allQuiet := true   // every segment reads only, or is a saved command
 	throwaway := false // a segment runs only on throwaway files (SCR1)
+	online := false    // a look that reaches the internet: Claude Code decides (READ2)
 	hint := ""         // how to make the line read only, when there's a simple way
 	var commits []Segment
 	addsAll := false
@@ -1269,6 +1270,9 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 		}
 		quiet := ReadOnly(s)
+		if quiet && LooksOnline(s) {
+			online = true
+		}
 		if !approvedLook(s) {
 			// keep quiet as ReadOnly says
 		} else if c.in.AgentID == "" {
@@ -1416,6 +1420,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		if f := ReadsSecretFile(s); f != "" {
 			v.a("secret-read", fmt.Sprintf("this shows or sends the values in %s. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).", filepath.Base(f)))
+		} else if PrintsEnvSecrets(s) {
+			v.a("secret-read", "this prints environment variables, where keys, tokens and passwords live, so it may show a secret. Allow only if Claude really needs to see them. To check one is set without showing it: test -n \"$NAME\" && echo set.")
+		} else if composeShowsEnv(s) {
+			v.a("secret-read", "this prints the compose setup with the .env values filled in, so it may show a secret. Allow only if Claude really needs to see them; --services or --no-interpolate don't show values.")
 		} else if ReadsListedFiles(s) {
 			v.a("secret-read", fmt.Sprintf("%s reads files that a listing adds (xargs, find -exec or fd -x), and that listing could include .env or key files, which would show their values here. Narrow the listing to the file types needed (rg -l x -g '*.go' | xargs cat, find . -name '*.ts' -exec cat {} +, fd -e go -x cat), or open the files with the Read tool.", s.Name()))
 		}
@@ -1487,7 +1495,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		joined := strings.Join(s.Words, " ")
 		approved := c.task != nil && c.task.Phase == PhaseBuilding && c.task.Approved(s.Words)
 		c.devopsVerdict(s, approved, v)
-		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !approved && !c.runsProjectTool(s) {
+		if installRe.MatchString(joined) && !(len(s.Words) == 2 && (s.Words[1] == "install" || s.Words[1] == "i")) && !installOnlyAsks(s) && !approved && !c.runsProjectTool(s) {
 			if c.task != nil {
 				v.d("new-package", "this installs a package that isn't in the approved plan's \"Needs your OK\" list. Don't install it. Keep going with what you can, and put it under \"For you\" in the report: why it's needed, whether it's well maintained, its license, and whether something already in the project could do the job.")
 			} else {
@@ -1497,7 +1505,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if approved {
 			// in the plan you approved: runs as listed
 		} else if cloudCmds[name] && !cloudRead(s) {
-			v.a("outside-laptop", fmt.Sprintf("%s reaches systems outside your laptop and may change something there (or show a secret). Production is never changed without the user's explicit OK.", name))
+			v.a("outside-laptop", cloudAskReason(s, name))
 		}
 		if name == "supabase" && !supabaseRead(s) {
 			v.a("outside-laptop", "supabase commands can reach and change the hosted project.")
@@ -1552,7 +1560,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
 	}
-	if allQuiet && !throwaway && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
+	if allQuiet && !throwaway && !online && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
 		return allow("reads only, or a saved project command")
 	}
 	return nil
@@ -1994,4 +2002,56 @@ func (c *hookCtx) groundingProblems() []string {
 		need("jira", fmt.Sprintf("read the ticket %s and all its comments with the Jira tools first (comments often change the requirements; if Jira can't be reached: plumbline task tool-down jira --reason \"...\")", t.Ticket))
 	}
 	return p
+}
+
+// installOnlyAsks (READ2): an install tool asked only for help, its version
+// or what's installed (npx --version, pip install --help, cargo install
+// --list). Its subcommand comes first; every word after it is one of those
+// flags, so nothing is named to install (npm install add installs "add").
+func installOnlyAsks(s Segment) bool {
+	w := s.Words[1:]
+	k := 0
+	for k < len(w) && k < 2 && (w[k] == "install" || w[k] == "i" || w[k] == "add" || w[k] == "pip") {
+		k++
+	}
+	if k >= len(w) {
+		return false
+	}
+	for i, a := range w[k:] {
+		if s.dyn(k + 1 + i) {
+			return false
+		}
+		switch a {
+		case "--help", "-h", "--version", "-v", "-V", "--list":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// composeShowsEnv (READ2): docker compose config prints the setup with the
+// .env values filled in, unless it lists names only or skips them.
+func composeShowsEnv(s Segment) bool {
+	if s.Name() != "docker" && s.Name() != "docker-compose" {
+		return false
+	}
+	words := s.Words[1:]
+	ci := -1
+	for i, w := range words {
+		if w == "config" && (s.Name() == "docker-compose" || contains(words[:i], "compose")) {
+			ci = i
+			break
+		}
+	}
+	if ci < 0 {
+		return false
+	}
+	for _, w := range words[ci+1:] {
+		switch w {
+		case "--services", "--volumes", "--images", "--profiles", "--networks", "--no-interpolate", "--hash", "-q", "--quiet":
+			return false
+		}
+	}
+	return true
 }

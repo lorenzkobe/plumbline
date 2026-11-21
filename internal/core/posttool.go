@@ -290,6 +290,9 @@ func (c *hookCtx) noteShellReads(segs []Segment) {
 func shellReadFiles(segs []Segment) []string {
 	var files []string
 	for _, s := range segs {
+		if plumblineBookkeeping(s) {
+			continue
+		}
 		if !ReadOnly(s) {
 			return nil
 		}
@@ -298,6 +301,20 @@ func shellReadFiles(segs []Segment) []string {
 		}
 	}
 	return files
+}
+
+// plumblineBookkeeping (RD3): a plumbline task command that writes only
+// Plumbline's own records, never the project's files, so a file shown on the
+// same line is still what was shown. Merges, runs and finishing aren't here.
+func plumblineBookkeeping(s Segment) bool {
+	if !isPlumblineBin(s.Name()) || s.Arg(1) != "task" {
+		return false
+	}
+	switch s.Arg(2) {
+	case "start", "tool-down", "size", "replan", "adopt":
+		return true
+	}
+	return false
 }
 
 // noteHelperOpened records the files a reviewer opened in this run, so a
