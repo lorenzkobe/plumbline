@@ -220,10 +220,19 @@ func TestSecondTaskInCheckoutRefused(t *testing.T) {
 	tk := h.startTask("normal")
 	b := h.session("sess-2")
 	h.expect(b.bash("plumbline task start --title 'other work'"), "deny", "claude -w")
+	// LIVE1: the other window hasn't ended, so its task isn't offered for
+	// taking over or closing.
 	_, r := decision(b.bash("plumbline task start --title 'other work'"))
-	if !strings.Contains(r, tk.ID) || !strings.Contains(r, "plumbline task adopt") {
-		t.Fatalf("the refusal must name the open task and the ways on: %s", r)
+	if !strings.Contains(r, "working on") || strings.Contains(r, "plumbline task adopt") || strings.Contains(r, "/plumbline:cancel") {
+		t.Fatalf("a live window's task must not be offered for adopting or closing: %s", r)
 	}
+	// Once that session has ended, its task is left over: the ways on.
+	SessionEnd(&HookInput{SessionID: h.sid})
+	_, r = decision(b.bash("plumbline task start --title 'other work'"))
+	if !strings.Contains(r, tk.ID) || !strings.Contains(r, "plumbline task adopt") || !strings.Contains(r, "claude -w") {
+		t.Fatalf("an ended session's task must name the task and the ways on: %s", r)
+	}
+	must(t, os.Remove(sessionEndedPath(h.sid)))
 	if d, r := decision(h.bash("plumbline task start --title 'next'")); d == "deny" {
 		t.Fatalf("the session owning the open task was refused: %s", r)
 	}

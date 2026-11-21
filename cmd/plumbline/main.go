@@ -181,6 +181,8 @@ func runHook(args []string) (code int) {
 		out = core.SessionRules(in, "task")
 	case "session-finish":
 		out = core.SessionRules(in, "finish")
+	case "session-end":
+		out = core.SessionEnd(in)
 	case "prompt":
 		out = core.UserPromptSubmit(in)
 	case "expansion":

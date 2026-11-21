@@ -94,21 +94,31 @@ func SessionStart(in *HookInput) Output {
 	if c.task != nil {
 		b.WriteString("- This session's " + taskLine(c.task) + "\n")
 	}
-	var left []string
+	var left, live []string
 	for _, t := range ListTasks(c.root) {
 		if t.Phase == "tampered" {
 			left = append(left, fmt.Sprintf("%s (state changed outside Plumbline; the user should drop it)", t.ID))
 			continue
 		}
 		if t.Open() && (c.task == nil || t.ID != c.task.ID) && t.SessionID != in.SessionID {
+			if !SessionEnded(t.SessionID) && treeKey(t.Root) == treeKey(c.root) {
+				live = append(live, fmt.Sprintf("\"%s\"", t.Title))
+				continue
+			}
 			left = append(left, fmt.Sprintf("%s \"%s\" (%s step, branch %s)", t.ID, t.Title, t.Phase, t.Branch))
 		}
+	}
+	if len(live) > maxLeftTasks {
+		live = append(live[:maxLeftTasks], fmt.Sprintf("and %d more (plumbline task list)", len(live)-maxLeftTasks))
+	}
+	if len(live) > 0 {
+		b.WriteString("- " + liveOtherNote(strings.Join(live, ", ")) + "\n")
 	}
 	if len(left) > maxLeftTasks {
 		left = append(left[:maxLeftTasks], fmt.Sprintf("and %d more (plumbline task list)", len(left)-maxLeftTasks))
 	}
 	if len(left) > 0 {
-		b.WriteString("- Open tasks of other sessions (earlier ones, or another window still working on them): " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>), unless another window is still on it. A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
+		b.WriteString("- Open tasks of earlier sessions that have ended: " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>). A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
 	}
 	RefreshSnapshot(in.SessionID, c.root)
 	return out()
@@ -161,6 +171,9 @@ func UserPromptSubmit(in *HookInput) Output {
 		line = "Plumbline: " + taskLine(c.task) + ". Stay in scope; claims need file:line or a run; no done without proof."
 	default:
 		line = "Plumbline: no task open. Any change to the repo's files, even a one-line rename, is a Task: start it right away (plumbline task start on its own line, no question needed), look at the code, then ask the one plan question. Don't try the edit first; it will be refused. Don't mention Plumbline to the user."
+		if o := c.otherSessionTask(); o != nil && !SessionEnded(o.SessionID) {
+			line = "Plumbline: " + liveOtherNote(fmt.Sprintf("\"%s\"", o.Title))
+		}
 	}
 	if c.root != "" && stateCommand(in.Prompt) == "" {
 		if note := c.pipelineNote(in.Prompt); note != "" {
@@ -193,6 +206,23 @@ func (c *hookCtx) pipelineNote(prompt string) string {
 		how += " (" + notes + ")"
 	}
 	return "Plumbline: " + how + ". Don't deploy by hand (previews and test deploys too), and don't offer to or ask the user to set up a deploy tool for it: it's refused. Say what's ready to ship and that the user pushes."
+}
+
+// liveOtherNote (LIVE1, smoke step 14): another Claude window that hasn't
+// ended has a task open in this checkout. It's still working, so it isn't
+// offered for closing or taking over; a change here needs its own copy.
+func liveOtherNote(titles string) string {
+	return "another Claude window is working on " + titles + " in this folder right now. Questions and looking around are fine here. A change needs its own copy of the repo: before starting anything, tell the user in plain words to open a new session with claude -w and ask for it there. Don't start a task here, and don't offer to close or take over the other window's task."
+}
+
+// SessionEnd records that this Claude session ended, so its open task
+// counts as left over for the next session, not as another window's
+// work in progress (LIVE1).
+func SessionEnd(in *HookInput) Output {
+	if in.SessionID != "" {
+		_ = writeFileAtomic(sessionEndedPath(in.SessionID), []byte(Now().Format(time.RFC3339)+"\n"))
+	}
+	return nil
 }
 
 // stateCommand: the Plumbline command the message is, when it changes the

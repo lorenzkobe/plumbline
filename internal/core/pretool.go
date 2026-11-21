@@ -1333,8 +1333,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.a("finish-uncommitted", "this closes the task with its changes uncommitted, and Claude can't commit them after that. Allow it only if you said you'll commit them yourself.")
 			}
 			if s.Arg(1) == "task" && s.Arg(2) == "start" {
-				if o := c.otherSessionTask(); o != nil {
-					v.d("task-other-session", fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout for another Claude session, and two tasks in one checkout would test each other's half-done code. Ask the user which way: continue that task in this session (plumbline task adopt %s), close it (/plumbline:cancel %s, theirs to type), or start this task in its own worktree (a new session with claude -w).", o.ID, o.Title, o.Phase, o.ID, o.ID))
+				if o := c.otherSessionTask(); o != nil && !SessionEnded(o.SessionID) {
+					v.d("task-other-session", liveOtherNote(fmt.Sprintf("\"%s\"", o.Title)))
+				} else if o != nil {
+					v.d("task-other-session", fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout from an earlier session that has ended, and two tasks in one checkout would test each other's half-done code. Ask the user which way: continue that task in this session (plumbline task adopt %s), close it (/plumbline:cancel %s, theirs to type), or start this task in its own worktree (a new session with claude -w).", o.ID, o.Title, o.Phase, o.ID, o.ID))
 				}
 			}
 		case name == "git":

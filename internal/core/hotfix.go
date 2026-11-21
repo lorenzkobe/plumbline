@@ -84,7 +84,9 @@ func userHotfix(c *hookCtx, args string) string {
 	case what == "":
 		return "say what's broken: /plumbline:hotfix <what's broken, or the ticket id>."
 	}
-	if o := c.otherSessionTask(); o != nil {
+	if o := c.otherSessionTask(); o != nil && !SessionEnded(o.SessionID) {
+		return "another Claude window is working on \"" + o.Title + "\" in this folder right now, so no hotfix was started here. Start it in its own copy: a new session with claude -w, then /plumbline:hotfix there."
+	} else if o != nil {
 		return fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout for another Claude session, and two tasks in one checkout would test each other's half-done code. Start the hotfix in its own worktree (a new session with claude -w), or close that task with /plumbline:cancel %s.", o.ID, o.Title, o.Phase, o.ID)
 	}
 	if !DockerReady() {

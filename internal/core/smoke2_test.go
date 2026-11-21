@@ -330,3 +330,34 @@ func TestFailedNamesInResultLine(t *testing.T) {
 		t.Errorf("own-files refusal doesn't say where the failures are: %s", ownFilesFromShell)
 	}
 }
+
+// LIVE1 (smoke step 14): a second window in the same folder is told up
+// front that another window is working there, so it doesn't try a task
+// (red box) or offer to close or take over the live task; once that
+// window's session ends, its task is listed as left over.
+func TestLiveOtherWindowToldUpFront(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	h.startTask("normal")
+	b := HookInput{SessionID: "sess-b", Cwd: h.repo}
+	note := contextOf(UserPromptSubmit(&b))
+	if !strings.Contains(note, "another Claude window is working on") || !strings.Contains(note, "claude -w") || strings.Contains(note, "start it right away") {
+		t.Fatalf("B's message note should say another window works here: %s", note)
+	}
+	start := fmtOut(SessionStart(&HookInput{SessionID: "sess-b", Cwd: h.repo, Source: "startup"}))
+	if !strings.Contains(start, "another Claude window is working on") || strings.Contains(start, "earlier sessions that have ended") {
+		t.Fatalf("session start should list it as live: %s", start)
+	}
+	SessionEnd(&HookInput{SessionID: h.sid})
+	if !SessionEnded(h.sid) {
+		t.Fatal("the session end wasn't recorded")
+	}
+	note = contextOf(UserPromptSubmit(&b))
+	if strings.Contains(note, "another Claude window is working on") {
+		t.Fatalf("an ended session's task isn't live: %s", note)
+	}
+	start = fmtOut(SessionStart(&HookInput{SessionID: "sess-b", Cwd: h.repo, Source: "startup"}))
+	if !strings.Contains(start, "earlier sessions that have ended") || !strings.Contains(start, "plumbline task adopt") {
+		t.Fatalf("session start should list it as left over: %s", start)
+	}
+}

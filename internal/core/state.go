@@ -518,6 +518,22 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 // The Jira flag: the user's latest message asked for something to go to
 // Jira. Only the prompt hook writes it, from the user's own words; it's
 // sealed like the paused flag, and the next message replaces it.
+// sessionEndedPath: the marker a Claude session leaves when it ends (LIVE1).
+func sessionEndedPath(sessionID string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".ended")
+}
+
+// SessionEnded: that Claude session has ended (closed, /clear, logout). A
+// session that crashed never says so, so its task keeps counting as live
+// until the user closes it.
+func SessionEnded(sessionID string) bool {
+	if sessionID == "" {
+		return true
+	}
+	_, err := os.Stat(sessionEndedPath(sessionID))
+	return err == nil
+}
+
 func jiraAskedPath(sessionID string) string {
 	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".jira")
 }

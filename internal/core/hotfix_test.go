@@ -93,7 +93,7 @@ func TestHotfixStartsASmallTaskForThisSession(t *testing.T) {
 		t.Fatalf("a second hotfix in the session should be refused: %s", o)
 	}
 	// Another session in the same checkout is refused too (M14).
-	if o := fmtOut(expand(h.session("sess-2"), "hotfix", "another outage")); !strings.Contains(o, "another Claude session") {
+	if o := fmtOut(expand(h.session("sess-2"), "hotfix", "another outage")); !strings.Contains(o, "another Claude window is working on") || !strings.Contains(o, "claude -w") { // LIVE1: that window is still open
 		t.Fatalf("a hotfix beside another session's task should be refused: %s", o)
 	}
 	if n := len(ListTasks(h.repo)); n != 1 {
