@@ -149,10 +149,10 @@ func orDash(s string) string {
 
 // UserPromptSubmit adds a one-line reminder to every message you send.
 func UserPromptSubmit(in *HookInput) Output {
-	_ = SetJiraAsked(in.SessionID, UserAsksJira(in.Prompt))
 	ResetBlocks(in.SessionID) // a new message from you: earlier refusals no longer count as "in a row"
 	c := newCtx(in)
 	defer c.close()
+	_ = SetJiraAsked(in.SessionID, UserAsksJira(in.Prompt, c.jiraTask()))
 	if c.task != nil && len(c.task.Sendbacks) > 0 {
 		c.task.Sendbacks = nil // a new message from you resets the send-back count
 		_ = SaveTask(c.task)

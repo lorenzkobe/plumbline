@@ -378,6 +378,20 @@ func companyTask(t *testing.T) *harness {
 	return h
 }
 
+// R2 through the hooks: in a task on a Jira ticket, "post it" reaches the
+// confirm prompt; a code comment request doesn't.
+func TestJiraPostItInTicketTask(t *testing.T) {
+	h := companyTask(t)
+	tool := "mcp__claude_ai_Atlassian__addCommentToJiraIssue"
+	post := map[string]any{"issueIdOrKey": "ABC-123", "commentBody": "Fixed the refund check."}
+	h.say("add a comment to this function")
+	h.expect(h.pre(tool, post), "deny", "draft-only")
+	h.say("looks good, post it")
+	h.expect(h.pre(tool, post), "ask", "user asked")
+	h.say("don't post it yet")
+	h.expect(h.pre(tool, post), "deny", "draft-only")
+}
+
 func TestJiraTicketTask(t *testing.T) {
 	h := companyTask(t)
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "read the ticket ABC-123")
@@ -444,14 +458,79 @@ func TestJiraTicketOnlyWhereItApplies(t *testing.T) {
 	if JiraCommentName("ABC-123") != "ABC-123-jira-comment.md" || JiraCommentName("a/b") != "a_b-jira-comment.md" {
 		t.Error("comment file name")
 	}
-	for _, p := range []string{"okay write this in the ticket", "post it to Jira", "move ABC-1 to the done status", "add a comment"} {
-		if !UserAsksJira(p) {
+}
+
+// R2: the messages that ask Claude to write to Jira, and near misses that
+// don't. Every one must come out right; tighten a loose rule rather than add
+// an exception for one message.
+func TestUserAsksJira(t *testing.T) {
+	asks := []string{
+		"okay write this in the ticket",
+		"post it to Jira",
+		"move ABC-1 to the done status",
+		"okay, post the comment to the ticket",
+		"add a comment to ABC-12 saying the fix is in",
+		"comment on the ticket with the test results",
+		"close ABC-7",
+		"update the Jira ticket with what you found",
+		"fix the refund check and then move PAY-88 to review",
+		"please transition the ticket to In Progress",
+		"leave a note on the ticket about the migration",
+		"log 2 hours on the ABC-1 ticket",
+		"link the PR to the ticket",
+		"set the ticket status to done",
+		"can you post the jira comment now",
+		"assign ABC-3 to me",
+		"Post it to the ticket’s comments",
+	}
+	notAsks := []string{
+		"add a comment to this function",
+		"add a comment",
+		"fix the refund bug",
+		"thanks",
+		"stickets",
+		"commentary",
+		"what's the status of the build?",
+		"add a POST route for refunds",
+		"read the ticket first",
+		"check ABC-12 in Jira before you start",
+		"what does the ticket say?",
+		"work on ABC-12",
+		"add ABC-123 to the commit message",
+		"put the ticket number in the branch name",
+		"update the code for ABC-12",
+		"add a log line, then check the ticket",
+		"don't post to Jira yet",
+		"do not update the ticket",
+		"hold off on moving ABC-1",
+		"did you update the ticket?",
+		"have you posted to jira",
+		"write the jira comment",
+		"resolve the merge conflict",
+		"post it",
+		"post the comment",
+		"add a comment in the code about the ticket",
+	}
+	for _, p := range asks {
+		if !UserAsksJira(p, false) {
 			t.Errorf("%q asks for Jira", p)
 		}
 	}
-	for _, p := range []string{"fix the refund bug", "thanks", "stickets", "commentary"} {
-		if UserAsksJira(p) {
+	for _, p := range notAsks {
+		if UserAsksJira(p, false) {
 			t.Errorf("%q doesn't ask for Jira", p)
+		}
+	}
+	// In a task on a Jira ticket, the draft Claude points to is the Jira
+	// comment: "post it" is the ask. A code comment still isn't.
+	for _, p := range []string{"post it", "okay post the comment", "send it", "yes, submit that"} {
+		if !UserAsksJira(p, true) {
+			t.Errorf("%q asks for Jira in a Jira task", p)
+		}
+	}
+	for _, p := range []string{"add a comment to this function", "add a POST route", "don't post it", "did you post it?", "write the comment"} {
+		if UserAsksJira(p, true) {
+			t.Errorf("%q doesn't ask for Jira in a Jira task", p)
 		}
 	}
 }

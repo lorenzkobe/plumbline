@@ -554,10 +554,102 @@ func jiraAskedPath(sessionID string) string {
 
 func jiraSeal(sessionID, at string) string { return seal([]byte("jira\x00" + sessionID + "\x00" + at)) }
 
-var reJiraAsk = regexp.MustCompile(`(?i)\b(jira|ticket|tickets|comment|comments|status|transition|post|posting)\b`)
+// The pieces of UserAsksJira (R2). A word alone ("comment", "post", "status")
+// is no ask: "add a comment to this function" is about code.
+var (
+	// Clauses: a verb only reaches a Jira word in its own clause.
+	reJiraClause = regexp.MustCompile(`[.;:!?,\n()]+|\s+(?:and|then|but|or|also|after|before|once|so)\s+`)
+	reJiraWord   = regexp.MustCompile(`[\p{L}\p{N}'_-]+`)
+	reTicketKey  = regexp.MustCompile(`^[A-Z][A-Z0-9]+-[0-9]+$`)
+	// Verbs that write to a target: the Jira word must follow one of the
+	// prepositions ("add a comment to ABC-1", "write this in the ticket").
+	jiraIntoVerbs = wordSet("add", "adding", "put", "write", "leave", "drop", "post", "posting", "log", "reply", "comment", "commenting", "attach", "link", "note")
+	// Verbs that change the thing itself ("move ABC-1 to done", "close the ticket").
+	jiraChangeVerbs = wordSet("update", "updating", "move", "moving", "transition", "close", "closing", "resolve", "reopen", "assign", "edit", "mark", "set", "change", "post", "posting", "send", "submit")
+	jiraInto        = wordSet("to", "on", "in", "into", "onto", "under")
+	// A word between the verb and the Jira word that makes Jira the reason,
+	// not the target ("update the code for ABC-1").
+	jiraNotTarget = wordSet("for", "from", "about", "with", "per", "because", "like")
+	// A clause that says not to, or asks what happened.
+	jiraNegation = wordSet("don't", "dont", "not", "never", "no", "without", "avoid", "stop", "hold", "skip", "didn't", "won't", "shouldn't")
+	jiraQuestion = wordSet("did", "have", "has", "had", "was", "were", "is", "does")
+	jiraObjects  = wordSet("jira", "confluence", "atlassian", "ticket", "tickets")
+	// "post it" names no Jira word; it counts only in a task on a Jira ticket,
+	// where the draft Claude points to is the Jira comment.
+	jiraPostVerbs = wordSet("post", "send", "submit")
+	jiraDraft     = wordSet("comment", "comments", "draft", "it", "this", "that")
+)
 
-// UserAsksJira: the user's own message talks about writing to Jira.
-func UserAsksJira(prompt string) bool { return reJiraAsk.MatchString(prompt) }
+func wordSet(ws ...string) map[string]bool {
+	m := make(map[string]bool, len(ws))
+	for _, w := range ws {
+		m[w] = true
+	}
+	return m
+}
+
+// UserAsksJira: the user's own message asks Claude to write to Jira: a write
+// verb aimed at Jira, a ticket or a ticket key, in the same clause, not
+// negated and not a question about what was done. In a task on a Jira ticket
+// (jiraTask), "post it" and "post the comment" count too.
+func UserAsksJira(prompt string, jiraTask bool) bool {
+	prompt = strings.ReplaceAll(prompt, "’", "'")
+	for _, clause := range reJiraClause.Split(prompt, -1) {
+		if jiraClauseAsks(reJiraWord.FindAllString(clause, -1), jiraTask) {
+			return true
+		}
+	}
+	return false
+}
+
+func jiraClauseAsks(raw []string, jiraTask bool) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	w := make([]string, len(raw))
+	obj := make([]bool, len(raw))
+	for i, r := range raw {
+		w[i] = strings.TrimSuffix(strings.ToLower(r), "'s")
+		obj[i] = jiraObjects[w[i]] || reTicketKey.MatchString(strings.TrimSuffix(r, "'s"))
+	}
+	if jiraQuestion[w[0]] {
+		return false
+	}
+	for i := range w {
+		if jiraNegation[w[i]] {
+			return false // a "not" before any verb of the clause
+		}
+		if jiraIntoVerbs[w[i]] {
+			// verb ... preposition, then the Jira word within 3 words of it
+			for p := i + 1; p < len(w) && p <= i+5; p++ {
+				if !jiraInto[w[p]] {
+					continue
+				}
+				for j := p + 1; j < len(w) && j <= p+3; j++ {
+					if obj[j] {
+						return true
+					}
+				}
+				break
+			}
+		}
+		if jiraChangeVerbs[w[i]] {
+			for j := i + 1; j < len(w) && j <= i+5 && !jiraNotTarget[w[j]]; j++ {
+				if obj[j] {
+					return true
+				}
+			}
+		}
+		if jiraTask && jiraPostVerbs[w[i]] {
+			for j := i + 1; j < len(w) && j <= i+3; j++ {
+				if jiraDraft[w[j]] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 func SetJiraAsked(sessionID string, on bool) error {
 	if sessionID == "" {

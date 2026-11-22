@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.7.3: what's left after smoke run 2
+- R2: a Jira post is allowed (and then asked) only when the user's message asks for one: a write verb aimed at Jira, a ticket or a ticket key in the same clause ("post it to Jira", "add a comment to ABC-12", "move ABC-1 to done"), not negated ("don't post yet") and not a question about what was done ("did you update the ticket?"). A single word no longer counts: "add a comment to this function" or "what's the status of the build?" used to open it. In a task on a Jira ticket, "post it" and "post the comment" count too. The sample messages are in `TestUserAsksJira`.
+
 ## 0.7.2: fixes from the 0.7.1 retest
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
