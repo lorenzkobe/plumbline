@@ -169,9 +169,17 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 - [x] BR1 (0.7.2, decided 2026-11-20): on real data, browser clicks ask only when Claude's note for the click names a change (save, delete, submit, send, pay, confirm, sign out...), plus Enter and clicks with no note; Escape, Tab, arrows, scrolling, typing and picking don't ask. Evidence: smoke-run-2.md "BR1".
 
 ## Release 5, last
-- The smoke test, V1 to V20 (docs/smoke-test.md).
+- [x] The smoke test, steps 1 to 18 and both end-to-end runs (smoke run 2 done 2026-11-22; notes in smoke-run-2.md, fixes in 0.7.2). V1-V20 ticked in known-gaps.md where the runs showed them.
 - The items that depend on it: R2 (after V11), B6 (after V7 and V9). L6 is done (0.6.12, after V1 in smoke run 1).
 - N11: the real-session prompt test script, run by hand.
+
+## What's left (2026-11-22)
+1. Ten real Kwenta tasks with no gate bypassed and no gate bug before Plumbline replaces done-gate anywhere (smoke-test.md). Two done: the end-to-end runs' tasks A and B.
+2. R2: the Jira ask is a keyword match ("add a comment to this function" can bring the Jira prompt). V11 is settled, so it can be fixed now.
+3. B6: a builder or QA that thinks for over 30 minutes without a tool call counts as finished. V7 and V9 are settled.
+4. N11: write the real-session prompt test script (the user runs it by hand before a release).
+5. Not seen live yet: V10 (needs a Jira MCP), V13 (the closing message the Stop hook reads), V14's bare `cd`, V17's Agent `model` override; V16 and V19 need a Linux machine.
+6. Open for the user: a secret-file read with values masked by sed still asks; `docker inspect`, `helm get values` and `aws lambda get-function-configuration` can print secrets but run freely; `helm show oci://` reaches any registry; commands-only tasks still run the full checks and review.
 
 ## The open items (0.6.11), shipped before release 5
 - [x] M16: the baseline is retaken on the code a followed branch switch or pull lands on, while nothing changed since approval.
