@@ -171,13 +171,13 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 ## Release 5, last
 - [x] The smoke test, steps 1 to 18 and both end-to-end runs (smoke run 2 done 2026-11-22; notes in smoke-run-2.md, fixes in 0.7.2). V1-V20 ticked in known-gaps.md where the runs showed them.
 - The items that depend on it: R2 (after V11), B6 (after V7 and V9). L6 is done (0.6.12, after V1 in smoke run 1).
-- N11: the real-session prompt test script, run by hand.
+- [x] N11 (0.7.3): the real-session prompt test script, run by hand.
 
 ## What's left (2026-11-22)
 1. Ten real Kwenta tasks with no gate bypassed and no gate bug before Plumbline replaces done-gate anywhere (smoke-test.md). Two done: the end-to-end runs' tasks A and B.
 2. [x] R2 (0.7.3): the Jira ask needs a write verb aimed at Jira, a ticket or a ticket key; "add a comment to this function" no longer opens it.
 3. [x] B6 (0.7.3): a quiet helper is judged by its transcript: still mid-step counts as running, a cancel or a final answer as done.
-4. N11: write the real-session prompt test script (the user runs it by hand before a release).
+4. [x] N11 (0.7.3): the real-session prompt test script, run by hand before a release ([prompt-tests.md](prompt-tests.md)). Chosen 2026-11-22: the Agent SDK runner (it answers the plan question, so the checks reach review and finish), not `claude -p` alone (which stops at the plan question).
 4b. [x] NC1 (0.7.3), no code comments (decided 2026-11-22): Claude's edits in the user's projects may not add code comments, and Plumbline's own code gets none either. Decisions: tool directives, shebangs and license headers are allowed (`// eslint-disable-next-line`, `//go:build`, `# type: ignore`, `#!/usr/bin/env node`); docstrings and JSDoc count as comments; an edit that adds one is refused on the spot; existing comments may stay or be deleted, but not reworded (a reworded comment counts as added). Asked while building: comments written from the terminal are caught by the finish check, which accepts the user's own or generated ones named on the report's "Comments kept:" line; the ban covers every file type with comments (code, tests, CSS, HTML, SQL, shell, Dockerfile, Makefile, YAML, TOML, ini), not Markdown or text. A comment found anywhere in the repo at task start counts as moved, not new.
 4c. [x] LIVE2 (0.7.3): a resumed window clears its "ended" mark; helpers from before a restart count as gone.
 5. Not seen live yet: V10 (needs a Jira MCP), V13 (the closing message the Stop hook reads), V14's bare `cd`, V17's Agent `model` override, B6's helper transcript path (in a big task, press Esc on blind QA: a minute later a code edit is refused with "start it again", not "blind QA is writing tests"); V16 and V19 need a Linux machine.

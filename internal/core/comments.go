@@ -487,28 +487,40 @@ func (c *hookCtx) gateComments(abs string) Output {
 }
 
 func commentsMissing(t *Task, changes []fileDiff, report string) []string {
-	base := taskBase(t)
 	listed := labeledLines(report, "comments kept")
+	found := newCommentLines(t.Root, taskBase(t), changes, func(p string) bool { return strings.Contains(listed, p) })
+	if len(found) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf(`comments: the diff adds code comments; remove them and say why in the report or the commit message instead. Only for ones the user wrote or a tool generated, name the file on the "Comments kept:" line under ## Proof: %s`, listSome(found, 8))}
+}
+
+func newCommentLines(root, base string, changes []fileDiff, kept func(string) bool) []string {
 	var found []string
 	for _, f := range changes {
 		syn := commentSyntaxFor(f.Path)
-		if f.Deleted || syn == nil || strings.Contains(listed, f.Path) {
+		if f.Deleted || syn == nil || kept(f.Path) {
 			continue
 		}
-		after, ok := readSmall(filepath.Join(t.Root, filepath.FromSlash(f.Path)))
+		after, ok := readSmall(filepath.Join(root, filepath.FromSlash(f.Path)))
 		if !ok || generatedSource(after) {
 			continue
 		}
 		before := ""
 		if f.OldPath != "" {
-			before, _ = gitOut(t.Root, "show", base+":"+f.OldPath)
+			before, _ = gitOut(root, "show", base+":"+f.OldPath)
 		}
-		for _, cm := range movedOut(t.Root, base, addedComments(syn, before, after)) {
+		for _, cm := range movedOut(root, base, addedComments(syn, before, after)) {
 			found = append(found, fmt.Sprintf("%s:%d", f.Path, cm.Line))
 		}
 	}
-	if len(found) == 0 {
-		return nil
+	return found
+}
+
+func NewCommentsSince(root, base string) ([]string, error) {
+	changes, err := changesSince(root, base, func(p string) bool { return p != "" })
+	if err != nil {
+		return nil, err
 	}
-	return []string{fmt.Sprintf(`comments: the diff adds code comments; remove them and say why in the report or the commit message instead. Only for ones the user wrote or a tool generated, name the file on the "Comments kept:" line under ## Proof: %s`, listSome(found, 8))}
+	return newCommentLines(root, base, changes, func(string) bool { return false }), nil
 }

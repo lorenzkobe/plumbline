@@ -149,20 +149,23 @@ func taskChanges(t *Task, ignore []string) ([]fileDiff, error) {
 		base = "HEAD"
 	}
 	others := t.OthersWork()
-	keep := func(p string) bool {
+	return changesSince(t.Root, base, func(p string) bool {
 		return p != "" && !others[p] && !inWorktreesDir(p) && !MatchAny(ignore, p)
-	}
+	})
+}
+
+func changesSince(root, base string, keep func(string) bool) ([]fileDiff, error) {
 	// -M: a moved test file isn't read as a deleted one.
-	diff, err := gitOut(t.Root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "-M", "--src-prefix=a/", "--dst-prefix=b/", base, "--")
+	diff, err := gitOut(root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "-M", "--src-prefix=a/", "--dst-prefix=b/", base, "--")
 	if err != nil {
 		return nil, fmt.Errorf("couldn't read the task's changes since %s: %v", short(base), err)
 	}
-	if out, err := gitOut(t.Root, "ls-files", "--others", "--exclude-standard", "-z"); err == nil {
+	if out, err := gitOut(root, "ls-files", "--others", "--exclude-standard", "-z"); err == nil {
 		for _, p := range strings.Split(out, "\x00") {
 			if !keep(p) {
 				continue
 			}
-			if b, ok := readableNewFile(t.Root, p); ok {
+			if b, ok := readableNewFile(root, p); ok {
 				diff += "\n" + addedFileDiff(p, b)
 			}
 		}
