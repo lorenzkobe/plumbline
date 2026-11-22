@@ -176,9 +176,9 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 ## What's left (2026-11-22)
 1. Ten real Kwenta tasks with no gate bypassed and no gate bug before Plumbline replaces done-gate anywhere (smoke-test.md). Two done: the end-to-end runs' tasks A and B.
 2. [x] R2 (0.7.3): the Jira ask needs a write verb aimed at Jira, a ticket or a ticket key; "add a comment to this function" no longer opens it.
-3. B6: a builder or QA that thinks for over 30 minutes without a tool call counts as finished. V7 and V9 are settled.
+3. [x] B6 (0.7.3): a quiet helper is judged by its transcript: still mid-step counts as running, a cancel or a final answer as done.
 4. N11: write the real-session prompt test script (the user runs it by hand before a release).
-5. Not seen live yet: V10 (needs a Jira MCP), V13 (the closing message the Stop hook reads), V14's bare `cd`, V17's Agent `model` override; V16 and V19 need a Linux machine.
+5. Not seen live yet: V10 (needs a Jira MCP), V13 (the closing message the Stop hook reads), V14's bare `cd`, V17's Agent `model` override, B6's helper transcript path (in a big task, press Esc on blind QA: a minute later a code edit is refused with "start it again", not "blind QA is writing tests"); V16 and V19 need a Linux machine.
 6. Open for the user: a secret-file read with values masked by sed still asks; `docker inspect`, `helm get values` and `aws lambda get-function-configuration` can print secrets but run freely; `helm show oci://` reaches any registry; commands-only tasks still run the full checks and review.
 
 ## The open items (0.6.11), shipped before release 5

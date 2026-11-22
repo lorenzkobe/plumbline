@@ -679,6 +679,9 @@ func isProtectedConfig(abs string) bool {
 	if IsInside(abs, filepath.Join(ch, foldPath("plugins"))) {
 		return true
 	}
+	if strings.HasSuffix(base, ".jsonl") && IsInside(abs, filepath.Join(ch, foldPath("projects"))) {
+		return true
+	}
 	if strings.Contains(strings.ToLower(filepath.ToSlash(abs)), "managed-settings") {
 		return true
 	}
@@ -703,7 +706,7 @@ func (c *hookCtx) gateEdit(path string) Output {
 		return c.deny("secret-edit", "Claude doesn't edit .env or key files. Tell the user which variable to add or change (name only) and they make the change. Templates like .env.example are fine.")
 	}
 	if isProtectedConfig(abs) {
-		return c.deny("config-protect", "Claude Code's settings and installed plugins are protected so Plumbline can't be switched off by Claude. Tell the user what to change and why.")
+		return c.deny("config-protect", "Claude Code's settings, installed plugins and session transcripts are protected so Plumbline can't be switched off or misled by Claude. Tell the user what to change and why.")
 	}
 	if c.root != "" && isInsideFold(abs, filepath.Join(c.root, ".git")) {
 		return c.deny("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
@@ -972,7 +975,8 @@ func mentionsProtectedConfig(s Segment, cwd string) bool {
 	}
 	for _, w := range append(commitMessageless(s), s.Redirects...) {
 		low := strings.ToLower(w)
-		if strings.Contains(low, ".claude/settings") || strings.HasSuffix(low, ".claude.json") || strings.Contains(low, ".claude/plugins") || strings.Contains(low, "managed-settings") {
+		if strings.Contains(low, ".claude/settings") || strings.HasSuffix(low, ".claude.json") || strings.Contains(low, ".claude/plugins") || strings.Contains(low, "managed-settings") ||
+			strings.Contains(low, ".claude/projects/") && strings.HasSuffix(low, ".jsonl") {
 			return true
 		}
 		if strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") || strings.HasPrefix(w, ".") && s.Dir != "" {
@@ -1528,7 +1532,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case abs != "" && c.root != "" && TrackerPath(c.root) != "" && foldPath(abs) == foldPath(TrackerPath(c.root)):
 				c.askTracker(v)
 			case abs != "" && isProtectedConfig(abs):
-				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
+				v.d("config-protect", "Claude Code's settings, plugins and session transcripts are protected. Tell the user what to change.")
 			case abs != "" && isGitConfig(abs):
 				v.d("git-internals", "git's config files can change what every git command does. Use git commands, or tell the user what to change.")
 			case abs != "" && c.root != "" && isInsideFold(abs, filepath.Join(c.root, ".git")):
@@ -1554,7 +1558,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				// SB1: untracking leaves the file and its settings as they are.
 				v.a("untrack-settings", "this stops git from tracking a Claude Code settings file. The file and its settings stay as they are on this laptop; the next commit removes it from the repo.")
 			} else {
-				v.d("config-protect", "Claude Code's settings and plugins are protected. Tell the user what to change.")
+				v.d("config-protect", "Claude Code's settings, plugins and session transcripts are protected. Tell the user what to change.")
 			}
 		}
 		joined := strings.Join(s.Words, " ")

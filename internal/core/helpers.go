@@ -36,7 +36,6 @@ const (
 	MaxReviews         = 3 // per reviewer: the first review plus 2 fix rounds
 	MaxQARuns          = 2
 
-	// A run with no stop recorded after this long is treated as dead.
 	helperAlive = 30 * time.Minute
 )
 
@@ -68,7 +67,9 @@ type HelperRun struct {
 	WroteHash map[string]string `json:"wrote_hash,omitempty"`
 	// Builders and QA: the last tool call, so a run that works long still
 	// counts as running and one that died stops counting.
-	LastSeen time.Time `json:"last_seen,omitempty"`
+	LastSeen   time.Time `json:"last_seen,omitempty"`
+	Session    string    `json:"session,omitempty"`
+	Transcript string    `json:"transcript,omitempty"`
 
 	// Reviewers: the files this run opened (absolute), so a withdrawn
 	// finding is known to have looked at the guard the lead cited (N5).
@@ -305,15 +306,6 @@ func (t *Task) helperRuns(kind string) []HelperRun {
 		}
 	}
 	return out
-}
-
-// alive: started recently and not stopped yet.
-func (r HelperRun) alive() bool {
-	last := r.Started
-	if r.LastSeen.After(last) {
-		last = r.LastSeen
-	}
-	return r.Finished.IsZero() && Now().Sub(last) < helperAlive
 }
 
 // HelperRunning: some helper of this task is running right now.
@@ -787,7 +779,8 @@ func SubagentStart(in *HookInput) Output {
 	t := c.task
 	n := len(t.helperRuns(kind)) + 1
 	run := HelperRun{Kind: kind, AgentID: in.AgentID, Started: Now(), Findings: findingsName(kind, n),
-		SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan)}
+		SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan),
+		Session: in.SessionID, Transcript: helperTranscriptPath(in.TranscriptPath, in.AgentID)}
 	run.PrintBefore, _ = Fingerprint(t.Root, c.ignore())
 	if kind == HelperBuilder {
 		run.Worktree, run.BaseCommit, run.Error, run.Setup = made.path, made.base, made.err, made.setup
