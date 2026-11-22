@@ -10,7 +10,7 @@
 - Commits: `feat: ...`, `fix: ...`, `chore: ...`.
 
 ## Both
-- Short, plain commit messages: one line saying what changed, plus a short body only when the reason isn't obvious. They become the PR description, so they must read clearly on their own.
+- Short, plain commit messages: one line (under 72 characters) saying what changed, plus a short body only when the reason isn't obvious. They become the PR description, so they must read clearly on their own.
 - No AI markers of any kind (no Co-Authored-By: Claude, no session links, no "Generated with"). The commit hook blocks them.
 - Group commits by what works together: usually one per slice. Parts that only work together stay together.
 - The user pushes and opens PRs. Where pushing or merging triggers a deploy, say so ("this branch deploys to staging when pushed").

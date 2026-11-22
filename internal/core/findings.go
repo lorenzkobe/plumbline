@@ -344,6 +344,9 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 			paths = append(paths, r.Worktree)
 		}
 	}
+	// So are the changed files' names: the reviewer sees them in the diff
+	// anyway (RL2).
+	paths = append(paths, ChangedSince(t.Root, t.StartCommit)...)
 	for _, p := range paths {
 		for s := range shingles(p) {
 			free[s] = true
@@ -378,7 +381,7 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 		}
 		for s := range shingles(string(b)) {
 			if mine[s] {
-				return fmt.Sprintf("the prompt repeats text from %s (%q), which the %s must not see: each review stays independent. Give it the task and the plan, not other helpers' notes or the report.", name, s, kind)
+				return fmt.Sprintf("the prompt repeats text from %s (%q), which the %s must not see: each review stays independent. Give it the task and the plan, not other helpers' notes or the report. If the user added to the task since the plan, write that into plan.md first; the reviewer may read it there.", name, s, kind)
 			}
 		}
 	}

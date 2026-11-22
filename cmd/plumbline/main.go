@@ -116,7 +116,8 @@ func usage() {
   plumbline run checks                  every saved check above (not related or e2e), each recorded
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
-  plumbline setup show|save|laptop|undo-laptop
+  plumbline setup show|laptop|undo-laptop
+  plumbline setup save [--file f]       the whole setup as JSON, on stdin or in the file
   plumbline setup sandbox [--exclude psql,mysql] | undo-sandbox   Claude Code's Bash sandbox, this checkout
   plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
   plumbline waive proof:ui|proof:api|proof:schema|e2e|qa|bug-test --reason "..."

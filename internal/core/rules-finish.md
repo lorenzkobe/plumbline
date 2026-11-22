@@ -27,7 +27,7 @@
   - `## Common-sense calls`, every waiver, a `Should-fix not fixed:` line under `## Review` when a reviewer marked any, a `Set aside:` line with your call on each thing a reviewer set aside as outside the plan, `## For you`, and a "For you" line in the closing chat message, as its first line when the report's "For you" isn't "nothing".
   - The "Weakened tests:" line under Proof names each file the diff weakens, with why (the finish check lists them: skips, silenced checks, CI steps allowed to fail, removed tests or assertions), and every blind QA test changed after QA wrote it. After a package change, the report names every test file the task changed.
   - A changed file the code reviewer marked not covered makes the verdict Not ready (or run it again to cover the file).
-- Commits: only after the user says so. Company: `TICKET-123: What changed`. Personal: `feat:`/`fix:`/`chore:`. Short, plain, no AI markers. The user pushes.
+- Commits: only after the user says so. Company: `TICKET-123: What changed`. Personal: `feat:`/`fix:`/`chore:`. Subject under 72 characters. Short, plain, no AI markers. The user pushes.
 - A flaky test: re-run it several times to see how often it fails, then find the cause. Passing on a retry is not passing.
 - 3 strikes: after 3 failed fix attempts, stop and give options. The same block twice in a row means stop and tell the user (Plumbline says so on the second one); don't work around it.
 - Before stopping for the user, finish everything that doesn't depend on them, so they get one message with everything.

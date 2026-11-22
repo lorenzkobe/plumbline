@@ -4,6 +4,13 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From smoke step 18c:
+- BR2: the checkpoint question names the branch when the work goes on a new one, so the user sees it before any edit. Claude had made fix/offline-search-deleted-people with no word until the commit question.
+From smoke step 18b:
+- RL2: a changed file's name in a reviewer's prompt no longer reads as text copied from the report. When the copy check does refuse, it says to write anything the user added mid-task into plan.md first, where the reviewer may read it.
+- CM3: the commit rule Claude gets at session start says the subject stays under 72 characters, which the commit check already refused.
+From smoke step 18a:
+- HLP2: the help says `plumbline setup save` takes the whole setup as JSON, on stdin or with `--file`. Claude had tried a save with nothing on stdin first, which cost the user a confirm prompt for an error.
 From smoke step 17:
 - ST1: the standup lists each task with its report's verdict line, so it says what came of a task, not only that it's done.
 From smoke step 16a:

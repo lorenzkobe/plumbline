@@ -367,6 +367,17 @@ func TestReviewerPromptMayNameTheRepo(t *testing.T) {
 	b.expect(b.pre("Agent", map[string]any{"subagent_type": "plumbline:qa", "prompt": "Repo: " + b.repo + ". The builder worked in " + b.repo + "/.claude/worktrees/plumbline-copy and ran the tests."}), "deny", "build-1.md")
 }
 
+// RL2 (step 18b): a changed file's name in a reviewer's prompt isn't
+// copied from the report, though the report names it too.
+func TestReviewerPromptMayNameAChangedFile(t *testing.T) {
+	h := provenTask(t)
+	write(t, filepath.Join(h.repo, "internal/pages/settings/signout_flow_test.go"), "package settings\n")
+	h.docs(DocReport, "# Report\n- the flaky wait in internal/pages/settings/signout_flow_test.go is fixed\n")
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "Review the change. Changed files: src/a.go, internal/pages/settings/signout_flow_test.go."}), "", "")
+	// Real copied text is still caught, and the refusal says where added scope goes.
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "Review the change: the flaky wait in internal/pages/settings/signout_flow_test.go is fixed."}), "deny", "write that into plan.md first")
+}
+
 // --- N3: findings quote the line they cite ---
 
 func TestFindingsQuoteTheCitedLine(t *testing.T) {
