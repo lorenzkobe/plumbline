@@ -116,20 +116,25 @@ func entryState(line string) transcriptState {
 	return transcriptWorking
 }
 
-func sessionEndedAfter(sessionID string, t time.Time) bool {
+func sessionGoneAfter(sessionID string, t time.Time) bool {
 	if sessionID == "" {
 		return false
 	}
-	b, err := os.ReadFile(sessionEndedPath(sessionID))
-	if err != nil {
-		return false
+	for _, p := range []string{sessionEndedPath(sessionID), sessionStartedPath(sessionID)} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(b)))
+		if err == nil && !at.Before(t.Truncate(time.Second)) {
+			return true
+		}
 	}
-	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(b)))
-	return err == nil && !at.Before(t.Truncate(time.Second))
+	return false
 }
 
 func (r HelperRun) alive() bool {
-	if !r.Finished.IsZero() || sessionEndedAfter(r.Session, r.Started) {
+	if !r.Finished.IsZero() || sessionGoneAfter(r.Session, r.Started) {
 		return false
 	}
 	last := r.Started

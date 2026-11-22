@@ -178,6 +178,8 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 2. [x] R2 (0.7.3): the Jira ask needs a write verb aimed at Jira, a ticket or a ticket key; "add a comment to this function" no longer opens it.
 3. [x] B6 (0.7.3): a quiet helper is judged by its transcript: still mid-step counts as running, a cancel or a final answer as done.
 4. N11: write the real-session prompt test script (the user runs it by hand before a release).
+4b. NC1, no code comments (decided 2026-11-22): Claude's edits in the user's projects may not add code comments, and Plumbline's own code gets none either. Decisions: tool directives, shebangs and license headers are allowed (`// eslint-disable-next-line`, `//go:build`, `# type: ignore`, `#!/usr/bin/env node`); docstrings and JSDoc count as comments; an edit that adds one is refused on the spot; existing comments may stay or be deleted, but not reworded (a reworded comment counts as added).
+4c. [x] LIVE2 (0.7.3): a resumed window clears its "ended" mark; helpers from before a restart count as gone.
 5. Not seen live yet: V10 (needs a Jira MCP), V13 (the closing message the Stop hook reads), V14's bare `cd`, V17's Agent `model` override, B6's helper transcript path (in a big task, press Esc on blind QA: a minute later a code edit is refused with "start it again", not "blind QA is writing tests"); V16 and V19 need a Linux machine.
 6. Open for the user: a secret-file read with values masked by sed still asks; `docker inspect`, `helm get values` and `aws lambda get-function-configuration` can print secrets but run freely; `helm show oci://` reaches any registry; commands-only tasks still run the full checks and review.
 

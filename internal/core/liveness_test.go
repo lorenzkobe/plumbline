@@ -111,7 +111,17 @@ func TestHelperAliveFromTranscript(t *testing.T) {
 	write(t, sessionEndedPath("s1"), base.Add(-time.Minute).Format(time.RFC3339)+"\n")
 	check("session ended", time.Minute, false, tlRequest)
 	write(t, sessionEndedPath("s1"), base.Add(-6*time.Hour).Format(time.RFC3339)+"\n")
-	check("resumed session", time.Minute, true, tlRequest)
+	check("ended before it started", time.Minute, true, tlRequest)
+
+	sessionStarted("s1", "compact")
+	check("compacted session", time.Minute, true, tlRequest)
+	if SessionEnded("s1") {
+		t.Error("a session that starts again isn't ended")
+	}
+	sessionStarted("s1", "resume")
+	check("restarted after it started", time.Minute, false, tlRequest)
+	run.Started = base.Add(time.Second)
+	check("started after the restart", time.Minute, true, tlRequest)
 
 	run.Finished = base
 	check("stopped", time.Minute, false, tlRequest)

@@ -540,6 +540,20 @@ func sessionEndedPath(sessionID string) string {
 // SessionEnded: that Claude session has ended (closed, /clear, logout). A
 // session that crashed never says so, so its task keeps counting as live
 // until the user closes it.
+func sessionStartedPath(sessionID string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(sessionID)+".started")
+}
+
+func sessionStarted(sessionID, source string) {
+	if sessionID == "" {
+		return
+	}
+	_ = os.Remove(sessionEndedPath(sessionID))
+	if source == "startup" || source == "resume" {
+		_ = writeFileAtomic(sessionStartedPath(sessionID), []byte(Now().Format(time.RFC3339Nano)+"\n"))
+	}
+}
+
 func SessionEnded(sessionID string) bool {
 	if sessionID == "" {
 		return true

@@ -576,3 +576,21 @@ func TestBatchScreenshotIsUIProof(t *testing.T) {
 		t.Fatalf("a batch screenshot of the local app should count: %s", h.finishMissing())
 	}
 }
+
+func TestResumedWindowIsLiveAgain(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	h.startTask("normal")
+	SessionEnd(&HookInput{SessionID: h.sid})
+	if !SessionEnded(h.sid) {
+		t.Fatal("the window ended")
+	}
+	SessionStart(&HookInput{SessionID: h.sid, Cwd: h.repo, Source: "resume"})
+	if SessionEnded(h.sid) {
+		t.Fatal("a resumed window is live again")
+	}
+	b := h.session("sess-2")
+	if _, r := decision(b.bash("plumbline task start --title 'other work'")); strings.Contains(r, "has ended") {
+		t.Fatalf("the resumed window's task isn't left over: %s", r)
+	}
+}

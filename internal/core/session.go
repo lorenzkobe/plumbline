@@ -49,6 +49,7 @@ func taskLine(t *Task) string {
 // On compact it loads them again, since that's when drift usually starts.
 func SessionStart(in *HookInput) Output {
 	Cleanup()
+	sessionStarted(in.SessionID, in.Source)
 	c := newCtx(in)
 	defer c.close()
 	// "Right now" goes first: what's true in this project matters more than
