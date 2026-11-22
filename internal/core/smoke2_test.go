@@ -430,3 +430,46 @@ func TestReportOutcome(t *testing.T) {
 		t.Fatalf("the standup text lacks the outcome: %s", rep.String())
 	}
 }
+
+// WV1 (smoke step 18d): a waive the command would refuse (no reason, or a
+// check that can't be waived) is stopped before the user is asked, so their
+// yes isn't spent on an error; the prompt names the check and the reason.
+func TestWaiveNeedsReasonBeforeAsking(t *testing.T) {
+	h := provenTask(t) // approved: before that, a waive is refused like any change
+	h.expect(h.bash("plumbline waive bug-test"), "deny", `--reason "..."`)
+	h.expect(h.bash(`plumbline waive bug-test --reason "   "`), "deny", "needs the check")
+	h.expect(h.bash(`plumbline waive tests --reason "slow"`), "deny", "needs the check")
+	h.expect(h.bash(`plumbline waive --reason "x"`), "deny", "needs the check")
+	h.expect(h.bash(`plumbline waive bug-test --reason "it can't fail without the fix"`), "ask", "waive bug-test: it can't fail without the fix.")
+	h.expect(h.bash(`plumbline waive --reason=no-browser proof:ui`), "ask", "waive proof:ui: no-browser.")
+}
+
+// ID1 (smoke step 18d): a plain /plumbline:cancel closes the one task left by
+// a window that has ended, so the user isn't handed a task id; a task of a
+// window that's still open needs its id.
+func TestPlainCancelClosesTheLeftOverTask(t *testing.T) {
+	h := newHarness(t)
+	h.setup()
+	tk := h.startTask("normal")
+	b := h.session("sess-2")
+	if o := fmtOut(expand(b, "cancel", "")); !strings.Contains(o, "still open") {
+		t.Fatalf("a live window's task isn't closed by a plain cancel: %s", o)
+	}
+	if x, _ := LoadTask(h.repo, tk.ID); !x.Open() {
+		t.Fatal("the live window's task was closed")
+	}
+	SessionEnd(&HookInput{SessionID: h.sid})
+	_, r := decision(b.bash("plumbline task start --title 'other work'"))
+	if !strings.Contains(r, "(/plumbline:cancel, theirs to type)") {
+		t.Fatalf("the refusal should hand the user a plain /plumbline:cancel: %s", r)
+	}
+	if o := fmtOut(expand(b, "cancel", "")); !strings.Contains(o, "closed by the user") {
+		t.Fatalf("a plain cancel closes the left-over task: %s", o)
+	}
+	if x, _ := LoadTask(h.repo, tk.ID); x.Open() {
+		t.Fatal("the left-over task is still open")
+	}
+	if o := fmtOut(expand(b, "cancel", "")); !strings.Contains(o, "no open task") {
+		t.Fatalf("nothing left to close: %s", o)
+	}
+}

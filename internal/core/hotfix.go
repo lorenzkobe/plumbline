@@ -80,7 +80,7 @@ func userHotfix(c *hookCtx, args string) string {
 	case c.taskErr != nil:
 		return "couldn't read this session's task (" + c.taskErr.Error() + "), so no hotfix was started."
 	case c.task != nil:
-		return fmt.Sprintf("this session already has task %s (\"%s\", %s step) open, so no hotfix was started. Close it first with /plumbline:cancel %s (its changes stay in the working tree), or start the hotfix in its own worktree (a new session with claude -w).", c.task.ID, c.task.Title, c.task.Phase, c.task.ID)
+		return fmt.Sprintf("this session already has task %s (\"%s\", %s step) open, so no hotfix was started. Close it first with /plumbline:cancel (its changes stay in the working tree), or start the hotfix in its own worktree (a new session with claude -w).", c.task.ID, c.task.Title, c.task.Phase)
 	case what == "":
 		return "say what's broken: /plumbline:hotfix <what's broken, or the ticket id>."
 	}

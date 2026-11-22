@@ -1366,7 +1366,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 					v.a("setup-change", "this saves Plumbline setup. Check the values before allowing.")
 				}
 			case "waive":
-				v.a("waiver", "a waiver skips one check for this task. Only allow it if that check truly can't run.")
+				// WV1: a waive the command would refuse is stopped before the
+				// user is asked, so their yes isn't spent on an error.
+				if check, reason, ok := waiveArgs(s); !ok {
+					v.d("waiver", `a waiver needs the check and why it can't run, in one command: plumbline waive bug-test --reason "..." (or proof:ui, proof:api, proof:schema, e2e, qa). Ask the user first in plain words; the confirm prompt is theirs.`)
+				} else {
+					v.a("waiver", fmt.Sprintf("waive %s: %s. A waiver skips one check for this task. Only allow it if that check truly can't run.", check, reason))
+				}
 			case "standup":
 				if standupSetsTracker(s) {
 					v.a("tracker-set", "this remembers your sprint file for this project. Claude may then suggest edits to it, and each edit asks you first.")
@@ -1388,7 +1394,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				if o := c.otherSessionTask(); o != nil && !SessionEnded(o.SessionID) {
 					v.d("task-other-session", liveOtherNote(fmt.Sprintf("\"%s\"", o.Title)))
 				} else if o != nil {
-					v.d("task-other-session", fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout from an earlier session that has ended, and two tasks in one checkout would test each other's half-done code. Ask the user which way: continue that task in this session (plumbline task adopt %s), close it (/plumbline:cancel %s, theirs to type), or start this task in its own worktree (a new session with claude -w).", o.ID, o.Title, o.Phase, o.ID, o.ID))
+					v.d("task-other-session", fmt.Sprintf("task %s (\"%s\", %s step) is open in this checkout from an earlier session that has ended, and two tasks in one checkout would test each other's half-done code. Ask the user which way: continue that task in this session (plumbline task adopt %s), close it (%s, theirs to type), or start this task in its own worktree (a new session with claude -w).", o.ID, o.Title, o.Phase, o.ID, c.cancelHint(o)))
 				}
 			}
 		case name == "git":
@@ -2113,4 +2119,49 @@ func composeShowsEnv(s Segment) bool {
 		}
 	}
 	return true
+}
+
+// waiveArgs: the check and reason of a plumbline waive line, and whether the
+// command would take them (a known check and a reason).
+func waiveArgs(s Segment) (check, reason string, ok bool) {
+	for i := 2; i < len(s.Words); i++ {
+		w := s.Words[i]
+		switch {
+		case w == "--":
+			i = len(s.Words)
+		case strings.HasPrefix(w, "--reason="):
+			reason = strings.TrimPrefix(w, "--reason=")
+		case w == "--reason" && i+1 < len(s.Words) && !strings.HasPrefix(s.Words[i+1], "--"):
+			reason = s.Words[i+1]
+			i++
+		case strings.HasPrefix(w, "--"):
+			if !strings.Contains(w, "=") && i+1 < len(s.Words) && !strings.HasPrefix(s.Words[i+1], "--") {
+				i++
+			}
+		case check == "":
+			check = w
+		}
+	}
+	switch check {
+	case "proof:ui", "proof:api", "proof:schema", "e2e", "qa", "bug-test":
+	default:
+		return check, reason, false
+	}
+	reason = strings.Join(strings.Fields(reason), " ")
+	if reason == "" {
+		return check, reason, false
+	}
+	if r := []rune(reason); len(r) > 200 {
+		reason = string(r[:200]) + "..."
+	}
+	return check, reason, true
+}
+
+// cancelHint: what the user types to close task o. Plain /plumbline:cancel
+// closes the one left-over task (ID1), so the id shows only when it must.
+func (c *hookCtx) cancelHint(o *Task) string {
+	if t, _ := cancelTarget(c.root); t != nil && t.ID == o.ID {
+		return "/plumbline:cancel"
+	}
+	return "/plumbline:cancel " + o.ID
 }

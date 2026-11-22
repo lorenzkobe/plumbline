@@ -118,7 +118,7 @@ func SessionStart(in *HookInput) Output {
 		left = append(left[:maxLeftTasks], fmt.Sprintf("and %d more (plumbline task list)", len(left)-maxLeftTasks))
 	}
 	if len(left) > 0 {
-		b.WriteString("- Open tasks of earlier sessions that have ended: " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel <id>). A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
+		b.WriteString("- Open tasks of earlier sessions that have ended: " + strings.Join(left, "; ") + ". Ask the user, in one message, whether to continue each here (plumbline task adopt <id>) or close it (only they can, with /plumbline:cancel; with more than one left over, /plumbline:cancel <id>). A new task can't start in a checkout while another session's task is open there: it needs its own worktree (a new session with claude -w).\n")
 	}
 	RefreshSnapshot(in.SessionID, c.root)
 	return out()
@@ -278,17 +278,10 @@ func UserPromptExpansion(in *HookInput) Output {
 		} else {
 			t = c.task
 		}
-		if t == nil {
-			open := []string{}
-			for _, x := range ListTasks(c.root) {
-				if x.Open() {
-					open = append(open, x.ID)
-				}
-			}
-			if len(open) == 1 {
-				t, _ = LoadTask(c.root, open[0])
-			} else {
-				return say("which task? Open tasks: " + strings.Join(open, ", ") + ". Type /plumbline:cancel <id>.")
+		if t == nil && id == "" {
+			var why string
+			if t, why = cancelTarget(c.root); t == nil {
+				return say(why)
 			}
 		}
 		if t == nil {
@@ -345,4 +338,35 @@ func userSize(c *hookCtx, args string) string {
 	}
 	LogEvent(Event{Type: "task", Task: t.ID, Size: t.Size, Project: c.projectKey(), Rule: "size-by-user"})
 	return fmt.Sprintf("task %s is small, set by the user: risky files in the plan won't make it normal, so there's no challenger and only the code reviewer plus any specialist the files call for. Files that decide which checks run (CI, git hooks, test or lint config, AI instructions) still need the full review. Ask the checkpoint again.", t.ID)
+}
+
+// cancelTarget: the task a plain /plumbline:cancel closes when this session
+// has none: the one open task whose session has ended (ID1). A task of a
+// window that's still open is never closed without its id (LIVE1).
+// Otherwise nil, and a line for the user saying why.
+func cancelTarget(root string) (*Task, string) {
+	var ended, live []string
+	for _, x := range ListTasks(root) {
+		if !x.Open() {
+			continue
+		}
+		if SessionEnded(x.SessionID) {
+			ended = append(ended, x.ID)
+		} else {
+			live = append(live, x.ID)
+		}
+	}
+	switch {
+	case len(ended) == 1:
+		t, _ := LoadTask(root, ended[0])
+		if t != nil {
+			return t, ""
+		}
+		return nil, "no such task."
+	case len(ended) > 1:
+		return nil, "which task? Open tasks left by windows that have ended: " + strings.Join(ended, ", ") + ". Type /plumbline:cancel <id>."
+	case len(live) > 0:
+		return nil, "the open task here belongs to a Claude window that's still open (" + strings.Join(live, ", ") + "). Close it in that window with /plumbline:cancel, or here with /plumbline:cancel <id>."
+	}
+	return nil, "there's no open task to close."
 }

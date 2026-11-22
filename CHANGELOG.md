@@ -4,6 +4,9 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From smoke step 18d:
+- WV1: a waive the command would refuse (no `--reason`, or a check that can't be waived) is stopped before the user is asked, so their yes isn't spent on an error. The confirm prompt names the check and the reason ("waive bug-test: ..."), and the session-start rule shows the full command.
+- ID1: a plain `/plumbline:cancel` closes the one task left by a window that has ended, and the messages hand the user that, with no task id. A task of a window that's still open is no longer closed by a plain cancel; it needs its id.
 From smoke step 18c:
 - BR2: the checkpoint question names the branch when the work goes on a new one, so the user sees it before any edit. Claude had made fix/offline-search-deleted-people with no word until the commit question.
 From smoke step 18b:
