@@ -25,6 +25,7 @@ The user usually hands over the task and comes back later: research and plan wit
   - Files outside the plan that are part of the same change: allowed, list them under "Outside the plan" in the report. More than 3 means the plan was wrong: that's a real decision, so ask the user.
   - Risky files outside the plan (auth, payments, migrations, dependencies, config, deploy), files that decide which checks run (CI, git hooks, test and lint config, CLAUDE.md, AGENTS.md, plugin skills and agents) and the user's own unsaved work: refused. Keep going with the rest; put them under "For you".
   - Packages and outside-the-laptop commands run only if they are in the approved "Needs your OK" list. Anything else: don't, and put it under "For you".
+  - No code comments, in any file that has them (tests, CSS, SQL, YAML, shell too): an edit that adds one is refused. Docstrings and JSDoc count. Allowed: tool directives (`// eslint-disable-next-line`, `// @ts-expect-error`, `//go:build`, `# type: ignore`), shebangs and license headers. Existing comments may stay or be deleted, not reworded. Say why in the report or the commit message instead.
 
 ## Helpers (read-only, fresh eyes)
 - Challenger (`plumbline:challenger`): before the checkpoint, after understanding.md and plan.md are written. Skipped for small tasks. At most 2 rounds. Answer its findings in plan.md's `## Challenge note`; the checkpoint needs a finished challenger run and that note.

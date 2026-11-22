@@ -163,6 +163,7 @@ Rollback: <how to undo it: revert the commit, the down migration> / <why it can'
 - Real-world: <the api call and what the response shows changed / clicks / query>
 - <check>: couldn't run, because <why>; run later: `<exact command>`
 - Weakened tests: <each file the diff weakens (skipped, removed or loosened tests, silenced checks, a CI step allowed to fail), with why, or "none">
+- Comments kept: <each file with a new comment the user wrote or a tool generated, with which; leave the line out if none>
 - Waivers: <or "none">
 
 ## Review

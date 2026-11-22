@@ -23,7 +23,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 	report, fi, err := ReadDoc(t, DocReport)
 	changes, derr := taskChanges(t, s.IgnoreChanges)
 	if derr != nil {
-		miss = append(miss, "diff: "+derr.Error()+" (the weakened-tests and debug-log checks need it)")
+		miss = append(miss, "diff: "+derr.Error()+" (the weakened-tests, debug-log and comment checks need it)")
 	}
 	var changed []string
 	for _, f := range changes {
@@ -33,6 +33,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 	miss = append(miss, bugRedMissing(t, s, fp, runs)...)
 	miss = append(miss, e2eMissing(t, s, fp, runs, changed)...)
 	miss = append(miss, debugMissing(changes)...)
+	miss = append(miss, commentsMissing(t, changes, report)...)
 	for _, k := range t.ProofKinds {
 		if waived(t, "proof:"+k, fp) {
 			continue

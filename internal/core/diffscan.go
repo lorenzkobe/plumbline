@@ -16,6 +16,7 @@ import (
 // file was deleted) and its added and removed lines.
 type fileDiff struct {
 	Path    string
+	OldPath string
 	Deleted bool
 	Lines   []diffLine
 }
@@ -63,7 +64,7 @@ func parseDiff(diff string) []fileDiff {
 			oldPath = diffPath(strings.TrimPrefix(l, "--- "), "a/")
 		case strings.HasPrefix(l, "+++ "):
 			p := diffPath(strings.TrimPrefix(l, "+++ "), "b/")
-			f := fileDiff{Path: p}
+			f := fileDiff{Path: p, OldPath: oldPath}
 			if p == "" {
 				f.Path, f.Deleted = oldPath, true
 			}
@@ -355,13 +356,15 @@ func ciFile(rel string) bool { return reCIFile.MatchString(rel) }
 // with what's on it and the lines nested under it, or, when the line ends at
 // its colon, the list that follows it; or a "### Weakened tests" heading and
 // its lines. Blank lines in between don't end it.
-func weakenedLine(report string) string {
+func weakenedLine(report string) string { return labeledLines(report, "weakened") }
+
+func labeledLines(report, label string) string {
 	var out []string
 	lines := strings.Split(report, "\n")
 	for i := 0; i < len(lines); i++ {
 		raw := strings.TrimRight(lines[i], " \t\r")
 		trim := strings.TrimSpace(raw)
-		if !strings.HasPrefix(strings.ToLower(plainLine(trim)), "weakened") {
+		if !strings.HasPrefix(strings.ToLower(plainLine(trim)), label) {
 			continue
 		}
 		out = append(out, raw)

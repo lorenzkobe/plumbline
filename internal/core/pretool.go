@@ -739,6 +739,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if rule, reason := c.buildFile(c.rel(abs), 0); rule != "" {
 		return c.deny(rule, reason)
 	}
+	if o := c.gateComments(abs); o != nil {
+		return o
+	}
 	return nil // in the plan, or part of the same change: allowed, recorded, and must be listed in the report
 }
 
