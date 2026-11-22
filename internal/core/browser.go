@@ -136,7 +136,63 @@ func (c *hookCtx) gateBrowser() Output {
 	if !browserTool(c.in.ToolName) || !c.setupOK || !realData(c.setup) || !browserChanges(c.in.ToolName, c.in.Input()) {
 		return nil
 	}
+	if c.task != nil && c.task.BrowserOK && !browserScripts(c.in.ToolName, c.in.Input()) {
+		return nil // the user allowed clicks for this task (CL1)
+	}
+	if c.task != nil && !browserScripts(c.in.ToolName, c.in.Input()) {
+		return c.ask("real-data", "Claude wants to click and type in the app on this laptop, which uses your real account. Allowing it counts for the rest of this task's clicks and typing (page scripts that could change data still ask). Allow only if it won't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
+	}
 	return c.ask("real-data", "this could save, send or delete something in the browser, and the app on this laptop uses real data (your real account). Allow only if it can't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
+}
+
+// noteBrowserAllowed: a click or typing on real data ran, so the user
+// allowed it; the rest of the task's clicks don't ask (CL1).
+func (c *hookCtx) noteBrowserAllowed() {
+	in := c.in
+	if c.task == nil || c.task.BrowserOK || in.AgentID != "" || !browserTool(in.ToolName) || !c.setupOK || !realData(c.setup) {
+		return
+	}
+	if !browserChanges(in.ToolName, in.Input()) || browserScripts(in.ToolName, in.Input()) {
+		return
+	}
+	c.task.BrowserOK = true
+	_ = SaveTask(c.task)
+}
+
+// browserScripts: the call runs a page script, or a step Plumbline doesn't
+// know, so it can reach the app's data directly; the per-task OK for
+// clicks doesn't cover it.
+func browserScripts(tool string, input map[string]any) bool {
+	_, name := mcpSplit(tool)
+	return browserStepScripts(mcpWords(name), input, 0)
+}
+
+func browserStepScripts(n string, input map[string]any, depth int) bool {
+	switch {
+	case n == "computer" || n == "form_input":
+		return false
+	case n == "browser_batch":
+		steps, _ := input["actions"].([]any)
+		if depth > 0 || len(steps) == 0 {
+			return true
+		}
+		for _, raw := range steps {
+			step, _ := raw.(map[string]any)
+			sn, _ := step["name"].(string)
+			sin, _ := step["input"].(map[string]any)
+			if step == nil || sn == "" || sin == nil {
+				return true
+			}
+			if _, short := mcpSplit(sn); strings.HasPrefix(sn, "mcp__") {
+				sn = short
+			}
+			if browserStepChanges(mcpWords(sn), sin, depth+1) && browserStepScripts(mcpWords(sn), sin, depth+1) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // localURL: the app on this laptop (localhost and the like).

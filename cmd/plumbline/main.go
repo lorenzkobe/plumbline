@@ -582,6 +582,9 @@ func cmdRun(args []string) (int, error) {
 	if r.Baseline {
 		detail += " Recorded as the task's starting point (baseline)."
 	}
+	if t == nil {
+		detail += " No open task here, so it doesn't count for one." // BL1
+	}
 	if v.Reason != "" {
 		detail += " " + v.Reason + "."
 	}

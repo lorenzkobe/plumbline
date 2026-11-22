@@ -473,3 +473,73 @@ func TestPlainCancelClosesTheLeftOverTask(t *testing.T) {
 		t.Fatalf("nothing left to close: %s", o)
 	}
 }
+
+// CL1 (end-to-end run): on real data, the first click of a task asks once;
+// once it ran (the user allowed it), the task's other clicks and typing go
+// through. Page scripts that could change data still ask, and so does a
+// new task's first click.
+func TestBrowserClicksAskOncePerTask(t *testing.T) {
+	h := provenTask(t)
+	tool := "mcp__claude-in-chrome__computer"
+	open := map[string]any{"action": "left_click", "ref": "ref_45", "action_summary": "Opens the sign-out confirmation dialog (does not sign out)"}
+	cancel := map[string]any{"action": "left_click", "ref": "ref_58", "action_summary": "Closes the sign-out dialog with Cancel"}
+	script := "mcp__claude-in-chrome__javascript_tool"
+	del := map[string]any{"action": "javascript_exec", "text": "await fetch('/rest/v1/bills', {method: 'DELETE'})"}
+	h.expect(h.pre(tool, open), "ask", "counts for the rest of this task")
+	h.expect(h.pre(tool, cancel), "ask", "counts for the rest of this task") // not allowed yet
+	h.post(tool, open, "ok")                                                 // the user allowed it, and it ran
+	if !h.task().BrowserOK {
+		t.Fatal("the allowed click wasn't recorded")
+	}
+	if d, r := decision(h.pre(tool, cancel)); d == "ask" || d == "deny" {
+		t.Fatalf("a later click asked again: %s %s", d, r)
+	}
+	if d, _ := decision(h.pre("mcp__claude-in-chrome__form_input", map[string]any{"ref": "a", "value": true, "action_summary": "Turns on auto-pay"})); d == "ask" {
+		t.Fatal("typing and picking a value are clicks too")
+	}
+	h.expect(h.pre(script, del), "ask", "real account")
+	batch := map[string]any{"actions": []any{
+		map[string]any{"name": "computer", "input": cancel},
+		map[string]any{"name": "javascript_tool", "input": del},
+	}}
+	h.expect(h.pre("mcp__claude-in-chrome__browser_batch", batch), "ask", "real account")
+	// A script that ran doesn't stand for the clicks' OK.
+	h2 := provenTask(t)
+	h2.post(script, del, "ok")
+	if h2.task().BrowserOK {
+		t.Fatal("an allowed page script was taken as the OK for clicks")
+	}
+}
+
+// BL1 (end-to-end run): checks run in the same line as a new branch
+// (git switch -c x && plumbline run checks) find the checkout's one open
+// task, though its branch isn't the task's yet.
+func TestRunAfterBranchSwitchFindsTheTask(t *testing.T) {
+	h := provenTask(t)
+	run(t, h.repo, "git", "switch", "-q", "-c", "fix/new-branch")
+	got, err := ActiveTask(h.repo, "", "")
+	if err != nil || got == nil || got.ID != h.task().ID {
+		t.Fatalf("the checkout's one open task: %v %v", got, err)
+	}
+	// Two open tasks, none on this branch: no guess.
+	other := h.task()
+	other.ID, other.Branch, other.SessionID = "1122-zzzzzz", "elsewhere", "sess-9"
+	must(t, SaveTask(other))
+	if got, _ := ActiveTask(h.repo, "", ""); got != nil {
+		t.Fatalf("with two open tasks it must not guess: %s", got.ID)
+	}
+}
+
+// CM3 (end-to-end run): 72 characters is the advice; only a subject over
+// 100 is refused, so a few extra characters aren't a red box.
+func TestCommitSubjectUpTo100(t *testing.T) {
+	s := &Setup{Kind: "personal"}
+	ok := "fix: unstick Settings sign-out and reset dialogs when the unsent check fails" // 76
+	if p := CheckCommitMessage(ok, s); len(p) > 0 {
+		t.Fatalf("a 76-character subject was refused: %v", p)
+	}
+	long := "fix: " + strings.Repeat("x", 96)
+	if p := CheckCommitMessage(long, s); len(p) == 0 || !strings.Contains(p[0], "101 characters") {
+		t.Fatalf("a 101-character subject must be refused: %v", p)
+	}
+}

@@ -114,7 +114,9 @@ func CheckCommitMessage(msg string, s *Setup) []string {
 		out = append(out, "remove AI markers from the message ("+strings.Join(m, "; ")+")")
 	}
 	subject := strings.SplitN(msg, "\n", 2)[0]
-	if len(subject) > 72 {
+	// 72 is the advice (rules-finish.md); only a much longer subject is
+	// refused, so a few extra characters aren't a red box (CM3).
+	if len(subject) > 100 {
 		out = append(out, fmt.Sprintf("subject line is %d characters; keep it under 72", len(subject)))
 	}
 	if s != nil {

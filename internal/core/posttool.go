@@ -80,6 +80,7 @@ func PostToolUse(in *HookInput) Output {
 	if in.AgentID == "" && in.ToolName != "Read" && in.ToolName != "Grep" && in.ToolName != "AskUserQuestion" {
 		defer c.absorbIntoBuilders() // runs before close: still under the lock
 	}
+	c.noteBrowserAllowed()
 	switch {
 	case in.ToolName == "Read":
 		if in.AgentID != "" {

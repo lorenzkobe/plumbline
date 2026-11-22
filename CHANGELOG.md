@@ -4,6 +4,10 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From the end-to-end run (core only):
+- CL1: in the browser on real data, the first click or typing of a task asks once (the prompt says it counts for the rest of the task); after the user allows it, the task's other clicks and typing go through. Page scripts that could change data still ask each time. The run had asked four times to open two dialogs and press Cancel.
+- BL1: a plumbline run in the same line as a new branch (`git switch -c x && plumbline run checks`) finds the checkout's one open task, though the task hadn't heard of the branch yet. It had been recorded under no task, and the first edit was refused twice. A run that counts for no task now says so.
+- CM3: only a commit subject over 100 characters is refused; 72 stays the advice.
 From smoke step 18d:
 - WV1: a waive the command would refuse (no `--reason`, or a check that can't be waived) is stopped before the user is asked, so their yes isn't spent on an error. The confirm prompt names the check and the reason ("waive bug-test: ..."), and the session-start rule shows the full command.
 - ID1: a plain `/plumbline:cancel` closes the one task left by a window that has ended, and the messages hand the user that, with no task id. A task of a window that's still open is no longer closed by a plain cancel; it needs its id.

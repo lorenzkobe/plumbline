@@ -136,6 +136,10 @@ type Task struct {
 	// DevDBOK: the user allowed a test run on the dev database once, so
 	// the task doesn't ask again.
 	DevDBOK bool `json:"dev_db_ok,omitempty"`
+	// BrowserOK: the user allowed a click or typing in the local app on
+	// real data once, so the rest of the task's clicks don't ask (CL1).
+	// Page scripts that could change data still ask each time.
+	BrowserOK bool `json:"browser_ok,omitempty"`
 
 	// Files touched outside the plan (allowed, must be in the report) and
 	// files Claude was refused (must be under "For you" in the report).
@@ -493,7 +497,8 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 		return nil, nil
 	}
 	branch := CurrentBranch(root)
-	var match []*Task
+	here := treeKey(root)
+	var match, inTree []*Task
 	for _, t := range ListTasks(root) {
 		if t.Phase == "tampered" {
 			return nil, ErrTampered
@@ -501,9 +506,18 @@ func ActiveTask(root, sessionID, explicit string) (*Task, error) {
 		if t.Open() && t.Branch == branch {
 			match = append(match, t)
 		}
+		if t.Open() && treeKey(t.Root) == here {
+			inTree = append(inTree, t)
+		}
 	}
 	if len(match) == 1 {
 		return match[0], nil
+	}
+	if len(match) == 0 && len(inTree) == 1 {
+		// The branch moved in the same command line (git switch -c x &&
+		// plumbline run checks) before the task heard of it; a checkout
+		// holds one open task, so it's that one (BL1).
+		return inTree[0], nil
 	}
 	if len(match) > 1 {
 		ids := []string{}
