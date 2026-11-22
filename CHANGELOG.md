@@ -4,6 +4,10 @@
 From smoke step 12b (a deploy by hand), chosen by the user:
 - DP1: in a project a pipeline deploys (`deploy_pipeline`), a message about deploying (deploy, ship, release, go live, prod, Vercel, Netlify) gets one line: how the project ships (its `deploy_notes`), don't deploy by hand or offer to set up a deploy tool, say what's ready, the user pushes. Claude had told the user to install and link the Vercel CLI and offered to run `vercel --prod`.
 - DP2: the reminder and the finish rule say previews and test deploys count too, and not to offer one: Claude had offered a preview deploy outside the pipeline, which is refused.
+From the end-to-end run (everything on):
+- PR3: a batched browser call that opens the local app and takes a screenshot counts as the ui proof, and the finish check's missing line says a screenshot after the last edit counts (it named only Playwright). The run had asked the user twice, tried Playwright against a sign-in wall, and ended in a waiver.
+- SZ4: a small task that changes a screen also gets the UX reviewer (a screen's test alone doesn't).
+- RV3: the reviewers are told up front that they only read, and where the lead's recorded results are (`plumbline status`); every review had tried `npx vitest` and been refused.
 From the end-to-end run (core only):
 - CL1: in the browser on real data, the first click or typing of a task asks once (the prompt says it counts for the rest of the task); after the user allows it, the task's other clicks and typing go through. Page scripts that could change data still ask each time. The run had asked four times to open two dialogs and press Cancel.
 - BL1: a plumbline run in the same line as a new branch (`git switch -c x && plumbline run checks`) finds the checkout's one open task, though the task hadn't heard of the branch yet. It had been recorded under no task, and the first edit was refused twice. A run that counts for no task now says so.

@@ -40,7 +40,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 		r := LatestFor(runs, t.ID, KindProof, k, "", fp)
 		if v := Judge(r, nil); !v.OK {
 			how := map[string]string{
-				"ui":     "click every changed button, link or tab in the real app (Playwright)",
+				"ui":     "open the changed screen of the app on this laptop in the browser and take a screenshot after the last edit (it counts by itself), or click every changed button, link or tab with Playwright",
 				"api":    "call the changed API and show the response proves the intended change (the body or the changed record), not only its code",
 				"schema": "run a real query against the changed schema",
 			}[k]

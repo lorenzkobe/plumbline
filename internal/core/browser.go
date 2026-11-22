@@ -231,6 +231,40 @@ func (c *hookCtx) afterBrowser() {
 		a, _ := input["action"].(string)
 		shot = a == "screenshot" || a == "zoom"
 	}
+	if n == "browser_batch" {
+		// The steps in order: a local page opened, then a screenshot (PR3).
+		before := t.BrowserURL
+		steps, _ := input["actions"].([]any)
+		for _, raw := range steps {
+			step, _ := raw.(map[string]any)
+			sn, _ := step["name"].(string)
+			sin, _ := step["input"].(map[string]any)
+			if _, short := mcpSplit(sn); strings.HasPrefix(sn, "mcp__") {
+				sn = short
+			}
+			switch sn = mcpWords(sn); {
+			case sn == "navigate":
+				if u, _ := sin["url"].(string); localURL(u) {
+					t.BrowserURL = u
+				} else {
+					t.BrowserURL = ""
+				}
+				shot = false
+			case sn == "computer":
+				if a, _ := sin["action"].(string); (a == "screenshot" || a == "zoom") && t.BrowserURL != "" {
+					shot = true
+				}
+			case strings.Contains(sn, "screenshot") && t.BrowserURL != "":
+				shot = true
+			}
+		}
+		if t.BrowserURL != before {
+			_ = SaveTask(t)
+		}
+		if !shot {
+			return
+		}
+	}
 	if !shot && !strings.Contains(n, "screenshot") {
 		return
 	}

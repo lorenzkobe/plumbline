@@ -199,8 +199,9 @@ var signalWhy = map[string]string{
 
 // ReviewersFor: the reviewers a change needs, by size and by the files it
 // touches (relative to root, so a home folder like /Users/... isn't read as
-// user data). Small tasks get one reviewer (the code reviewer), unless a
-// file decides which checks run (GateFile): that gets the full review.
+// user data). Small tasks get the code reviewer, plus security for security
+// code and UX for a changed screen, unless a file decides which checks run
+// (GateFile): that gets the full review.
 func ReviewersFor(size, root string, files []string) []string {
 	need := map[string]bool{HelperCodeReviewer: true}
 	if size != "small" {
@@ -215,9 +216,11 @@ func ReviewersFor(size, root string, files []string) []string {
 		need[HelperPlanReviewer] = need[HelperPlanReviewer] || GateFile(f)
 		f = reCamel.ReplaceAllString(filepath.ToSlash(f), "${1}_${2}")
 		need[HelperSecurity] = need[HelperSecurity] || reSecuritySignal.MatchString(f)
-		if size != "small" { // a small change gets one review, plus security where it reaches security code (UX1)
+		if size != "small" { // a small change gets the code review, plus security where it reaches security code (UX1)
 			need[HelperData] = need[HelperData] || reDataSignal.MatchString(f)
 			need[HelperUX] = need[HelperUX] || reUXSignal.MatchString(f)
+		} else if reUXSignal.MatchString(f) && !TestFile(f, nil) {
+			need[HelperUX] = true // and the UX reviewer where it changes a screen (SZ4)
 		}
 	}
 	var out []string
@@ -589,7 +592,7 @@ func (c *hookCtx) helperBash(kind, cmd string) Output {
 		if s.Opaque != "" {
 			what = s.Opaque
 		}
-		runs := "The lead runs tests and proof."
+		runs := "The lead runs tests and proof; its recorded results are in plumbline status."
 		switch kind {
 		case HelperQA:
 			runs = "To run your tests: plumbline run related --files <test files>, or plumbline run test."

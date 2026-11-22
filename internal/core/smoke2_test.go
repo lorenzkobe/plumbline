@@ -543,3 +543,36 @@ func TestCommitSubjectUpTo100(t *testing.T) {
 		t.Fatalf("a 101-character subject must be refused: %v", p)
 	}
 }
+
+// PR3 (end-to-end run): a batched browser call that opens the local app and
+// takes a screenshot counts as the ui proof, as a lone screenshot does.
+func TestBatchScreenshotIsUIProof(t *testing.T) {
+	h := groundedTask(t, "small")
+	h.docs(DocPlan, strings.Replace(goodPlan, "- does not apply, because no API or UI\n", "- ui: the chips are 44px at 360px\n", 1))
+	h.approve()
+	a := filepath.Join(h.repo, "src", "a.go")
+	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
+	h.post("Edit", map[string]any{"file_path": a}, nil)
+	ui := func() bool { return strings.Contains(h.finishMissing(), "real-world proof (ui)") }
+	if !ui() {
+		t.Fatal("the ui proof should be missing before any look")
+	}
+	if !strings.Contains(h.finishMissing(), "take a screenshot after the last edit") {
+		t.Fatalf("the missing line should say a screenshot counts: %s", h.finishMissing())
+	}
+	// Clicks only, no screenshot: no proof.
+	h.post("mcp__claude-in-chrome__browser_batch", map[string]any{"actions": []any{
+		map[string]any{"name": "navigate", "input": map[string]any{"url": "http://localhost:5180/app/bills"}},
+		map[string]any{"name": "computer", "input": map[string]any{"action": "left_click", "ref": "ref_32"}},
+	}}, "ok")
+	if !ui() {
+		t.Fatal("a batch without a screenshot isn't a look")
+	}
+	h.post("mcp__claude-in-chrome__browser_batch", map[string]any{"actions": []any{
+		map[string]any{"name": "computer", "input": map[string]any{"action": "left_click", "ref": "ref_32"}},
+		map[string]any{"name": "mcp__claude-in-chrome__computer", "input": map[string]any{"action": "screenshot"}},
+	}}, "ok")
+	if ui() {
+		t.Fatalf("a batch screenshot of the local app should count: %s", h.finishMissing())
+	}
+}

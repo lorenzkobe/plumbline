@@ -70,12 +70,19 @@ func TestSmallFloor(t *testing.T) {
 	}
 }
 
-// A small task gets one reviewer, the code reviewer; not the data or UX
-// specialist its files would call for at normal size.
+// A small task gets the code reviewer, not the data specialist its files
+// would call for at normal size. A changed screen also gets the UX reviewer
+// (SZ4, end-to-end run); a screen's test alone doesn't.
 func TestSmallTaskOneReviewer(t *testing.T) {
-	got := ReviewersFor("small", "", []string{"src/db/queries/orders.go", "src/components/Button.tsx"})
+	got := ReviewersFor("small", "", []string{"src/db/queries/orders.go"})
 	if len(got) != 1 || got[0] != HelperCodeReviewer {
 		t.Fatalf("small reviewers: %v", got)
+	}
+	if got := ReviewersFor("small", "", []string{"src/pages/BillsPage.tsx", "tests/pages/BillsPage.test.tsx"}); len(got) != 2 || !contains(got, HelperUX) {
+		t.Fatalf("a small screen change gets the UX reviewer: %v", got)
+	}
+	if got := ReviewersFor("small", "", []string{"tests/pages/BillsPage.test.tsx"}); len(got) != 1 {
+		t.Fatalf("a screen's test alone needs no UX review: %v", got)
 	}
 	normal := ReviewersFor("normal", "", []string{"src/db/queries/orders.go"})
 	if !contains(normal, HelperData) {
