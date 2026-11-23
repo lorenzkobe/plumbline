@@ -180,15 +180,21 @@ func coverage(text string) map[string]bool {
 // every changed or new file since the start, without the user's own work,
 // other sessions' files and what the setup ignores.
 func reviewedFiles(t *Task, ignore []string) []string {
+	out, _ := reviewedFilesErr(t, ignore)
+	return out
+}
+
+func reviewedFilesErr(t *Task, ignore []string) ([]string, error) {
 	var out []string
 	others := t.OthersWork()
-	for _, p := range ChangedSince(t.Root, t.StartCommit) {
+	changed, err := changedSince(t.Root, t.StartCommit)
+	for _, p := range changed {
 		if others[p] || MatchAny(ignore, p) {
 			continue
 		}
 		out = append(out, p)
 	}
-	return out
+	return out, err
 }
 
 // findingsProblems checks a finished challenger or reviewer run's findings

@@ -178,6 +178,9 @@ type Task struct {
 	BugTests  []string `json:"bug_tests,omitempty"`
 	BugStored bool     `json:"bug_stored,omitempty"`
 
+	SelfReview    *SelfReview     `json:"self_review,omitempty"`
+	ReviewerStart []ReviewerStart `json:"reviewer_start,omitempty"`
+
 	LastCodeChange time.Time `json:"last_code_change,omitempty"`
 	// ChangeDays: the last code change of each earlier local day.
 	ChangeDays []time.Time `json:"change_days,omitempty"`

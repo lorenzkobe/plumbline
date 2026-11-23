@@ -167,6 +167,7 @@ Rollback: <how to undo it: revert the commit, the down migration> / <why it can'
 - Waivers: <or "none">
 
 ## Review
+- Self-review: <what your own pass over the checklist caught and fixed before the reviewers, or "nothing">
 - Reviews: <reviewer>: <n> runs (code-review-1.md, ...), the last one on the final code; the same for each reviewer
 - Builders (if used): <builder n>: <part>, merged / dropped, checked how
 - Blind QA (big tasks): <qa-1.md>: <its tests that failed before the code, and any problem they found>

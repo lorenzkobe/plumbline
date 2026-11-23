@@ -767,12 +767,14 @@ func TestReviewThatStillCountsDoesntRunAgain(t *testing.T) {
 	}
 	// A test-only fix: the code reviewer runs, the plan reviewer doesn't.
 	write(t, filepath.Join(h.repo, "src", "a_test.go"), "package src\n\n// fixed comment\n")
+	h.selfReview()
 	h.expect(start(HelperPlanReviewer), "deny", "only tests or docs changed")
 	if d, r := decision(start(HelperCodeReviewer)); d == "deny" {
 		t.Fatalf("the code reviewer after a test fix: %s", r)
 	}
 	// A code change: both run.
 	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 2 } // x\n")
+	h.selfReview()
 	if d, r := decision(start(HelperPlanReviewer)); d == "deny" {
 		t.Fatalf("the plan reviewer after a code change: %s", r)
 	}

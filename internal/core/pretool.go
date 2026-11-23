@@ -301,6 +301,18 @@ func (c *hookCtx) gateTool() Output {
 		if kind := helperKind(in.Str("subagent_type"), true); kind != "" {
 			return c.gateHelperStart(kind)
 		}
+	case "SendMessage":
+		if c.task == nil {
+			return nil
+		}
+		run := c.task.runByAgent(in.Str("to"))
+		if run == nil || !isReviewer(run.Kind) || run.alive() {
+			return nil
+		}
+		if in.AgentID != "" {
+			return c.deny("no-nested-helpers", "helpers can't start other helpers. Report back to the lead instead.")
+		}
+		return c.gateHelperStart(run.Kind)
 	default:
 		if strings.HasPrefix(in.ToolName, "mcp__") {
 			return c.gateMCP()

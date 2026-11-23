@@ -373,6 +373,7 @@ func TestReviewerPromptMayNameAChangedFile(t *testing.T) {
 	h := provenTask(t)
 	write(t, filepath.Join(h.repo, "internal/pages/settings/signout_flow_test.go"), "package settings\n")
 	h.docs(DocReport, "# Report\n- the flaky wait in internal/pages/settings/signout_flow_test.go is fixed\n")
+	h.selfReview()
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "Review the change. Changed files: src/a.go, internal/pages/settings/signout_flow_test.go."}), "", "")
 	// Real copied text is still caught, and the refusal says where added scope goes.
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "Review the change: the flaky wait in internal/pages/settings/signout_flow_test.go is fixed."}), "deny", "write that into plan.md first")

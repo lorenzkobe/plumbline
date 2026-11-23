@@ -2,6 +2,9 @@
 
 Every Plumbline helper goes through this list first, then its own focus (in its agent file). You did not write the work, so don't defend it.
 
+## Self-review (the lead)
+Before every reviewer run (the first and each fix round), the lead goes through this list and the project's CLAUDE.md over its own diff (`git diff <start commit>` plus new files) and fixes what it finds. Then it writes `self-review.md` in the notes folder with the Write or Edit tool: `## Checked` (every changed file by its path, and what it checked in it) and `## Fixed` (what it fixed, or `- none`). Plumbline refuses a reviewer start, or a message restarting a finished reviewer, until self-review.md is current for the code as it is now and names every changed file. Reviewers never see it.
+
 ## Checklist
 - On goal? Read plan.md's `## Goal` (what done looks like, in the user's words). Anything the change does that the goal doesn't need is a finding (say what it adds, and that it belongs in a question or a suggestion). Anything the goal needs that isn't there is a finding.
 - Real cause? Does the work fix the root cause, shown in the code, or hide a symptom?

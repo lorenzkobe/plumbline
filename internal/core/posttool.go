@@ -129,6 +129,9 @@ func PostToolUse(in *HookInput) Output {
 		if o := c.designReminder(abs); o != nil {
 			return o
 		}
+		if o := c.afterSelfReview(abs); o != nil {
+			return o
+		}
 		if o := c.afterReport(abs); o != nil {
 			return o
 		}

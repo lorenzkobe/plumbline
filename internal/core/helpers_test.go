@@ -21,10 +21,32 @@ func (h *harness) helperIn(id, kind, tool string, input any) *HookInput {
 // startHelper: the lead starts the helper, then Claude Code fires SubagentStart.
 func (h *harness) startHelper(kind string) (string, Output) {
 	h.t.Helper()
+	if isReviewer(kind) && h.task().Phase == PhaseBuilding {
+		h.selfReview()
+	}
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:" + kind, "prompt": "go"}), "", "")
 	id := fmt.Sprintf("%s-%d", kind, len(h.task().Helpers)+1)
 	o := SubagentStart(&HookInput{SessionID: h.sid, Cwd: h.repo, AgentID: id, AgentType: "plumbline:" + kind})
 	return id, o
+}
+
+func (h *harness) selfReview() string {
+	h.t.Helper()
+	tk := h.task()
+	s, _, _ := LoadSetup(h.repo)
+	var ignore []string
+	if s != nil {
+		ignore = s.IgnoreChanges
+	}
+	text := "# Self-review\n## Checked\n"
+	for _, f := range reviewedFiles(tk, ignore) {
+		text += "- " + f + ": went through the checklist\n"
+	}
+	text += "- the shared checklist\n## Fixed\n- none\n"
+	p := filepath.Join(TaskDocsDir(h.repo, tk.ID), DocSelfReview)
+	write(h.t, p, text)
+	h.post("Write", map[string]any{"file_path": p, "content": text}, nil)
+	return p
 }
 
 func (h *harness) findingsPath(id string) string {

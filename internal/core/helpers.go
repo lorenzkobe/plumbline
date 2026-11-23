@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,12 +87,13 @@ type HelperRun struct {
 	// The findings file (its hash, or "missing") when a handback was last
 	// refused, so a second try with nothing changed goes through (SA1).
 	HandbackDenied string `json:"handback_denied,omitempty"`
+	Unchecked      bool   `json:"unchecked,omitempty"`
 }
 
 // Counts: a run that finished on unchanged code with a findings file that
 // passed its checks.
 func (t *Task) counts(r HelperRun) bool {
-	return r.Complete() && t.findingsExist(r) && len(r.Problems) == 0
+	return r.Complete() && !r.Unchecked && t.findingsExist(r) && len(r.Problems) == 0
 }
 
 // Complete: the run finished and the code didn't change while it ran.
@@ -310,7 +312,7 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 func (t *Task) helperRuns(kind string) []HelperRun {
 	var out []HelperRun
 	for _, r := range t.Helpers {
-		if r.Kind == kind {
+		if r.Kind == kind && !r.Unchecked {
 			out = append(out, r)
 		}
 	}
@@ -467,6 +469,8 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 	if isWorker(kind) && !c.setup.PartOn(kind) {
 		return c.deny("helper-off", fmt.Sprintf("the %s is switched off in this project's setup (parts).", kind))
 	}
+	var fp string
+	var fpErr error
 	switch {
 	case kind == HelperTracer:
 		// any time during a task: it only reads and reports
@@ -498,13 +502,34 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if why := c.disputeProblem(kind); why != "" {
 			return c.deny("dispute-evidence", why)
 		}
-		if why := c.reviewStillHolds(kind); why != "" {
+		fp, fpErr = Fingerprint(t.Root, c.ignore())
+		if why := c.reviewStillHolds(kind, fp, fpErr); why != "" {
 			return c.deny("review-holds", why)
 		}
+		if why := c.selfReviewProblem(fp, fpErr); why != "" {
+			return c.deny("self-review", why)
+		}
 	}
-	if prompt, _ := c.in.Input()["prompt"].(string); prompt != "" {
+	prompt, _ := c.in.Input()["prompt"].(string)
+	if c.in.ToolName == "SendMessage" {
+		switch m := c.in.Input()["message"].(type) {
+		case string:
+			prompt = m
+		case nil:
+		default:
+			b, _ := json.Marshal(m)
+			prompt = string(b)
+		}
+	}
+	if prompt != "" {
 		if why := c.promptProblem(kind, prompt); why != "" {
 			return c.deny("helper-prompt", why)
+		}
+	}
+	if isReviewer(kind) {
+		t.allowReviewerStart(kind, fp)
+		if err := SaveTask(t); err != nil {
+			return c.deny("reviewer-record", fmt.Sprintf("the %s's start couldn't be recorded (%v), so its run wouldn't count. Try again.", kind, err))
 		}
 	}
 	return nil
@@ -515,14 +540,13 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 // every reviewer but the code reviewer (RV1). Step 11c reran the plan and UX
 // reviewers after a test-only fix (RV2). A rerun on unchanged code stays
 // allowed (disputes, a run the lead wants for its own reason).
-func (c *hookCtx) reviewStillHolds(kind string) string {
+func (c *hookCtx) reviewStillHolds(kind, fp string, err error) string {
 	t := c.task
 	runs := t.helperRuns(kind)
 	last := t.lastFinished(kind)
 	if last == nil || len(runs) == 0 || runs[len(runs)-1].alive() || !t.counts(*last) || t.disputeOpen(kind, *last) {
 		return ""
 	}
-	fp, err := Fingerprint(t.Root, c.ignore())
 	if err != nil || fp == "" {
 		return ""
 	}
@@ -869,9 +893,21 @@ func SubagentStart(in *HookInput) Output {
 				run.PrintBefore = made.tree
 			}
 		}
+		if isReviewer(kind) && !c.paused && !t.takeReviewerStart(kind, run.PrintBefore) {
+			run.Unchecked = true
+			run.Findings = fmt.Sprintf("%s-unchecked-%d.md", kind, len(t.Helpers)+1)
+		}
 		t.Helpers = append(t.Helpers, run)
 	}
 	_ = SaveTask(t)
+	if run.Unchecked {
+		c.log("helper", kind+"-unchecked", "")
+		why := "no reviewer start was checked for this code in the last 2 minutes: a message to a finished reviewer by name, one a helper sent, or a start that took too long or saw the code change"
+		if run.PrintBefore == "" {
+			why = "Plumbline couldn't read the code's state when it began"
+		}
+		return Context("SubagentStart", msg(fmt.Sprintf("this %s run began without Plumbline's reviewer checks (%s), so it won't count and doesn't use up a review round. Stop now and write nothing; say in your final message that the lead must start the review with the Agent tool.", kind, why)))
+	}
 	root := c.root
 	if run.Worktree != "" {
 		root = run.Worktree
@@ -932,6 +968,9 @@ func SubagentStart(in *HookInput) Output {
 // wrong with it. It records on run what the checks read from the file.
 func (c *hookCtx) stopProblems(run *HelperRun, kind string) (missing bool, problems []string) {
 	t := c.task
+	if run.Unchecked {
+		return false, nil
+	}
 	if !t.findingsExist(*run) {
 		return true, nil
 	}

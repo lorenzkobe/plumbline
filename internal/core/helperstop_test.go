@@ -156,6 +156,9 @@ func TestResumeFindsTheRunWithTheCopy(t *testing.T) {
 func TestResumedReviewerKeepsItsNewRun(t *testing.T) {
 	h := buildingTask(t)
 	id, _ := h.startHelper(HelperCodeReviewer)
+	write(t, h.findingsPath(id), h.complete(HelperCodeReviewer, "# Code review 1\n## Findings\n- none\n"))
+	h.stopHelper(id, HelperCodeReviewer)
+	h.expect(h.pre("SendMessage", map[string]any{"to": id, "message": "Review again."}), "", "")
 	SubagentStart(&HookInput{SessionID: h.sid, Cwd: h.repo, AgentID: id, AgentType: "plumbline:" + HelperCodeReviewer})
 	tk := h.task()
 	runs := tk.helperRuns(HelperCodeReviewer)
