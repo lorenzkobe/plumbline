@@ -34,13 +34,21 @@ func TestBuilderHaltedByPlumblineIsStopped(t *testing.T) {
 		t.Fatalf("four files outside the plan should halt the builder: %v", o)
 	}
 	r := h.run(HelperBuilder, id)
-	if r.Finished.IsZero() || r.Status != "stopped by Plumbline" || !strings.Contains(r.Error, "outside the approved plan") {
+	if r.Finished.IsZero() || r.Status != "stopped by Plumbline" || !strings.Contains(r.Error, "outside the approved plan") || !strings.Contains(r.Error, "plan.md's ## Files") || strings.Contains(r.Error, "the user decides") {
 		t.Fatalf("a halted builder must be recorded as stopped, with why: finished %v, status %q, error %q", r.Finished, r.Status, r.Error)
 	}
 	if r.alive() {
 		t.Fatal("a halted builder isn't running")
 	}
+	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/x1.go (new)\n- src/x2.go (new)\n- src/x3.go (new)\n- src/x4.go (new)\n", 1)
+	pp := h.docs(DocPlan, plan)
+	if o := h.post("Write", map[string]any{"file_path": pp}, map[string]any{}); !strings.Contains(fmtOut(o), "added to the plan's files") {
+		t.Fatalf("the lead adds the builder's files to the plan: %v", o)
+	}
 	tk := h.task()
+	if n := tk.OutsideCount(); n != 0 {
+		t.Fatalf("the builder's files, now in the plan, still count: %d", n)
+	}
 	changed, _, err := MergeBuilder(tk, 1, nil)
 	if err != nil {
 		t.Fatalf("a halted builder's copy can be merged right away: %v", err)
@@ -58,8 +66,8 @@ func TestLeadHaltedLeavesHelpersAlone(t *testing.T) {
 	for _, f := range []string{"y1.go", "y2.go", "y3.go", "y4.go"} {
 		write(t, filepath.Join(h.repo, "src", f), "package src\n\nvar y = 1\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); !stopped(o) {
-		t.Fatalf("the lead past the cap is stopped: %v", o)
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+		t.Fatalf("the lead past the cap is told to fix the plan, not stopped: %v", o)
 	}
 	if r := h.run(HelperBuilder, id); !r.Finished.IsZero() || r.Status != "" {
 		t.Fatalf("the lead's stop must not touch a builder: %+v", r)
@@ -200,5 +208,20 @@ func TestMergedBuilderStartedAgainGetsANewCopy(t *testing.T) {
 	}
 	if _, err := os.Stat(r.Worktree); err != nil {
 		t.Fatalf("the new copy exists: %v", err)
+	}
+}
+
+func TestBuilderPastCapNamesFilesForTheLead(t *testing.T) {
+	h := buildingTask(t)
+	id, _ := h.startHelper(HelperBuilder)
+	wt := h.run(HelperBuilder, id).Worktree
+	for _, n := range []string{"c", "d", "e"} {
+		p := filepath.Join(wt, "src", n+".go")
+		write(t, p, "package src\n")
+		h.helperPost(id, HelperBuilder, "Write", map[string]any{"file_path": p}, nil)
+	}
+	_, reason := decision(h.hi(id, HelperBuilder, "Write", map[string]any{"file_path": filepath.Join(wt, "src", "f.go")}))
+	if !strings.Contains(reason, "file 4 outside") || !strings.Contains(reason, "Name it in your notes") || strings.Contains(reason, "plan.md") || strings.Contains(reason, "ask") {
+		t.Fatalf("a builder can't edit the plan or ask: it names the file for the lead: %q", reason)
 	}
 }

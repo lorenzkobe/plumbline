@@ -89,8 +89,8 @@ func TestUndoIsNotOutsideThePlan(t *testing.T) {
 	for _, f := range outside {
 		write(t, filepath.Join(h.repo, f), "package src\n\nvar changed = 1\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); o["continue"] != false {
-		t.Fatalf("four files outside the plan should stop the work: %v", o)
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+		t.Fatalf("four files outside the plan get the fix-the-plan note, not a stop: %v", o)
 	}
 
 	undo := "git checkout -- " + strings.Join(outside, " ")

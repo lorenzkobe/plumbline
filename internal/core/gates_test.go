@@ -270,7 +270,7 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	}
 	must(t, SaveTask(tk2))
 	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "c.go")}), "", "")
-	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "f.go")}), "deny", "plan was likely wrong")
+	h.expect(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src", "f.go")}), "deny", "plan missed files")
 	for _, f := range []string{"src/c.go", "src/d.go", "src/e.go"} {
 		must(t, os.Remove(filepath.Join(h.repo, f))) // created and removed again: no longer counted
 	}

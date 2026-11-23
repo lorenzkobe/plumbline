@@ -135,8 +135,15 @@ func PostToolUse(in *HookInput) Output {
 		if o := c.afterPlan(abs); o != nil {
 			return o
 		}
+		if o := c.afterPlanEdit(abs); o != nil {
+			return o
+		}
 	case in.ToolName == "Bash":
-		return c.watchNote(c.withTrackerCheck(c.withMainCheck(c.afterBash())))
+		o := c.watchNote(c.withTrackerCheck(c.withMainCheck(c.afterBash())))
+		if note := c.planWrittenByShell(); note != "" {
+			o = addContext(o, note)
+		}
+		return o
 	case in.ToolName == "Monitor" && in.Str("command") != "":
 		// Monitor runs its command in Bash's shell: the same check after it.
 		// What it changes later is seen by the next check.
@@ -554,8 +561,6 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		c.helperHalted(reason)
 		return StopAll(msg(reason))
 	}
-	// During building the user is often away: record and tell Claude; stop
-	// only when the plan looks wrong.
 	var outside, theirs, sessions, risky []string
 	others := c.task.otherSessionFiles()
 	held := func(p, why string) {
@@ -611,10 +616,14 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		fmt.Fprintf(&b, "that command changed risky files (or files that decide which checks run) outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))
 	}
 	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
-		c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
-		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan was likely wrong. The work is stopped: the user decides whether to go back to the plan (plumbline task replan) or undo these.", listFiles(outside), OutsidePlanCap)
-		c.helperHalted(b.String())
-		return StopAll(msg(b.String()))
+		if c.in.AgentID != "" {
+			c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
+			fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so this builder is stopped. The lead decides without the user: add the files that belong to this change to plan.md's ## Files and merge the copy, or resume this builder to undo the others in its copy, then merge.", listFiles(outside), OutsidePlanCap)
+			c.helperHalted(b.String())
+			return StopAll(msg(b.String()))
+		}
+		c.log("note", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
+		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan missed them. Don't stop or ask the user: add the ones that belong to this change to plan.md's ## Files (Write or Edit tool) with a line on why, undo the ones that don't, and keep going. They stay on the report's \"Outside the plan\" list.", listFiles(outside), OutsidePlanCap)
 	} else if len(outside) > 0 {
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
 	}
@@ -790,6 +799,101 @@ func (c *hookCtx) afterPlan(abs string) Output {
 		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`))
 	}
 	return Context("PostToolUse", msg("before the plan question, still needed: "+strings.Join(uniq(p), "; ")+". Do these now, so the question isn't refused."))
+}
+
+func (c *hookCtx) planPath() string {
+	return filepath.Join(Abs(TaskDocsDir(c.root, c.task.ID), "/"), DocPlan)
+}
+
+func (c *hookCtx) planWrittenByShell() string {
+	if c.task == nil || c.in.AgentID != "" || c.task.Phase != PhaseBuilding {
+		return ""
+	}
+	plan := foldPath(c.planPath())
+	for _, s := range ParseShell(c.in.Str("command"), c.in.Cwd) {
+		for _, w := range WriteTargets(s) {
+			if abs := targetAbs(s, w); abs != "" && foldPath(abs) == plan {
+				return c.planEditNote()
+			}
+		}
+	}
+	return ""
+}
+
+func (c *hookCtx) afterPlanEdit(abs string) Output {
+	if c.task == nil || foldPath(abs) != foldPath(c.planPath()) {
+		return nil
+	}
+	if note := c.planEditNote(); note != "" {
+		return Context("PostToolUse", note)
+	}
+	return nil
+}
+
+func dirAt(root, rel string) bool {
+	fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+	return err == nil && fi.IsDir()
+}
+
+func unusablePlanPath(f string) bool {
+	return filepath.IsAbs(f) || f == ".." || strings.HasPrefix(f, "../") || strings.Contains(f, "/../") || strings.HasPrefix(f, "~")
+}
+
+func (c *hookCtx) planEditNote() string {
+	t := c.task
+	if t == nil || c.in.AgentID != "" || t.Phase != PhaseBuilding || c.paused {
+		return ""
+	}
+	text, _, err := ReadDoc(t, DocPlan)
+	if err != nil {
+		return ""
+	}
+	others := t.otherSessionFiles()
+	var added, refused []string
+	pc := CheckPlan(text)
+	for _, f := range pc.Files {
+		if t.InPlan(f) {
+			continue
+		}
+		_, theirs := t.Preexisting[f]
+		switch {
+		case strings.HasSuffix(f, "/") || strings.ContainsAny(f, "*?[\\"):
+			refused = append(refused, f+" (a folder or pattern: only exact files can be added while building)")
+		case unusablePlanPath(f):
+			refused = append(refused, f+" (not a path inside the repo: write it relative to the repo root)")
+		case dirAt(t.Root, f):
+			refused = append(refused, f+" (a folder: only exact files can be added while building)")
+		case theirs:
+			refused = append(refused, f+" (it held the user's own unsaved work)")
+		case others[f]:
+			refused = append(refused, f+" (another Claude session changed it)")
+		case RiskyPath(f, c.setup) || gateOutsidePlan(f):
+			refused = append(refused, f+" (a risky file, or one that decides which checks run)")
+		case !contains(pc.NewFiles, f) && gone(t.Root, f):
+			refused = append(refused, f+" (not in the repo: mark a file the change creates with \"(new)\" after it, and keep notes that aren't files out of ## Files)")
+		default:
+			t.PlanFiles = append(t.PlanFiles, f)
+			t.NoteOutside(f, "added to the plan while building")
+			added = append(added, f)
+		}
+	}
+	if len(added) == 0 && len(refused) == 0 {
+		return ""
+	}
+	if len(added) > 0 {
+		if err := SaveTask(t); err != nil {
+			return msg(fmt.Sprintf("plan.md's new files couldn't be recorded (%v), so they still count as outside the plan. Write plan.md again.", err))
+		}
+		c.log("note", "plan-files-added", fmt.Sprintf("%d files", len(added)))
+	}
+	var b strings.Builder
+	if len(added) > 0 {
+		fmt.Fprintf(&b, "added to the plan's files: %s. Keep going; list them under \"Outside the plan\" in the report with why. ", listFiles(added))
+	}
+	if len(refused) > 0 {
+		fmt.Fprintf(&b, "not added, so they stay outside the plan: %s. Don't change them; list them under \"For you\" in the report with what you'd change and why (a risky file can join the plan only through plumbline task replan and the user's approval).", strings.Join(refused, ", "))
+	}
+	return msg(strings.TrimSpace(b.String()))
 }
 
 // afterReport: once the lead writes report.md, say what the finish check

@@ -1307,7 +1307,10 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		return "gate-outside-plan", fmt.Sprintf("%s isn't in the approved plan and decides which checks run (CI, git hooks, test or lint config, AI instructions, plugin parts): one line there can switch a check off. Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why; to change it, the plan must list it (plumbline task replan).", rel)
 	}
 	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount()+pending >= OutsidePlanCap {
-		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan was likely wrong, which is the user's decision. Stop and ask them (with your suggestion): go back to the plan (plumbline task replan, update ## Files, ask the checkpoint again), or something else. Finish anything that doesn't depend on it first.", rel, c.task.OutsideCount()+pending+1)
+		if c.in.AgentID != "" {
+			return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan, so the plan missed files. Don't change it. Name it in your notes with why it's needed; the lead adds it to the plan.", rel, c.task.OutsideCount()+pending+1)
+		}
+		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan missed files. Don't stop or ask the user: if it belongs to this change, add it to plan.md's ## Files (Write or Edit tool) with a line on why, then make the edit; if it doesn't, leave it alone.", rel, c.task.OutsideCount()+pending+1)
 	}
 	return "", ""
 }

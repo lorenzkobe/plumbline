@@ -183,8 +183,7 @@ func TestBuildingBashRefusals(t *testing.T) {
 	h.expect(h.bash("echo x > src/a.go"), "", "") // in the plan
 	// The cap: three new files outside the plan in one command is fine, a fourth isn't.
 	h.expect(h.bash("touch src/c.go src/d.go src/e.go"), "", "")
-	h.expect(h.bash("touch src/c.go src/d.go src/e.go src/f.go"), "deny", "plan was likely wrong")
-	// After the fact: a risky file changed by a command is held; past the cap, the work stops.
+	h.expect(h.bash("touch src/c.go src/d.go src/e.go src/f.go"), "deny", "plan missed files")
 	h.post("Bash", map[string]any{"command": "true"}, nil)
 	write(t, filepath.Join(h.repo, "go.mod"), "module x\n")
 	h.post("Bash", map[string]any{"command": "./gen.sh"}, nil)
@@ -194,8 +193,8 @@ func TestBuildingBashRefusals(t *testing.T) {
 	for _, f := range []string{"src/c.go", "src/d.go", "src/e.go", "src/f.go"} {
 		write(t, filepath.Join(h.repo, f), "package src\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); o["continue"] != false {
-		t.Errorf("past the cap should stop the work: %v", o)
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+		t.Errorf("past the cap Claude fixes the plan and keeps going: %v", o)
 	}
 }
 
