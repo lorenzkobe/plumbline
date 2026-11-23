@@ -532,12 +532,19 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 			setupSaved = true // asked for and allowed; not a change to stop for
 		}
 	}
+	var notes map[string]bool
+	if c.task == nil {
+		notes = untrackedNotes(c.root, all)
+	}
 	var changed []string
 	for _, p := range all {
 		if c.setup != nil && MatchAny(c.setup.IgnoreChanges, p) {
 			continue
 		}
 		if setupSaved && p == RepoSetupFile {
+			continue
+		}
+		if notes[p] {
 			continue
 		}
 		changed = append(changed, p)
@@ -914,6 +921,82 @@ func (c *hookCtx) afterReport(abs string) Output {
 	return Context("PostToolUse", msg(`the finish check has nothing left but the commit. If the task's changes aren't committed, say in one line "Checks: all pass. Review: clean. Goal: met." (or what isn't), then ask the commit question: AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted".`))
 }
 
+func isCloseQ(q question) bool {
+	return strings.EqualFold(strings.TrimSpace(q.Header), "close task")
+}
+
+func closeQuestionPlain(qs []question, q question) bool {
+	if len(qs) != 1 || len(q.Options) != 2 {
+		return false
+	}
+	want := []string{"close it", "keep it open"}
+	for i, o := range q.Options {
+		if !strings.EqualFold(strings.TrimSpace(o.Label), want[i]) || strings.TrimSpace(o.Description) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isCloseYes(answer string, q question) bool {
+	a := strings.TrimSpace(answer)
+	for _, o := range q.Options {
+		l := strings.TrimSpace(o.Label)
+		if a == l && strings.EqualFold(l, "close it") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *hookCtx) recordClose(q question) Output {
+	t := c.task
+	qs, _ := c.questions()
+	if c.in.AgentID != "" || !t.Open() || !closeQuestionPlain(qs, q) || !isCloseYes(findAnswer(c.in.ToolResponse, q.Question), q) {
+		return nil
+	}
+	var owed []string
+	if t.Phase == PhaseBuilding && c.setup != nil {
+		owed = FinishMissing(t, c.setup)
+	}
+	note, err := closeTask(t, c.projectKey(), "closed at the user's answer")
+	if err != nil {
+		return Context("PostToolUse", msg("the user chose to close this task, but saving that failed ("+err.Error()+"), so it is still open. Tell the user, and suggest /plumbline:cancel."))
+	}
+	if len(owed) > 0 {
+		note += " What the finish check still wanted, now left unchecked: " + strings.Join(owed, "; ") + "."
+	}
+	return Context("PostToolUse", msg("the user chose to close this task, so it's closed. Its changes stay in the working tree; nothing was undone."+note+" Tell the user in one plain line, without the task id, and name anything left unchecked."))
+}
+
+func closeTask(t *Task, project, detail string) (string, error) {
+	wasOpen := t.Open()
+	var running []string
+	for _, r := range t.Helpers {
+		if r.alive() {
+			running = append(running, r.Kind)
+		}
+	}
+	phase := t.Phase
+	t.Phase = PhaseCancelled
+	if err := SaveTask(t); err != nil {
+		t.Phase = phase
+		return "", err
+	}
+	LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: project, Detail: detail})
+	if wasOpen {
+		LogTokens(t, project)
+	}
+	note := ""
+	if len(running) > 0 {
+		note += " Helpers still running, whose work now counts for nothing: " + strings.Join(running, ", ") + "."
+	}
+	if left := LeftCopies(t); len(left) > 0 {
+		note += fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (remove one with git worktree remove --force <path>).", strings.Join(left, ", "))
+	}
+	return note, nil
+}
+
 // isCommitQ: the question Claude asks before committing (header "Commit").
 func isCommitQ(q question) bool {
 	return strings.EqualFold(strings.TrimSpace(q.Header), "commit")
@@ -964,6 +1047,12 @@ func (c *hookCtx) afterQuestion() Output {
 	for _, q := range qs {
 		cp := checkpointOf(q)
 		if cp == 0 {
+			if isCloseQ(q) {
+				if o := c.recordClose(q); o != nil {
+					return o
+				}
+				continue
+			}
 			if isCommitQ(q) && c.task.Phase == PhaseBuilding {
 				c.recordCommitAnswer(q)
 				continue
@@ -980,12 +1069,11 @@ func (c *hookCtx) afterQuestion() Output {
 			_ = writeFileAtomic(filepath.Join(DataDir(), "debug", "askuser-response.json"), c.in.ToolResponse)
 		}
 		if isDrop(ans, q) {
-			t := c.task
-			t.Phase = PhaseCancelled
-			_ = SaveTask(t)
-			LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: c.projectKey()})
-			LogTokens(t, c.projectKey())
-			return Context("PostToolUse", msg("the user dropped this task at the plan question, so it's closed. Any changes it made stay in the working tree; nothing was undone. Tell the user in one plain line, without the task id."))
+			note, err := closeTask(c.task, c.projectKey(), "dropped at the plan question")
+			if err != nil {
+				return Context("PostToolUse", msg("the user dropped this task at the plan question, but saving that failed ("+err.Error()+"), so it is still open. Tell the user, and suggest /plumbline:cancel."))
+			}
+			return Context("PostToolUse", msg("the user dropped this task at the plan question, so it's closed. Any changes it made stay in the working tree; nothing was undone."+note+" Tell the user in one plain line, without the task id."))
 		}
 		if !isApproval(ans, q) {
 			c.log("checkpoint", fmt.Sprintf("checkpoint%d-not-approved", cp), "")

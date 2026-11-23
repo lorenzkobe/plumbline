@@ -176,6 +176,9 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 ## Release 0.7.4 (2026-11-23)
 - [x] LOOK1 (0.7.4, decided 2026-11-23): before approval, commands that only look (a test file, a local script, a read-only local database query) run, judged by Claude Code's own mode; writes, git changes, installs and outside-the-laptop commands stay refused. Speed is left until the ten real tasks are done (user's call, the same day).
 
+## Release 0.7.8 (2026-11-23)
+- [x] FR3 (0.7.8, from the sprint-docs friction report, chosen 2026-11-23): untracked markdown notes need no task; docs-only tasks skip the suite, blind QA and e2e and get one code review, with lint and build kept; Claude may close a task after the user's "Close it" on a "Close task" question. Dropped at the plan question (user's call): reusing a recent same-code suite run as a new task's baseline. Already in 0.7.6: the expected wait shown when a suite starts.
+
 ## What's left (2026-11-22)
 1. Ten real Kwenta tasks with no gate bypassed and no gate bug before Plumbline replaces done-gate anywhere (smoke-test.md). Two done: the end-to-end runs' tasks A and B.
 2. [x] R2 (0.7.3): the Jira ask needs a write verb aimed at Jira, a ticket or a ticket key; "add a comment to this function" no longer opens it.

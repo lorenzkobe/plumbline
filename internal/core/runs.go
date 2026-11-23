@@ -267,6 +267,9 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 		// Before any change: before approval, or after it on the code as
 		// approved (SEC1: the checks are run then, before the first edit).
 		r.Baseline = t.LastCodeChange.IsZero() && (t.Phase != PhaseBuilding || t.ApprovalPrint != "" && before == t.ApprovalPrint)
+		if !r.Baseline && kind == KindTest && !t.LastCodeChange.IsZero() && t.Phase == PhaseBuilding && NotesOnlySoFar(t, setup) && notesSinceApproval(t, setup, before) {
+			r.Baseline = true
+		}
 		if t.BaselinePrint != "" && before == t.BaselinePrint {
 			r.Baseline, r.Rebased = true, true
 		}

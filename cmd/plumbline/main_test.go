@@ -378,3 +378,46 @@ func TestFailedRunNamesTests(t *testing.T) {
 		t.Fatalf("the test run's own line should name it: %s", out)
 	}
 }
+
+func TestRunChecksDocsOnlySkipsSuite(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	setup := `{"kind": "personal", "commands": {"test": "echo tests-ran", "lint": "echo lint-ran"}}`
+	if out, code := plumbline(t, dir, home, setup, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %s", out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "commit", "-q", "-m", "setup").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %s", out)
+	}
+	newTask := func(files ...string) string {
+		tk := &core.Task{ID: core.NewID(), Title: "docs", Size: "small", Root: dir, Branch: "main", Phase: core.PhaseBuilding, Created: core.Now(), StartCommit: core.HeadCommit(dir), PlanFiles: files}
+		if err := os.MkdirAll(core.TaskDocsDir(dir, tk.ID), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := core.SaveTask(tk); err != nil {
+			t.Fatal(err)
+		}
+		return tk.ID
+	}
+	id := newTask("docs/guide.md")
+	out, code := plumbline(t, dir, home, "", "run", "checks", "--task", id)
+	if code != 0 || strings.Contains(out, "tests-ran") || !strings.Contains(out, "lint-ran") || !strings.Contains(out, "test: not needed") {
+		t.Fatalf("a docs-only task's checks run lint but not the suite: %d %s", code, out)
+	}
+	tk, err := core.LoadTask(dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Phase = core.PhaseCancelled
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	id = newTask("docs/guide.md", "src/a.go")
+	out, _ = plumbline(t, dir, home, "", "run", "checks", "--task", id)
+	if !strings.Contains(out, "tests-ran") {
+		t.Fatalf("a task with code runs the suite: %s", out)
+	}
+}

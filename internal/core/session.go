@@ -288,16 +288,9 @@ func UserPromptExpansion(in *HookInput) Output {
 		if t == nil {
 			return say("no such task.")
 		}
-		wasOpen := t.Open()
-		t.Phase = PhaseCancelled
-		_ = SaveTask(t)
-		LogEvent(Event{Type: "phase", Task: t.ID, Rule: PhaseCancelled, Size: t.Size, Project: c.projectKey()})
-		if wasOpen { // a closed task logged its tokens already
-			LogTokens(t, c.projectKey())
-		}
-		note := ""
-		if left := LeftCopies(t); len(left) > 0 {
-			note = fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (remove one with git worktree remove --force <path>).", strings.Join(left, ", "))
+		note, err := closeTask(t, c.projectKey(), "")
+		if err != nil {
+			return say("couldn't close task " + t.ID + ": " + err.Error())
 		}
 		return say(fmt.Sprintf("task %s was closed by the user. Its changes stay in the working tree; nothing was undone.%s", t.ID, note))
 	case "size":

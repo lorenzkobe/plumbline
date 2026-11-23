@@ -265,6 +265,15 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 			files = append(files, p)
 		}
 	}
+	if DocsOnly(t, s) {
+		var out []string
+		for _, k := range ReviewerKinds {
+			if (k == HelperCodeReviewer || contains(t.Reviewers, k)) && s.PartOn(k) {
+				out = append(out, k)
+			}
+		}
+		return out
+	}
 	need := ReviewersFor(t.Size, t.Root, files)
 	if t.Size == "small" && len(t.OutsidePlan) > 0 {
 		// The change grew past its small plan: the files outside it get the
@@ -516,6 +525,9 @@ func (c *hookCtx) reviewStillHolds(kind string) string {
 	fp, err := Fingerprint(t.Root, c.ignore())
 	if err != nil || fp == "" {
 		return ""
+	}
+	if kind == HelperCodeReviewer && last.PrintAfter != fp && DocsOnly(t, c.setup) && onlyTestsOrDocs(t.Root, c.setup, last.PrintAfter, fp) {
+		return fmt.Sprintf("the code reviewer's last review (%s) still counts: this task is docs-only and only docs changed since; plumbline status lists the reviews still needed.", last.Findings)
 	}
 	if kind != HelperCodeReviewer && last.PrintAfter != fp && onlyTestsOrDocs(t.Root, c.setup, last.PrintAfter, fp) {
 		return fmt.Sprintf("the %s's last review (%s) still counts: only tests or docs changed since. After such a fix only the code reviewer looks again (it watches for weakened tests); plumbline status lists the reviews still needed.", kind, last.Findings)
@@ -1123,7 +1135,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 			notRun = append(notRun, name)
 		case runs[len(runs)-1].alive():
 			running = append(running, name)
-		case last == nil || !t.counts(*last) || last.PrintAfter != fp && !(k != HelperCodeReviewer && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)):
+		case last == nil || !t.counts(*last) || last.PrintAfter != fp && !((k != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)):
 			if len(runs) >= MaxReviews {
 				capped = append(capped, name)
 			} else {
@@ -1181,6 +1193,9 @@ func (c *hookCtx) teamProblems(plan string, files []string) []string {
 		return nil
 	}
 	team := TeamReviewers(plan)
+	if c.task.Kind != KindHotfix && noteFiles(c.task.Root, files) {
+		return nil
+	}
 	var p []string
 	for _, k := range ReviewersFor(c.task.Size, c.task.Root, files) {
 		if why, specialist := signalWhy[k]; specialist && c.setup.PartOn(k) && !contains(team, k) {

@@ -638,10 +638,19 @@ func runChecks(args []string) (int, error) {
 		{"test", s.Commands.Test}, {"lint", s.Commands.Lint}, {"build", s.Commands.Build},
 		{"format", s.Commands.Format}, {"typecheck", s.Commands.Typecheck}, {"security", s.Commands.Security},
 	}
+	f, _, _ := flags(args)
+	docs := false
+	if t, terr := core.ActiveTask(root, "", f["task"]); terr == nil && t != nil && t.Phase == core.PhaseBuilding {
+		docs = core.DocsOnly(t, s)
+	}
 	exit := 0
 	var summary []string
 	for _, c := range saved {
 		if strings.TrimSpace(c.cmd) == "" {
+			continue
+		}
+		if docs && c.name == "test" {
+			summary = append(summary, "test: not needed (docs-only task)")
 			continue
 		}
 		code, err := cmdRun(append([]string{c.name}, args...))
@@ -738,6 +747,9 @@ func cmdStatus(args []string) error {
 		fmt.Printf("Helper: %s %s, %s (%s)\n", h.Kind, h.Started.Local().Format("15:04"), state, h.Findings)
 	}
 	if t.Phase == core.PhaseBuilding && s != nil {
+		if core.DocsOnly(t, s) {
+			fmt.Println("Docs only: no test suite, blind QA or e2e needed; lint, build and the code review still are.")
+		}
 		if r := core.RequiredReviewers(t, s); len(r) > 0 {
 			fmt.Println("Reviewers needed:", strings.Join(r, ", "))
 		}

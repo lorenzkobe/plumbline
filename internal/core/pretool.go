@@ -730,6 +730,9 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.root == "" || !IsInside(abs, c.root) {
 		return c.ask("outside-project", fmt.Sprintf("%s is outside this project.", abs))
 	}
+	if c.task == nil && untrackedNote(c.root, c.rel(abs)) {
+		return nil
+	}
 	if c.task == nil {
 		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, start the task (plumbline task start --title \"...\" on its own line, no question needed), look at the code, write the plan, then ask the plan question. To try something out, use a throwaway copy in the scratchpad instead."+c.unboundHint())
 	}
@@ -1287,6 +1290,9 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
 		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
 	}
+	if !c.task.InPlan(rel) && !c.writeIgnored(rel) && !noteFiles(c.task.Root, []string{rel}) && DocsOnly(c.task, c.setup) {
+		return "docs-only", fmt.Sprintf("this task is docs-only: its plan changes only markdown notes, so it runs without the test suite, and %s isn't one. Replan to change code (plumbline task replan, then the plan question); the suite then runs before the first code edit.", rel)
+	}
 	if c.task.InPlan(rel) {
 		return "", ""
 	}
@@ -1323,13 +1329,22 @@ func (c *hookCtx) baselineMissing() []string {
 	t := c.task
 	// A task approved before 0.5.0 has no approval fingerprint, so no run
 	// after approval can be one.
-	if t == nil || !t.LastCodeChange.IsZero() || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" {
+	if t == nil || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" {
 		return nil
+	}
+	edited := !t.LastCodeChange.IsZero()
+	if edited && (savedCommand(c.setup, KindTest) == "" || t.waived(KindTest) || len(baselineRuns(loadRunsTail(t.Root, watchRunsTail), t.ID, KindTest)) > 0 || !NotesOnlySoFar(t, c.setup)) {
+		return nil
+	}
+	docs := DocsOnly(t, c.setup)
+	kinds := append([]string{KindTest}, CheckKinds...)
+	if edited {
+		kinds = []string{KindTest}
 	}
 	var runs []*Run
 	var need []string
-	for _, k := range append([]string{KindTest}, CheckKinds...) {
-		if savedCommand(c.setup, k) == "" || t.waived(k) {
+	for _, k := range kinds {
+		if savedCommand(c.setup, k) == "" || t.waived(k) || k == KindTest && docs {
 			continue
 		}
 		if runs == nil {
@@ -1339,10 +1354,14 @@ func (c *hookCtx) baselineMissing() []string {
 			need = append(need, "plumbline run "+k)
 		}
 	}
-	if len(need) > 0 && t.Phase == PhaseBuilding {
+	if len(need) == 0 {
+		return nil
+	}
+	if t.Phase == PhaseBuilding {
 		// The code moved since approval without Claude changing it (the
 		// user edited a file): no run can be a starting point now.
-		if fp, err := Fingerprint(t.Root, c.ignore()); err != nil || fp != t.ApprovalPrint && fp != t.BaselinePrint {
+		fp, err := Fingerprint(t.Root, c.ignore())
+		if err != nil || fp != t.ApprovalPrint && fp != t.BaselinePrint && !(edited && notesSinceApproval(t, c.setup, fp)) {
 			return nil
 		}
 	}
@@ -1445,7 +1464,11 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case "hook":
 				v.d("own-files", "Plumbline's hooks are run by Claude Code only.")
 			case "pause", "resume", "cancel", "wrong":
-				v.d("user-only", fmt.Sprintf("only the user can %s, by typing /plumbline:%s.", s.Arg(1), s.Arg(1)))
+				why := fmt.Sprintf("only the user can %s, by typing /plumbline:%s.", s.Arg(1), s.Arg(1))
+				if s.Arg(1) == "cancel" {
+					why += " To close the task with the user's OK, ask AskUserQuestion with header \"Close task\" and options \"Close it\" and \"Keep it open\"; their \"Close it\" closes it."
+				}
+				v.d("user-only", why)
 			case "setup":
 				switch s.Arg(2) {
 				case "show", "":
@@ -1630,7 +1653,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("git-internals", "git's own folder (.git, including its hooks) changes only through git commands. Tell the user if something there needs changing.")
 			case abs != "" && c.othersCopy(abs):
 				v.d("builder-copy", "that writes in a builder's copy of the repo. Bring a builder's work back with plumbline builder merge <n>, or drop it with plumbline builder drop <n>.")
-			case abs != "" && c.task == nil && !c.paused && c.root != "" && IsInside(abs, c.root) && !c.writeIgnored(c.rel(abs)):
+			case abs != "" && c.task == nil && !c.paused && c.root != "" && IsInside(abs, c.root) && !c.writeIgnored(c.rel(abs)) && !untrackedNote(c.root, c.rel(abs)):
 				v.d("no-task", noTaskShell+c.unboundHint())
 			case building && abs != "" && IsInside(abs, c.root):
 				rel := c.rel(abs)
@@ -1792,6 +1815,8 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string, single boo
 	switch {
 	case hotfix:
 		kind = "hotfix commit, related tests and the saved checks passed; the full suite and every reviewer run right after it"
+	case final && DocsOnly(ctx.task, ctx.setup):
+		kind = "last commit of a docs-only task: only markdown notes changed, so no test suite ran; lint, build and the other saved checks passed"
 	case final:
 		kind = "last commit of the task, full suite passed"
 	}
@@ -1879,9 +1904,10 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 		return []string{"couldn't read the code state: " + err.Error()}
 	}
 	runs := LoadRuns(t.Root)
-	if s.Commands.Test == "" {
+	docs := DocsOnly(t, s)
+	if s.Commands.Test == "" && !docs {
 		miss = append(miss, "no test command is saved (run /plumbline:setup)")
-	} else {
+	} else if !docs {
 		full := Judge(LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp), BaselineFor(runs, t.ID, KindTest))
 		if !full.OK && brokenBaseline(runs, t.ID, KindTest) {
 			full.Reason += "; the run before the first edit failed every test (a broken environment, like a database that was down), so it isn't the starting point and every failure counts: tell the user which failures were there before"
@@ -1933,7 +1959,8 @@ type question struct {
 	Question string `json:"question"`
 	Header   string `json:"header"`
 	Options  []struct {
-		Label string `json:"label"`
+		Label       string `json:"label"`
+		Description string `json:"description"`
 	} `json:"options"`
 }
 
@@ -1989,6 +2016,15 @@ func (c *hookCtx) gateQuestion() Output {
 			return c.gateDirection(dq, answers)
 		}
 		for _, q := range qs {
+			if isCloseQ(q) {
+				if len(answers) > 0 {
+					return c.deny("self-approval", "the close question can't come pre-answered. Only the user answers it.")
+				}
+				if !closeQuestionPlain(qs, q) {
+					return c.deny("close-format", "ask the close question on its own, with exactly the options \"Close it\" and \"Keep it open\" and no descriptions, so the user's click means only that.")
+				}
+				continue
+			}
 			if !isCommitQ(q) {
 				continue
 			}
