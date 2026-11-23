@@ -28,7 +28,7 @@ func TestHeredocHidesNothing(t *testing.T) {
 	h.expect(h.bash("cat <<EOF >> "+filepath.Join(DataDir(), "projects", "x", "paused")+"\nx\nEOF"), "deny", "own files")
 	h.expect(h.bash("cat <<EOF\nhello\nEOF"), "allow", "")
 	g := groundedTask(t, "small")
-	g.expect(g.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "deny", "saved commands")
+	g.expect(g.bash("cat <<EOF > src/a.go\npackage src\nEOF"), "deny", "only look")
 }
 
 // H2: "read-only" commands that write files or run code.
@@ -45,7 +45,7 @@ func TestReadOnlyListHasNoWriters(t *testing.T) {
 		"echo x >&out.txt", "echo x 1<>out.txt", "GIT_EXTERNAL_DIFF=./x git diff", "BASH_ENV=./x ls",
 		"PATH=/tmp:$PATH ls", "PAGER='sh -c x' git log", "export PATH=/tmp; ls",
 	} {
-		if d, r := decision(h.bash(c)); d != "deny" || !strings.Contains(r, "saved commands") && !strings.Contains(r, "can't tell") {
+		if d, r := decision(h.bash(c)); d != "deny" || !strings.Contains(r, "only look") && !strings.Contains(r, "can't tell") {
 			t.Errorf("%q before approval: %s (%s), want refused", c, d, r)
 		}
 	}
@@ -226,7 +226,7 @@ func TestMCPToolsGated(t *testing.T) {
 	h.expect(h.pre("mcp__plugin_serena_serena__insert_after_symbol", map[string]any{"relative_path": "src/a.go"}), "deny", "")
 	h.expect(h.pre("mcp__filesystem__write_file", map[string]any{"path": filepath.Join(h.repo, "src", "a.go")}), "deny", "")
 	h.expect(h.pre("mcp__serena__execute_shell_command", map[string]any{"command": "git push"}), "deny", "pushing")
-	h.expect(h.pre("mcp__serena__execute_shell_command", map[string]any{"command": "touch x"}), "deny", "saved commands")
+	h.expect(h.pre("mcp__serena__execute_shell_command", map[string]any{"command": "touch x"}), "deny", "only look")
 	h.expect(h.pre("mcp__ide__executeCode", map[string]any{"code": "open('x','w')"}), "deny", "")
 	h.expect(h.pre("mcp__serena__find_symbol", map[string]any{"name_path": "A"}), "", "")
 	h.expect(h.pre("mcp__mempalace__mempalace_add_drawer", map[string]any{}), "", "")

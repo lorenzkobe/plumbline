@@ -25,7 +25,7 @@ Hooks enforce the gates. Your job is the thinking: dig in fully, miss nothing, s
 - Check the ticket against the code. Note anything outside the ticket (a bigger problem, the same bug elsewhere).
 - Reuse: search for code that already does the job (a helper, validator, query or component), by the idea rather than the ticket's words, and past the files you already have open. Write the searches and what they found under `## Reuse` in understanding.md; the checkpoint is refused without it.
 - For library questions, Context7 for the exact versions in the lockfile, then the web. Never send company code, ticket text or names.
-- Bugs: reproduce first with the saved commands (allowed before approval), e.g. `plumbline run test`. The runs before your first edit are the task's starting point (the one with the fewest failures counts), so failures that were already there won't block you later.
+- Bugs: reproduce first: `plumbline run test`, one test file or a script that only looks all run before approval. The `plumbline run` runs before your first edit are the task's starting point (the one with the fewest failures counts), so failures that were already there won't block you later.
 - Package changes (a manifest or lockfile in `## Files`, or an install in "Needs your OK"): run `plumbline run test` (and every other saved check: lint, build, format, typecheck, security) before the checkpoint, so the same commands can be compared after; the checkpoint is refused until then.
 
 ## 4. Make the plan (no stop yet)

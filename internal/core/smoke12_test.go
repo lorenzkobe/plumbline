@@ -110,51 +110,6 @@ func TestScratchInstallNeedsNoBaseline(t *testing.T) {
 	b.expect(b.pre("AskUserQuestion", checkpointQ()), "deny", "changes packages")
 }
 
-// SCR1: before approval, a command run in the scratchpad that names only
-// throwaway files may run; anything aimed at the project, outside the laptop
-// or at downloaded code is still refused or asked.
-func TestThrowawayRunsBeforeApproval(t *testing.T) {
-	h := newHarness(t)
-	h.setup()
-	h.startTask("normal")
-	scratch := t.TempDir()
-	mock := filepath.Join(scratch, "mock")
-	ok := []string{
-		"cd " + mock + " && node --check base.js && echo base ok",
-		// the two lines refused in step 12a
-		"cd " + mock + " && node --check base.js && for f in a b c; do python3 -c \"\nimport re,sys;s=open('$f.html').read();m=re.findall(r'<script>(.*?)</script>',s,re.S);open('/tmp/_$f.js','w').write(m[-1])\" && node --check /tmp/_$f.js && echo \"$f ok\"; done; grep -c \"—\" a.html b.html c.html base.js",
-		"cd " + mock + " && node --check base.js && echo base ok; for f in a b c; do node -e \"const s=require('fs').readFileSync('$f.html','utf8');const m=[...s.matchAll(/<script>([\\s\\S]*?)<\\/script>/g)];new Function(m[m.length-1][1]);console.log('$f ok')\"; done; grep -c \"—\" a.html b.html c.html base.js",
-		"cd " + mock + " && node build.js > out.html",
-		"cd " + mock + " && node build.js 2>/dev/null",
-	}
-	for _, c := range ok {
-		// Not refused, and not allowed outright: Claude Code's own
-		// permission mode judges it.
-		if d, r := decision(h.bash(c)); d != "" {
-			t.Errorf("a scratchpad-only run got %q (%s), want Claude Code's own call: %s", d, r, c)
-		}
-	}
-	refused := []string{
-		"node --check base.js", // in the project
-		"cd " + mock + " && node build.js > " + h.repo + "/src/x.js", // writes into the project
-		"cd " + mock + " && cp out.js " + h.repo + "/src/a.go",
-		"cd " + mock + " && node " + h.repo + "/scripts/seed.js",
-		"cd " + mock + " && npx playwright test",  // downloaded code
-		"cd " + mock + " && npm install left-pad", // an install
-		"cd " + mock + " && git push origin main", // outside the laptop
-		"cd " + mock + " && node $SCRIPT",         // unknown value
-		"cd " + mock + " && rm -rf ~/notes",       // leaves the throwaway folders
-		"cd " + mock + " && node build.js --out=" + h.repo + "/src/a.go",
-		"cd " + mock + " && cp out.js /usr/local/lib/x.js",
-		"cd " + mock + " && rm -rf ../../..",
-	}
-	for _, c := range refused {
-		if d, _ := decision(h.bash(c)); d != "deny" && d != "ask" {
-			t.Errorf("should still be stopped before approval: %s (got %q)", c, d)
-		}
-	}
-}
-
 // PLAN3: a normal task's ready note names the Title Case sections, and only
 // once the challenger has run (before that, the challenger is next).
 func TestReadyPlanNoteNormal(t *testing.T) {

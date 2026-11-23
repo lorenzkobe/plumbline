@@ -776,7 +776,7 @@ var reachesOut = map[string]bool{
 func (c *hookCtx) throwawayRun(s Segment, installs bool) bool {
 	name := s.Name()
 	if c.task == nil || c.root == "" || s.Dir == "" || installs || name == "" || isPlumblineBin(name) ||
-		reachesOut[name] || cloudCmds[name] || dbClients[name] || s.unknownArgs() || !c.throwawayPath(s.Dir) {
+		reachesOut[name] || cloudCmds[name] || dbClients[name] || s.Elevated || s.unknownArgs() || !c.throwawayPath(s.Dir) {
 		return false
 	}
 	for _, w := range s.Words[1:] {
@@ -799,6 +799,90 @@ func (c *hookCtx) throwawayRun(s Segment, installs bool) bool {
 	}
 	for _, r := range s.Redirects {
 		if abs := Abs(r, s.Dir); abs == "" || !c.throwawayPath(abs) && r != "/dev/null" {
+			return false
+		}
+	}
+	return true
+}
+
+var lookRunners = map[string]bool{
+	"node": true, "python": true, "python3": true, "ruby": true, "php": true, "perl": true, "tsx": true, "ts-node": true,
+	"bash": true, "sh": true, "zsh": true, "vitest": true, "jest": true, "mocha": true, "ava": true, "pytest": true,
+	"py.test": true, "rspec": true, "phpunit": true,
+}
+
+func pythonModule(words []string) string {
+	for i := 1; i < len(words); i++ {
+		w := words[i]
+		switch {
+		case w == "-m" && i+1 < len(words):
+			return words[i+1]
+		case strings.HasPrefix(w, "-m"):
+			return w[2:]
+		case !strings.HasPrefix(w, "-"):
+			return ""
+		}
+	}
+	return ""
+}
+
+func (c *hookCtx) lookTool(dir string, words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	name, arg := filepath.Base(words[0]), ""
+	if len(words) > 1 {
+		arg = words[1]
+	}
+	switch {
+	case strings.Contains(words[0], "/"):
+		abs := Abs(words[0], dir)
+		return (c.inProject(abs) || c.throwawayPath(abs)) && !strings.Contains(filepath.ToSlash(abs), "/node_modules/")
+	case name == "python" || name == "python3":
+		m := pythonModule(words)
+		return m != "pip" && m != "ensurepip" && m != "venv"
+	case lookRunners[name]:
+		return true
+	case name == "npm" || name == "pnpm" || name == "yarn" || name == "bun":
+		return arg == "test" || arg == "t" || arg == "run" || arg == "run-script"
+	case name == "go":
+		return arg == "test" || arg == "vet" || arg == "run" && !strings.Contains(strings.Join(words[2:], " "), "@")
+	case name == "cargo":
+		return arg == "test" || arg == "run" || arg == "check" || arg == "bench"
+	case name == "playwright" || name == "cypress":
+		return arg == "test" || arg == "run"
+	case name == "poetry" || name == "pipenv":
+		return arg == "run" && c.lookTool(dir, words[2:])
+	}
+	return false
+}
+
+func (c *hookCtx) localLook(s Segment, installs bool) bool {
+	if c.throwawayRun(s, installs) {
+		return true
+	}
+	if c.task == nil || c.root == "" || s.Dir == "" || installs || s.Elevated || s.unknownArgs() {
+		return false
+	}
+	for _, e := range s.Env {
+		if name, _, _ := strings.Cut(e, "="); shellSpecial[name] {
+			return false
+		}
+	}
+	words := s.Words
+	switch s.Name() {
+	case "npx", "bunx", "pnpx":
+		t, ok := runnerTarget(s)
+		if !ok || !c.runsProjectTool(s) {
+			return false
+		}
+		words = t.Words
+	}
+	if !c.lookTool(s.Dir, words) {
+		return false
+	}
+	for _, t := range append(WriteTargets(s), TreeTargets(s)...) {
+		if t != "/dev/null" && !c.throwawayPath(targetAbs(s, t)) {
 			return false
 		}
 	}
@@ -1289,10 +1373,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	}
 	segs := ParseShell(cmd, c.in.Cwd)
 	v := &verdicts{}
-	allQuiet := true   // every segment reads only, or is a saved command
-	throwaway := false // a segment runs only on throwaway files (SCR1)
-	online := false    // a look that reaches the internet: Claude Code decides (READ2)
-	hint := ""         // how to make the line read only, when there's a simple way
+	allQuiet := true // every segment reads only, or is a saved command
+	looks := false
+	online := false // a look that reaches the internet: Claude Code decides (READ2)
+	hint := ""      // how to make the line read only, when there's a simple way
 	var commits []Segment
 	addsAll := false
 	var added []string
@@ -1309,6 +1393,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	for i := range segs {
 		s := segs[i]
 		name := s.Name()
+		asked := len(v.ask)
 		if s.Opaque != "" {
 			v.d("unclear-command", fmt.Sprintf("Plumbline can't tell what this runs: %s. Write the command out plainly (no eval, no command name in a variable, no shell reading commands from a pipe) so every part can be checked.", s.Opaque))
 			allQuiet = false
@@ -1591,8 +1676,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		if (name == "curl" || name == "wget" || name == "http" || name == "https") && httpSends(s) {
 			v.a("outside-laptop", "this sends data to a server outside your laptop.")
 		}
-		if !quiet && !c.isSaved(cmd, &s) && c.throwawayRun(s, installRe.MatchString(joined)) {
-			throwaway = true // not refused before approval, but not allowed outright either
+		if !quiet && !c.isSaved(cmd, &s) && len(v.ask) == asked && c.localLook(s, installRe.MatchString(joined) && !c.runsProjectTool(s)) {
+			looks = true
 		} else if !quiet && !c.isSaved(cmd, &s) {
 			allQuiet = false
 			if needsDoubleDash(s) {
@@ -1624,7 +1709,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if !c.paused && c.task != nil && c.task.Phase != PhaseBuilding && !allQuiet && !hasCommit {
 		// The user is often away while Claude researches, so refuse
 		// instead of waiting on a prompt.
-		return c.deny("before-approval", "the plan isn't approved yet, so only reading and the project's saved commands can run. Reproduce with the saved commands or in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list."+hint)
+		return c.deny("before-approval", "the plan isn't approved yet, so a command may only look: read, run a saved command, or run a test, script or read-only local database query that writes nothing outside the scratchpad or /tmp. Changing git, installing, reaching outside the laptop and writing to a database wait for approval. Look another way, try it in a throwaway copy (scratchpad or /tmp), or put this command in the plan's \"Needs your OK\" list."+hint)
 	}
 	// Outside a task an ordinary command is left to Claude Code's own
 	// permission mode: the rules above still ask for their fixed list, and
@@ -1632,7 +1717,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
 	}
-	if allQuiet && !throwaway && !online && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
+	if allQuiet && !looks && !online && !hasCommit && !c.paused && (c.task == nil || c.task.Phase != PhaseBuilding) {
 		return allow("reads only, or a saved project command")
 	}
 	return nil

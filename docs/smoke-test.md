@@ -43,7 +43,7 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 - `/plumbline:wrong`: marks the last block; `/plumbline:stats` shows it.
 
 ## 6b. Unclear commands and MCP tools (0.3.1)
-- During a task, before the checkpoint, ask Claude to run `bash -c 'touch x'`. **Expected: refused** (only reading and saved commands).
+- During a task, before the checkpoint, ask Claude to run `bash -c 'touch x'`. **Expected: refused** (before approval a command may only look).
 - Ask Claude to run `CMD=$(cat somefile); $CMD`. **Expected: refused**, "Plumbline can't tell what this runs". (`CMD=ls; $CMD` is allowed: Plumbline sees the value on the same line, so it knows this runs `ls`.)
 - If Serena is installed: before the checkpoint, ask Claude to change a function with Serena's `replace_symbol_body`. **Expected: refused.** This checks that PreToolUse fires for MCP tools (matcher `mcp__.*`).
 - If you paused Plumbline with 0.3.0, the pause is gone after the upgrade: run `/plumbline:pause` again if you still want it.

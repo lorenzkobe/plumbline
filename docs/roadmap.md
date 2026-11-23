@@ -173,6 +173,9 @@ The retest of step 3 (2026-11-18, session 86757349) failed again on binding. Evi
 - The items that depend on it: R2 (after V11), B6 (after V7 and V9). L6 is done (0.6.12, after V1 in smoke run 1).
 - [x] N11 (0.7.3): the real-session prompt test script, run by hand.
 
+## Release 0.7.4 (2026-11-23)
+- [x] LOOK1 (0.7.4, decided 2026-11-23): before approval, commands that only look (a test file, a local script, a read-only local database query) run, judged by Claude Code's own mode; writes, git changes, installs and outside-the-laptop commands stay refused. Speed is left until the ten real tasks are done (user's call, the same day).
+
 ## What's left (2026-11-22)
 1. Ten real Kwenta tasks with no gate bypassed and no gate bug before Plumbline replaces done-gate anywhere (smoke-test.md). Two done: the end-to-end runs' tasks A and B.
 2. [x] R2 (0.7.3): the Jira ask needs a write verb aimed at Jira, a ticket or a ticket key; "add a comment to this function" no longer opens it.

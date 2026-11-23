@@ -42,6 +42,7 @@ type Segment struct {
 	// stdinUnknown: a heredoc with expansions feeds it, so a shell reading
 	// it runs commands that can't be known.
 	stdinUnknown bool
+	Elevated     bool
 }
 
 // Name is the command's base name, lowercased: macOS's disk ignores case, so
@@ -98,6 +99,15 @@ func (s Segment) tail(i int, via string) Segment {
 		}
 	}
 	return in
+}
+
+func elevate(wrapper string, segs []Segment) []Segment {
+	if wrapper == "sudo" || wrapper == "doas" {
+		for i := range segs {
+			segs[i].Elevated = true
+		}
+	}
+	return segs
 }
 
 // carrier keeps a replaced wrapper's redirects and env, so they are still
@@ -1360,7 +1370,7 @@ func unwrap(s Segment, depth int, pc *parseCtx) []Segment {
 			s.Opaque = fmt.Sprintf("%s has an option Plumbline doesn't know (%s), so the command it runs can't be found", name, r.unknown)
 			return []Segment{s}
 		case r.split != "":
-			return append(s.carrier(name), parseShell(r.split+" "+joinRest(s, r.i), r.dir, depth+1, name+" -S", pc)...)
+			return elevate(name, append(s.carrier(name), parseShell(r.split+" "+joinRest(s, r.i), r.dir, depth+1, name+" -S", pc)...))
 		}
 		if r.i >= len(s.Words) {
 			return []Segment{s} // env alone prints, time alone times nothing
@@ -1373,7 +1383,7 @@ func unwrap(s Segment, depth int, pc *parseCtx) []Segment {
 				in.Opaque = "the command name comes from a variable, substitution or pattern (" + in.Words[0] + ")"
 			}
 		}
-		return unwrap(in, depth+1, pc)
+		return elevate(name, unwrap(in, depth+1, pc))
 	}
 	switch {
 	case shells[name]:

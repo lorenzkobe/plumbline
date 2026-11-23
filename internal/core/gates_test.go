@@ -201,8 +201,8 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.expect(h.bash("./test.sh"), "allow", "") // saved command runs before approval
 	tk := h.startTask("normal")
 	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "approves the plan")
-	// Before approval, an unsaved command is refused (no prompt to wait on).
-	h.expect(h.bash("node scripts/try.js"), "deny", "saved commands")
+	h.expect(h.bash("node scripts/try.js"), "", "")
+	h.expect(h.bash("node scripts/try.js > src/a.go"), "deny", "only look")
 	stateFile := filepath.Join(TaskDir(h.repo, tk.ID), "state.json")
 	h.expect(h.pre("Write", map[string]any{"file_path": stateFile}), "deny", "own files")
 	h.expect(h.bash("rm "+stateFile), "deny", "own files")
@@ -468,5 +468,5 @@ func TestPlumblineReadCommandsBeforeApproval(t *testing.T) {
 	for _, c := range []string{"plumbline docs-dir", "plumbline status", "plumbline version", "plumbline task show", "plumbline task list", "plumbline stats", "plumbline setup show"} {
 		h.expect(h.bash(c), "allow", "")
 	}
-	h.expect(h.bash("plumbline task replan"), "deny", "saved commands")
+	h.expect(h.bash("plumbline task replan"), "deny", "only look")
 }
