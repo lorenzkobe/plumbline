@@ -1,5 +1,7 @@
 # Smoke test results (2026-11-18)
 
+> The test repo (`kwenta-smoke`), its remote and the session logs were deleted on 2026-11-23. Log names, kwenta-smoke commits and the log viewer named below no longer exist; the findings here are the full record.
+
 Setup: `kwenta-smoke` (copy of kwenta-web, origin = local bare repo), Plumbline 0.6.11 via `--plugin-dir`, Claude Code 2.1.327, `PLUMBLINE_DEBUG=1`, logs in this folder.
 
 ## Step 1: hooks load and are fast: PASS

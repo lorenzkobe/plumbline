@@ -120,7 +120,7 @@ Earlier decisions (fix everything workable, the sandbox stays optional, G3, G4, 
 - [x] WF4: a `[bug]` case needs a recorded failing run of its named test, taken while only test files had changed.
 
 ## Next: fixes from the first smoke run (0.6.12), before the rest of release 5
-The smoke run (2026-11-18) passed steps 1, 2, 3, 6, 6b and 7, mostly passed 4, and found the bugs below. Evidence, logs and file:line for each id: [smoke-run-1.md](smoke-run-1.md). Test setup to reuse: `~/Documents/PersonalDevProjects/kwenta-smoke` (copy of kwenta-web; origin is the local bare `kwenta-smoke-remote.git`), sessions started with `PLUMBLINE_DEBUG=1 claude --plugin-dir <this repo> --debug hooks --debug-file ../kwenta-smoke-logs/stepN.log`; Plumbline is not installed.
+The smoke run (2026-11-18) passed steps 1, 2, 3, 6, 6b and 7, mostly passed 4, and found the bugs below. Evidence and file:line for each id: [smoke-run-1.md](smoke-run-1.md). The test setup (`kwenta-smoke`, a copy of kwenta-web with a local bare remote, sessions started with `PLUMBLINE_DEBUG=1 claude --plugin-dir <this repo> --debug hooks --debug-file <log>`) and its logs were deleted on 2026-11-23; a new run starts from [smoke-test.md](smoke-test.md).
 
 Decided with the user:
 - Fix these now, then retest steps 3 and 5 and carry on from step 8 (rather than finish every step first).
