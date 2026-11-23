@@ -45,6 +45,7 @@ func cappedTask(t *testing.T) *harness {
 	if m := h.finishMissing(); !strings.Contains(m, "runs are used") {
 		t.Fatalf("the reviewer should be capped: %s", m)
 	}
+	h.runHelper(HelperArbiter, "# Arbiter 1\n## Findings\n- [90] must-fix: A still returns the wrong value (src/a.go:3 `func A() int`). Fails when: A() is called -> it returns the old number.\n")
 	return h
 }
 
@@ -90,7 +91,7 @@ func TestAcceptAsIsUnblocksCommitAndFinishUntilTheCodeChanges(t *testing.T) {
 
 func TestOneMoreRoundAllowsOneMoreRunOnly(t *testing.T) {
 	h := cappedTask(t)
-	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"}), "deny", "bring what's left to the user")
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"}), "deny", "already ran 3 times")
 	h.answerReviewCap("One more round")
 	h.runHelper(HelperCodeReviewer, "# Review 4\nnothing at 80 or more\n")
 	h.docs(DocReport, "# Report\n"+reportEnd+"## Review\n- four rounds, nothing at 80 or more\n## For you\n- nothing\n")
@@ -128,7 +129,7 @@ func TestReviewCapAnswerRecordedWhenClaudeCodeFillsTheInput(t *testing.T) {
 	filled := reviewCapQ()
 	filled["answers"] = ans
 	h.post("AskUserQuestion", filled, map[string]any{"answers": ans})
-	if d, r := decision(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"})); d == "deny" && strings.Contains(r, "bring what's left") {
+	if d, r := decision(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"})); d == "deny" && strings.Contains(r, "already ran") {
 		t.Fatalf("the user's One more round, with the answers Claude Code puts in the tool input, wasn't recorded: %s", r)
 	}
 }

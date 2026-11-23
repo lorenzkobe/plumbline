@@ -276,12 +276,16 @@ func verdictMissing(t *Task, s *Setup, fp, report string) []string {
 func anyShouldFix(t *Task) bool {
 	seen := map[string]bool{}
 	for _, r := range t.Helpers {
-		if r.Kind == HelperChallenger || isWorker(r.Kind) || seen[r.Kind] {
+		if r.Kind == HelperChallenger || isWorker(r.Kind) || r.Kind == HelperGuard || r.Kind == HelperArbiter || seen[r.Kind] {
 			continue
 		}
 		seen[r.Kind] = true
-		if last := t.lastFinished(r.Kind); last != nil {
-			for _, item := range findingItems(t.findingsText(*last), "findings") {
+		last := t.lastCounted(r.Kind)
+		if last == nil {
+			last = t.lastFinished(r.Kind)
+		}
+		if last != nil {
+			for _, item := range labelItems(t.findingsText(*last)) {
 				if reShouldFixLabel.MatchString(item) {
 					return true
 				}

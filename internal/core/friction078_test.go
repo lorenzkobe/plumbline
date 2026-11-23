@@ -60,7 +60,7 @@ func docsHarness(t *testing.T, files map[string]string) *harness {
 
 func docsPlan(files ...string) string {
 	return "# Plan\n## Goal\nDone when: the guide explains the setup.\n## Files\n- " + strings.Join(files, "\n- ") +
-		"\n## Cases\n- [normal] the guide reads well -> test: does not apply, because it is prose\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Challenge note\n- nothing changed\n"
+		"\n## Cases\n- [normal] the guide reads well -> test: does not apply, because it is prose\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n## Challenge note\n- nothing changed\n"
 }
 
 func (h *harness) ground() {

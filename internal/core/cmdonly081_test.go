@@ -11,7 +11,7 @@ import (
 
 const cmdOnlyPlan = "# Plan\n## Goal\nDone when: the staging cache is cleared.\n## Files\n- none (commands only)\n" +
 	"## Cases\n- [normal] the cache is empty after the run -> does not apply, because no file changes; the real-world proof shows it\n" +
-	"## Real-world proof\n- api: the cache endpoint returns an empty list\n## Needs your OK\n- none\n## Challenge note\n- nothing changed\n"
+	"## Real-world proof\n- api: the cache endpoint returns an empty list\n## Needs your OK\n- none\n## Guards loosened\n- none\n## Challenge note\n- nothing changed\n"
 
 func cmdOnlyTaskIn(h *harness, size, plan string) *harness {
 	h.t.Helper()

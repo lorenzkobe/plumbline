@@ -228,7 +228,7 @@ func goHarness(t *testing.T) *harness {
 	}
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	h.docs(DocUnderstanding, "# U\nA returns 1 (src/a.go:3)\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
-	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A returns 2.\n## Files\n- src/a.go\n- src/a_test.go\n## Cases\n- [bug] A returns 2 -> test: src/a_test.go\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n")
+	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A returns 2.\n## Files\n- src/a.go\n- src/a_test.go\n## Cases\n- [bug] A returns 2 -> test: src/a_test.go\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n")
 	h.approve()
 	return h
 }

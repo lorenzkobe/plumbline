@@ -288,6 +288,7 @@ type PlanCheck struct {
 	Goal       string
 	ProofKinds []string // ui, api, schema that must be proven
 	Approved   []string // commands in "Needs your OK" (packages, outside-laptop commands)
+	Guards     []string
 	Problems   []string
 }
 
@@ -426,10 +427,89 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 			}
 		}
 	}
+	pc.Guards, pc.Problems = planGuards(text, pc.Problems)
 	if vague := vaguePlanLines(text); len(vague) > 0 {
 		pc.Problems = append(pc.Problems, "plan.md has lines that leave the decision for later ("+strings.Join(vague, "; ")+"): name the exact cases, checks or values instead")
 	}
 	return pc
+}
+
+const guardsHelp = `each check the plan removes or narrows (an ask, a refusal, a permission check, a validation) or new path that runs without asking, with its file:line and every shape that reaches it, or the single line "- none"`
+
+func planGuards(text string, problems []string) ([]string, []string) {
+	if !hasHeading(text, "guards loosened") {
+		return nil, append(problems, `plan.md needs a "## Guards loosened" section: `+guardsHelp)
+	}
+	var guards, bare []string
+	saidNone := false
+	for _, b := range guardItems(text) {
+		if strictNone(b) && len(Refs(" "+b)) == 0 {
+			saidNone = true
+			continue
+		}
+		guards = append(guards, b)
+		if len(Refs(" "+b)) == 0 {
+			bare = append(bare, short(b))
+		}
+	}
+	switch {
+	case len(guards) == 0 && !saidNone:
+		problems = append(problems, `plan.md's "## Guards loosened" is empty: `+guardsHelp)
+	case len(guards) > 0 && saidNone:
+		problems = append(problems, `plan.md's "## Guards loosened" says "none" next to a guard: list the guards and drop "none", or keep only "- none"`)
+	}
+	if len(bare) > 0 {
+		problems = append(problems, fmt.Sprintf(`each guard in "## Guards loosened" cites the code that checks it (file:line): %s`, strings.Join(bare, "; ")))
+	}
+	return guards, problems
+}
+
+func guardItems(text string) []string {
+	var out []string
+	in, fence := false, false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
+		if strings.HasPrefix(t, "#") {
+			in = strings.HasPrefix(strings.ToLower(strings.TrimSpace(strings.TrimLeft(t, "#"))), "guards loosened")
+			continue
+		}
+		if !in || t == "" {
+			continue
+		}
+		top := len(line)-len(strings.TrimLeft(line, " \t")) < 2
+		t = reNumbered.ReplaceAllString(t, "- ")
+		b, isBullet := bullet(t)
+		if top && isBullet || len(out) == 0 {
+			if !isBullet {
+				b = t
+			}
+			out = append(out, b)
+			continue
+		}
+		out[len(out)-1] += " " + t
+	}
+	return out
+}
+
+func hasHeading(text, name string) bool {
+	fence := false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fence = !fence
+		}
+		if !fence && strings.HasPrefix(t, "#") && strings.HasPrefix(strings.ToLower(strings.TrimSpace(strings.TrimLeft(t, "#"))), name) {
+			return true
+		}
+	}
+	return false
 }
 
 var reBacktick = regexp.MustCompile("`([^`]+)`")

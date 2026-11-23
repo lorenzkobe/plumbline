@@ -31,6 +31,7 @@ type HookInput struct {
 	CommandArgs     string          `json:"command_args"`
 	CommandSource   string          `json:"command_source"`
 	Error           string          `json:"error"` // PostToolUseFailure
+	Raw             []byte          `json:"-"`
 }
 
 func (in *HookInput) Input() map[string]any {
@@ -53,6 +54,7 @@ func ReadHookInput(r io.Reader) (*HookInput, error) {
 	if err := json.Unmarshal(b, &in); err != nil {
 		return nil, err
 	}
+	in.Raw = b
 	if in.Cwd == "" {
 		in.Cwd = os.Getenv("CLAUDE_PROJECT_DIR")
 	}

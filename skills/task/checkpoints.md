@@ -65,6 +65,10 @@ Done when: <what the user will see or be able to do, in their words; and what st
 - `npm install zod` (why: schema validation for the refund body; well maintained, MIT; nothing in the project does this)
 - none
 
+## Guards loosened
+- the ask before a branch switch on a dirty tree (internal/core/pretool.go:1648 `contains(args, "-b")`): reached by `git switch`, `git checkout`, combined short flags (`-qf`), abbreviated options (`--disc`), `--`, `-C <dir>`, `GIT_WORK_TREE=`; it was also the only check for `git checkout <file>`. Lets through only `git switch <name>` and `-q`.
+(Every plan has this section. A guard is any ask, refusal, permission check or validation the plan removes or narrows, or a new path that runs without asking. Each one cites its code (file:line) and lists every way to reach it, and what else it was the only check for. Write the single line `- none` when the plan loosens nothing. A plan that lists a guard gets the guard reviewer before the checkpoint, at any size.)
+
 ## Suggestions
 - Related: <something close to this change worth doing too, and what it adds> (for example: CLAUDE.md:450 still quotes the old label; update it too)
 - Not related: <something you noticed elsewhere, left alone> (for example: "Not sent yet" and "Not synced yet" can show at once on a new device)
@@ -84,7 +88,7 @@ fix/TICKET-123 from develop (or: main, as the user chose)
 ## Challenge note
 - Questioned: <finding> -> changed: <what changed in the understanding or plan>
 - Questioned: <finding> -> kept, because <evidence>
-(Small tasks: "skipped, small task".)
+(Small tasks: "skipped, small task". When the guard reviewer ran, answer its findings here too, small tasks included.)
 ```
 Approving the plan approves exactly the commands in "Needs your OK", nothing more. Deploys, deletes, production writes and commands on other machines are still confirmed one by one when they run.
 

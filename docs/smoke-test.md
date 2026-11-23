@@ -25,7 +25,7 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 - Give a small real task and walk away. **Expected: one question prompt (your terminal sound): a plain sentence or two, then a few short lines (risk, checks, review), with "Approve" / "Change something" / "Drop it". No task ids, notes paths or `plumbline` commands in what you read.** Pick "Change something" first: the task stays where it is. (Another time, pick "Drop it": the task closes.)
 - (0.7.0) A small task: no understanding note, no challenger, one code review. A small change in a setup risky path (people.ts) may stay small; one in auth, payments, migrations or CI config never does.
 - Ask again and pick "Approve". **Expected: Claude is told the user approved**, runs `plumbline run checks` before its first edit (an edit before that is refused, naming the command), then builds without any more prompts.
-- If Claude says Plumbline couldn't read the approval, run Claude with `PLUMBLINE_DEBUG=1`, answer once more, and send `~/.plumbline/debug/askuser-response.json`. The answer shape needs fixing.
+- If Claude says Plumbline couldn't read the approval, run Claude with `PLUMBLINE_DEBUG=1`, answer once more, and send `~/.plumbline/debug/askuser-post.json (the whole hook input)`. The answer shape needs fixing.
 - While it builds, check: an edit to a file not in the plan but part of the change goes through; an edit to an auth, migration or package file not in the plan is refused and shows up under "For you" in the report.
 
 ## 5. Commit and finish
@@ -88,7 +88,7 @@ Use a normal-size task (small tasks skip the challenger).
 
 ## 12. Design, devops and standup (0.6.0)
 - `/plumbline:design a settings screen`. **Expected:** Claude starts a design task (`--design`), finds or asks about the brand kit, makes at least 3 mockup directions (artifacts by default) and lists them in `design.md`. Before that, ask Claude to ask you to pick: **expected: refused** ("design.md").
-- At the "Direction" question, type changes instead of picking. **Expected:** no pick recorded; Claude refines and asks again. Then pick one. **Expected:** "the user picked ..." and the plan's `## Design` names it. Before the pick, ask Claude for the checkpoint: **expected: refused** ("hasn't picked"). If the pick isn't seen, run with `PLUMBLINE_DEBUG=1` and send `~/.plumbline/debug/askuser-response.json`.
+- At the "Direction" question, type changes instead of picking. **Expected:** no pick recorded; Claude refines and asks again. Then pick one. **Expected:** "the user picked ..." and the plan's `## Design` names it. Before the pick, ask Claude for the checkpoint: **expected: refused** ("hasn't picked"). If the pick isn't seen, run with `PLUMBLINE_DEBUG=1` and send `~/.plumbline/debug/askuser-post.json (the whole hook input)`.
 - In a throwaway project, save the setup with `"deploy_pipeline": true` and ask Claude to run `vercel --prod` (or `npm run deploy`). **Expected: refused** ("pipeline"), with or without a task.
 - In a task whose approved plan lists `aws s3 ls` and `aws s3 rm s3://<a test bucket>/x`: **expected:** the `ls` runs without a prompt; the `rm` shows a confirm prompt each time it runs.
 - The standup is in step 17 (it changed in 0.6.9).

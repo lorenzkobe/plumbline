@@ -306,7 +306,7 @@ func (c *hookCtx) gateTool() Output {
 			return nil
 		}
 		run := c.task.runByAgent(in.Str("to"))
-		if run == nil || !isReviewer(run.Kind) || run.alive() {
+		if run == nil || !(checked(run.Kind) || run.Kind == HelperChallenger) || run.alive() {
 			return nil
 		}
 		if in.AgentID != "" {
@@ -1123,33 +1123,127 @@ func plumblineReads(s Segment) bool {
 
 func (c *hookCtx) dirtyFor(s Segment) bool {
 	g := gitParse(s)
-	if g.otherGit || g.dir == "" {
+	if g.otherGit || g.dir == "" || gitRetargeted(s, g) {
 		return true
 	}
 	d, err := DirtyFiles(g.dir)
 	return err != nil || len(d) > 0
 }
 
+func gitRetargeted(s Segment, g gitInfo) bool {
+	for _, e := range s.Env {
+		if name, _, _ := strings.Cut(e, "="); strings.HasPrefix(strings.ToUpper(name), "GIT_") {
+			return true
+		}
+	}
+	for _, kv := range g.configs {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.EqualFold(strings.TrimSpace(key), "core.worktree") {
+			return true
+		}
+	}
+	return false
+}
+
+func restoreFlags(args []string) (staged, worktree bool) {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		switch {
+		case a == "--staged":
+			staged = true
+		case a == "--worktree":
+			worktree = true
+		case strings.HasPrefix(a, "--"):
+		case strings.HasPrefix(a, "-"):
+			f := shortFlags(a)
+			staged = staged || strings.ContainsRune(f, 'S')
+			worktree = worktree || strings.ContainsRune(f, 'W')
+		}
+	}
+	return staged, worktree
+}
+
+func gitDiscards(sub string, args []string) bool {
+	for _, a := range args {
+		if a == "." || a == "-f" || a == "--force" || a == "--discard-changes" || strings.HasPrefix(a, "--pathspec-from-file") || (sub != "restore" && a == "--") {
+			return true
+		}
+	}
+	if sub == "restore" {
+		staged, worktree := restoreFlags(args)
+		return !staged || worktree
+	}
+	return false
+}
+
+func quietFlag(a string) bool { return a == "-q" || a == "--quiet" }
+
+func plainWord(s Segment, i int, a string) bool {
+	return !strings.HasPrefix(a, "-") && !s.dyn(i) && !s.glob(i) && !strings.ContainsAny(a, "*?[")
+}
+
+func plainNewBranch(s Segment, sub string, args []string) bool {
+	var create []string
+	switch sub {
+	case "checkout":
+		create = []string{"-b", "-B", "--orphan"}
+	case "switch":
+		create = []string{"-c", "--create", "--orphan"}
+	default:
+		return false
+	}
+	first := len(s.Words) - len(args)
+	names, made := 0, false
+	for i, a := range args {
+		switch {
+		case !made && contains(create, a):
+			made = true
+		case quietFlag(a) || a == "--track" || a == "-t" || a == "--no-track":
+		case plainWord(s, first+i, a):
+			names++
+		default:
+			return false
+		}
+	}
+	return made && names >= 1 && names <= 2
+}
+
 func plainSwitchOrUnstage(s Segment, sub string, args []string) bool {
 	first := len(s.Words) - len(args)
 	if sub == "switch" {
-		return len(args) == 1 && !strings.HasPrefix(args[0], "-") && !s.dyn(first)
+		names := 0
+		for i, a := range args {
+			switch {
+			case quietFlag(a):
+			case plainWord(s, first+i, a):
+				names++
+			default:
+				return false
+			}
+		}
+		return names == 1
 	}
 	if sub != "restore" {
 		return false
 	}
-	staged := false
+	staged, worktree := restoreFlags(args)
+	if !staged || worktree {
+		return false
+	}
 	for i, a := range args {
 		switch {
 		case s.dyn(first + i):
 			return false
-		case a == "--staged" || a == "-S":
-			staged = true
-		case strings.HasPrefix(a, "-"):
+		case a == "--" || a == "--staged" || quietFlag(a):
+		case strings.HasPrefix(a, "--"):
+			return false
+		case strings.HasPrefix(a, "-") && strings.Trim(shortFlags(a), "Sq") != "":
 			return false
 		}
 	}
-	return staged
+	return true
 }
 
 func (c *hookCtx) adoptTakesOver(s Segment) string {
@@ -1644,21 +1738,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case "clean":
 				v.a("destructive-git", "git clean deletes untracked files, including yours.")
 			case "checkout", "switch", "restore":
-				discard := false
-				for _, a := range args {
-					if a == "--" || a == "." || a == "-f" || a == "--force" || a == "--discard-changes" || strings.HasPrefix(a, "--pathspec-from-file") {
-						discard = true
-					}
-				}
-				if sub == "restore" && (!contains(args, "--staged") || contains(args, "--worktree") || contains(args, "-W")) {
-					discard = true
-				}
-				if discard {
+				if gitDiscards(sub, args) {
 					v.a("destructive-git", "this throws away uncommitted changes in those files.")
-				} else if contains(args, "-b") || contains(args, "-B") || contains(args, "-c") || contains(args, "--create") || contains(args, "--orphan") {
-				} else if plainSwitchOrUnstage(s, sub, args) {
+				} else if plainNewBranch(s, sub, args) || plainSwitchOrUnstage(s, sub, args) {
+				} else if g := gitParse(s); g.otherGit || g.dir == "" || gitRetargeted(s, g) {
+					v.a("dirty-switch", "Plumbline can't tell which checkout this changes (another folder, worktree or git setting), so it couldn't check for uncommitted changes there. This can carry them along, merge them, or overwrite them in the files it names; check what should happen to them first.")
 				} else if c.dirtyFor(s) {
-					v.a("dirty-switch", "there are uncommitted changes. This can carry them along, merge them, or overwrite them in the files it names; check what should happen to them first.")
+					v.a("dirty-switch", "there are uncommitted changes, or Plumbline couldn't read git's state. This can carry them along, merge them, or overwrite them in the files it names; check what should happen to them first.")
 				}
 			case "stash":
 				if len(args) > 0 && (args[0] == "drop" || args[0] == "clear") {
@@ -2122,6 +2208,9 @@ func (c *hookCtx) gateQuestion() Output {
 				if !reviewCapPlain(q) || len(qs) != 1 {
 					return c.deny("review-cap-format", "ask the Review cap question on its own, with exactly the options \"Accept as is\" and \"One more round\", so the user's click means only that.")
 				}
+				if why := c.reviewCapEarly(); why != "" {
+					return c.deny("review-cap-early", why)
+				}
 				continue
 			}
 			if !isCommitQ(q) {
@@ -2201,6 +2290,7 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 			p = append(p, c.planRuleProblems(text)...)
 			p = append(p, CheckRefs(t, text)...)
 			p = append(p, c.challengeProblems(text)...)
+			p = append(p, c.guardProblems(text)...)
 		}
 	}
 	return p

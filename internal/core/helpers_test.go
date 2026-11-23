@@ -106,7 +106,7 @@ func (h *harness) complete(kind, text string) string {
 	return text
 }
 
-const goodPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
+const goodPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n"
 
 // groundedTask: a normal task with lookups done, the file read and the
 // understanding written, ready for the plan.
@@ -363,11 +363,11 @@ func TestReviewerAfterBuilding(t *testing.T) {
 
 	// Three reviews at most; after that, the user decides.
 	h.runHelper(HelperCodeReviewer, "# Review 3\nfine\n")
-	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer"}), "deny", "bring what's left to the user")
+	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer"}), "deny", "already ran 3 times")
 	write(t, a, "package src\n\nfunc A() int { return 4 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
-	if m := h.finishMissing(); !strings.Contains(m, "ask the user") {
-		t.Fatalf("after 3 reviews a stale review goes to the user: %s", m)
+	if m := h.finishMissing(); !strings.Contains(m, "plumbline:arbiter") {
+		t.Fatalf("after 3 reviews a stale review goes to the arbiter: %s", m)
 	}
 }
 

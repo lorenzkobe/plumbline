@@ -20,3 +20,4 @@ You are the challenger for a Plumbline task. The lead wrote an understanding of 
 - Does `## Reuse` show a real search for code that already does the job? Search once yourself.
 - Would the plan's `## Real-world proof` show the change works for a real user?
 - Does `## Team` name the reviewers the risk calls for (security, data and performance, UX and accessibility)?
+- Does `## Guards loosened` hold every guard the plan removes or narrows (an ask, a refusal, a permission check, a validation, or something new that runs without asking)? For each one, check its map against the code: every way to reach it, and what else it was the only guard for.

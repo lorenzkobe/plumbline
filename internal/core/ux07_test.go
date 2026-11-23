@@ -33,7 +33,7 @@ func smallTask(t *testing.T, riskyPaths []string, file string) *harness {
 // A small plan: what changes, the files, the cases. No understanding.md,
 // no proof or "Needs your OK" sections (none means none).
 func smallPlan(file string) string {
-	return "# Plan\n## Goal\nDone when: A works as planned.\nRename the local in F (" + file + ":3).\n## Files\n- " + file + "\n## Cases\n- [normal] F still returns 1 -> test: test.sh\n"
+	return "# Plan\n## Goal\nDone when: A works as planned.\nRename the local in F (" + file + ":3).\n## Files\n- " + file + "\n## Guards loosened\n- none\n## Cases\n- [normal] F still returns 1 -> test: test.sh\n"
 }
 
 func TestSmallPlanNeedsNoUnderstanding(t *testing.T) {

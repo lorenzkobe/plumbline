@@ -289,7 +289,7 @@ func TestSharedTests(t *testing.T) {
 		"- [boundary] max amount -> test: `src/r.test.ts::refunds zero`\n" +
 		"- [refused] no permission -> test: src/b_test.go\n" +
 		"- [bug] bad state -> test: src/b_test.go\n" +
-		"## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
+		"## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n"
 	pc := CheckPlan(plan)
 	want := "src/a_test.go::TestRefund (2 cases), src/r.test.ts::refunds zero (2 cases)"
 	if got := strings.Join(pc.SharedTests, ", "); got != want {

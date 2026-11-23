@@ -152,7 +152,7 @@ func builtTask(t *testing.T, files map[string]string) *harness {
 	for p := range files {
 		plan += "- " + p + " (new)\n"
 	}
-	plan += "## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
+	plan += "## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n"
 	h.docs(DocPlan, plan)
 	h.approve()
 	h.redRun()

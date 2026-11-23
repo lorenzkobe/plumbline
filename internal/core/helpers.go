@@ -30,12 +30,16 @@ const (
 	HelperBuilder      = "builder"
 	HelperQA           = "qa"
 	HelperTester       = "tester"
+	HelperGuard        = "guard-reviewer"
+	HelperArbiter      = "arbiter"
 	// 0.3.x had one reviewer; its runs count as the code reviewer's.
 	legacyReviewer = "reviewer"
 
 	MaxChallengeRounds = 2
 	MaxReviews         = 3 // per reviewer: the first review plus 2 fix rounds
 	MaxQARuns          = 2
+	MaxGuardRounds     = 2
+	MaxArbiterRuns     = 3
 
 	helperAlive = 30 * time.Minute
 )
@@ -49,6 +53,9 @@ type HelperRun struct {
 	PrintAfter  string    `json:"print_after,omitempty"`
 	Findings    string    `json:"findings"`           // file name in the task's docs folder
 	SawDocs     bool      `json:"saw_docs,omitempty"` // understanding.md and plan.md existed at the start
+	Guards      string    `json:"guards,omitempty"`
+	GuardList   []string  `json:"guard_list,omitempty"`
+	Shown       []string  `json:"shown,omitempty"`
 
 	// Builders: the copy of the repo the run works in, the commit it was made
 	// from (the lead's code then), and what became of it.
@@ -113,7 +120,13 @@ func isWorker(kind string) bool { return contains(WorkerKinds, kind) }
 
 // independent: helpers whose work must not see the others' notes. Reviewers
 // stay independent of each other; blind QA must not see the new code.
-func independent(kind string) bool { return isReviewer(kind) || kind == HelperQA }
+func independent(kind string) bool {
+	return isReviewer(kind) || kind == HelperQA || kind == HelperGuard || kind == HelperArbiter
+}
+
+func checked(kind string) bool {
+	return isReviewer(kind) || kind == HelperGuard || kind == HelperArbiter
+}
 
 // helperKind maps an agent type to a Plumbline helper. Hook input carries the
 // plugin-scoped name; the lead may pass the bare name to the Agent tool.
@@ -122,7 +135,7 @@ func helperKind(agentType string, allowBare bool) string {
 	if !scoped && !allowBare {
 		return ""
 	}
-	if k == HelperChallenger || isReviewer(k) || isWorker(k) {
+	if k == HelperChallenger || checked(k) || isWorker(k) {
 		return k
 	}
 	return ""
@@ -130,7 +143,7 @@ func helperKind(agentType string, allowBare bool) string {
 
 // Findings files: challenge-N.md, code-review-N.md, ... (review-N.md from
 // 0.3.x), and the workers' trace-N.md, build-N.md, qa-N.md, test-N.md.
-var reFindings = regexp.MustCompile(`^(challenge|((plan|code|security|data|ux)-)?review|trace|build|qa|test)-[0-9]+\.md$`)
+var reFindings = regexp.MustCompile(`(?i)^(challenge|((plan|code|security|data|ux|guard)-)?review|arbiter|trace|build|qa|test)-[0-9]+\.md$`)
 
 func findingsName(kind string, n int) string {
 	switch kind {
@@ -144,6 +157,8 @@ func findingsName(kind string, n int) string {
 		return fmt.Sprintf("qa-%d.md", n)
 	case HelperTester:
 		return fmt.Sprintf("test-%d.md", n)
+	case HelperArbiter:
+		return fmt.Sprintf("arbiter-%d.md", n)
 	}
 	return fmt.Sprintf("%s-%d.md", strings.TrimSuffix(kind, "er"), n)
 }
@@ -466,7 +481,7 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 	if t == nil {
 		return c.deny("helper-no-task", fmt.Sprintf("the %s works on a task; start one first.", kind))
 	}
-	if isWorker(kind) && !c.setup.PartOn(kind) {
+	if (isWorker(kind) || kind == HelperGuard || kind == HelperArbiter) && !c.setup.PartOn(kind) {
 		return c.deny("helper-off", fmt.Sprintf("the %s is switched off in this project's setup (parts).", kind))
 	}
 	var fp string
@@ -492,12 +507,22 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if n := len(t.helperRuns(HelperChallenger)); n >= MaxChallengeRounds {
 			return c.deny("challenger-rounds", fmt.Sprintf("the challenger already ran %d times, the most a task gets. Write the \"## Challenge note\" in plan.md with what is still open, and go to the checkpoint.", n))
 		}
+	case kind == HelperGuard:
+		if why := c.guardStartProblem(); why != "" {
+			return c.deny("guard-start", why)
+		}
+		fp, fpErr = Fingerprint(t.Root, c.ignore())
+	case kind == HelperArbiter:
+		fp, fpErr = Fingerprint(t.Root, c.ignore())
+		if why := c.arbiterStartProblem(fp, fpErr); why != "" {
+			return c.deny("arbiter-start", why)
+		}
 	case isReviewer(kind):
 		if t.Phase != PhaseBuilding {
 			return c.deny("reviewer-phase", fmt.Sprintf("the %s checks the built change, and task %s is at the %s step. Before the checkpoint, the challenger (plumbline:challenger) is the one to run.", kind, t.ID, t.Phase))
 		}
 		if n := len(t.helperRuns(kind)); n >= t.reviewLimit(kind) {
-			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times, the most it gets. Stop and bring what's left to the user, with your suggestion: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\".", kind, n))
+			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times, the most it gets. The finish check says what comes next: plumbline:arbiter when the code changed since its last review, else the Review cap question (AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\").", kind, n))
 		}
 		if why := c.disputeProblem(kind); why != "" {
 			return c.deny("dispute-evidence", why)
@@ -526,7 +551,7 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 			return c.deny("helper-prompt", why)
 		}
 	}
-	if isReviewer(kind) {
+	if checked(kind) {
 		t.allowReviewerStart(kind, fp)
 		if err := SaveTask(t); err != nil {
 			return c.deny("reviewer-record", fmt.Sprintf("the %s's start couldn't be recorded (%v), so its run wouldn't count. Try again.", kind, err))
@@ -836,6 +861,9 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 			own = own || foldPath(r.Findings) == foldPath(base)
 		}
 		own = own || foldPath(base) == foldPath(DisputesName(kind))
+		for _, name := range c.task.arbiterReads(kind) {
+			own = own || foldPath(name) == foldPath(base)
+		}
 		if foldPath(filepath.Dir(abs)) == foldPath(docs) && (base == DocUnderstanding || base == DocPlan || own) {
 			return nil
 		}
@@ -843,6 +871,9 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 		if rel, err := filepath.Rel(docs, abs); err == nil && !climbsOut(rel) && reQATestsDir.MatchString(strings.Split(filepath.ToSlash(rel), "/")[0]) {
 			return nil
 		}
+	}
+	if kind == HelperArbiter {
+		return c.deny("reviewer-own-notes", fmt.Sprintf("in the notes folder the arbiter reads only %s, %s, the reviewers' findings and disputes files, and its own findings, not the report or self-review.md. Read the code and the diff for the rest.", DocPlan, DocUnderstanding))
 	}
 	return c.deny("reviewer-own-notes", fmt.Sprintf("each review stays independent: in the notes folder the %s reads only %s, %s and its own earlier findings, not other reviewers' findings or the report. Read the code and the diff for the rest.", kind, DocUnderstanding, DocPlan))
 }
@@ -893,7 +924,15 @@ func SubagentStart(in *HookInput) Output {
 				run.PrintBefore = made.tree
 			}
 		}
-		if isReviewer(kind) && !c.paused && !t.takeReviewerStart(kind, run.PrintBefore) {
+		if kind == HelperGuard {
+			run.GuardList = c.planGuards()
+			run.Guards = guardsPrint(run.GuardList)
+			run.SawDocs = docExists(t, DocPlan)
+		}
+		if kind == HelperArbiter && c.setup != nil {
+			run.Shown = cappedKinds(t, c.setup, run.PrintBefore)
+		}
+		if checked(kind) && !c.paused && !t.takeReviewerStart(kind, run.PrintBefore) {
 			run.Unchecked = true
 			run.Findings = fmt.Sprintf("%s-unchecked-%d.md", kind, len(t.Helpers)+1)
 		}
@@ -928,6 +967,13 @@ func SubagentStart(in *HookInput) Output {
 		c.workerStartNote(&b, run, n)
 	} else if kind == HelperChallenger {
 		fmt.Fprintf(&b, " Attack %s and %s there. This is round %d of at most %d.", DocUnderstanding, DocPlan, n, MaxChallengeRounds)
+		if len(c.planGuards()) > 0 {
+			fmt.Fprintf(&b, " %s's \"## Guards loosened\" lists checks the plan loosens: check each one's map against the code, every way to reach it and what else it was the only check for.", DocPlan)
+		}
+	} else if kind == HelperGuard {
+		fmt.Fprintf(&b, " The plan loosens the guards in %s's \"## Guards loosened\". Check each against the code: every shape that reaches it, what it lets through, and what else it was the only check for. In the notes folder read only %s, %s and your own earlier findings. This is round %d of at most %d.", DocPlan, DocPlan, DocUnderstanding, n, MaxGuardRounds)
+	} else if kind == HelperArbiter {
+		b.WriteString(c.arbiterStartNote(run.PrintBefore))
 	} else {
 		base := t.StartCommit
 		if base == "" {
@@ -941,7 +987,7 @@ func SubagentStart(in *HookInput) Output {
 			fmt.Fprintf(&b, " Blind QA's tests changed after it wrote them (%s); its versions are under %s/qa-<n>-tests/. Compare them (diff) and flag any change to what a test expects: only its setup may change.", listSome(changed, 8), docs)
 		}
 	}
-	if n > 1 && !isWorker(kind) {
+	if n > 1 && !isWorker(kind) && kind != HelperArbiter {
 		// A fresh pass first: a reviewer who reads its earlier verdict first
 		// anchors on it and misses what the fix broke.
 		b.WriteString(c.laterRunNote(kind, n))
@@ -971,7 +1017,7 @@ func (c *hookCtx) stopProblems(run *HelperRun, kind string) (missing bool, probl
 		return true, nil
 	}
 	switch {
-	case kind == HelperChallenger || isReviewer(kind):
+	case kind == HelperChallenger || checked(kind):
 		problems = c.findingsProblems(run)
 	case kind == HelperBuilder:
 		if run.Status = builderStatus(t.findingsText(*run)); run.Status == "" {
@@ -1118,6 +1164,139 @@ func (c *hookCtx) challengeProblems(plan string) []string {
 	return p
 }
 
+func (t *Task) arbiterReads(kind string) []string {
+	if kind != HelperArbiter {
+		return nil
+	}
+	var out []string
+	for _, r := range t.Helpers {
+		if isReviewer(r.Kind) && !r.Unchecked && r.Findings != "" {
+			out = append(out, r.Findings)
+		}
+	}
+	for _, k := range ReviewerKinds {
+		out = append(out, DisputesName(k))
+	}
+	return out
+}
+
+func guardOn(s *Setup) bool {
+	return s.PartOn("reviewer") && s.PartOn(HelperSecurity) && s.PartOn(HelperGuard)
+}
+
+func (c *hookCtx) planGuards() []string {
+	text, _, err := ReadDoc(c.task, DocPlan)
+	if err != nil {
+		return nil
+	}
+	return CheckPlan(text).Guards
+}
+
+func guardsPrint(guards []string) string {
+	if len(guards) == 0 {
+		return ""
+	}
+	var norm []string
+	for _, g := range guards {
+		norm = append(norm, normSpace(strings.ToLower(g)))
+	}
+	return sha256Hex([]byte(strings.Join(norm, "\n")))
+}
+
+func (c *hookCtx) guardStartProblem() string {
+	t := c.task
+	switch {
+	case !guardOn(c.setup):
+		return "the guard reviewer is switched off in this project's setup (parts: reviewer, security-reviewer or guard-reviewer)."
+	case t.Phase == PhaseBuilding:
+		return "the guard reviewer reads the plan before the checkpoint, and the plan is already approved. After building, the reviewers check the code."
+	case !docExists(t, DocPlan):
+		return "write plan.md first: the guard reviewer checks its \"## Guards loosened\"."
+	case len(c.planGuards()) == 0:
+		return "plan.md's \"## Guards loosened\" lists no guard, so there is nothing for the guard reviewer to check."
+	}
+	if n := len(t.helperRuns(HelperGuard)); n >= MaxGuardRounds {
+		return fmt.Sprintf("the guard reviewer already ran %d times, the most a task gets. Answer what is still open in plan.md's \"## Challenge note\".", n)
+	}
+	return ""
+}
+
+func (c *hookCtx) guardProblems(plan string) []string {
+	t := c.task
+	guards := CheckPlan(plan).Guards
+	if len(guards) == 0 || !guardOn(c.setup) {
+		return nil
+	}
+	want := guardsPrint(guards)
+	runs := t.helperRuns(HelperGuard)
+	var newest *HelperRun
+	for i := range runs {
+		r := runs[i]
+		if t.counts(r) && r.SawDocs {
+			if r.Guards == want {
+				return c.guardNote(plan)
+			}
+			newest = &r
+		}
+	}
+	var p []string
+	switch {
+	case t.HelperRunning():
+		p = append(p, "the guard reviewer is still running; wait for its findings")
+	case len(runs) >= MaxGuardRounds:
+		if unseen := unseenGuards(guards, newest, plan); len(unseen) > 0 {
+			p = append(p, fmt.Sprintf(`the guard reviewer's %d rounds are used, and it didn't check these guards (the list changed, or its findings failed Plumbline's checks): %s. In plan.md's "## Challenge note", write a line for each with its file:line and "not reviewed", so the user sees it at the plan question`, MaxGuardRounds, strings.Join(unseen, "; ")))
+		}
+	case newest != nil:
+		p = append(p, `"## Guards loosened" changed since the guard reviewer read it: start plumbline:guard-reviewer again on the current list`)
+	default:
+		p = append(p, `plan.md loosens a guard ("## Guards loosened"): start the Agent tool with subagent_type plumbline:guard-reviewer (it checks each guard against the code before the checkpoint, and must finish with a findings file)`)
+	}
+	return append(p, c.guardNote(plan)...)
+}
+
+func unseenGuards(guards []string, seen *HelperRun, plan string) []string {
+	known := map[string]bool{}
+	if seen != nil {
+		for _, g := range seen.GuardList {
+			known[normSpace(strings.ToLower(g))] = true
+		}
+	}
+	var lines []string
+	for _, l := range Section(plan, "challenge note") {
+		if strings.Contains(strings.ToLower(l), "not reviewed") {
+			lines = append(lines, l)
+		}
+	}
+	var out []string
+	for _, g := range guards {
+		if known[normSpace(strings.ToLower(g))] {
+			continue
+		}
+		named := false
+		for _, r := range Refs(" " + g) {
+			ref := fmt.Sprintf("%s:%d", r.Path, r.Line)
+			for _, l := range lines {
+				named = named || strings.Contains(l, ref)
+			}
+		}
+		if !named {
+			out = append(out, short(g))
+		}
+	}
+	return out
+}
+
+func (c *hookCtx) guardNote(plan string) []string {
+	if c.task.Size != "small" && c.setup.PartOn(HelperChallenger) {
+		return nil
+	}
+	if len(Section(plan, "challenge note")) == 0 {
+		return []string{`plan.md needs a "## Challenge note" answering the guard reviewer's findings: what you changed, and anything you disagreed with and why`}
+	}
+	return nil
+}
+
 // onlyTestsOrDocs: everything that changed between two versions of the code
 // is a test file or a doc, and none decides which checks run. After such a
 // change only the code reviewer looks again (it watches for weakened tests);
@@ -1202,11 +1381,31 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		miss = append(miss, "review: the code changed after the last review (or during it, or a run never finished, left no findings file or one that failed Plumbline's checks); run these again to check the fixes: "+strings.Join(again, ", "))
 	}
 	accepted := fp != "" && t.ReviewCapOK == fp
+	cleared := false
 	if accepted {
 		capped = nil
 	}
 	if len(capped) > 0 {
+		st, arb := arbiterState(t, s, fp)
+		switch st {
+		case arbiterCleared:
+			cleared, capped = true, nil
+		case arbiterDue:
+			miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; start plumbline:arbiter (Agent tool): it checks only their open must-fix findings and the fixes since, and the user is asked only if one is still open", capLimit, strings.Join(capped, ", ")))
+			capped = nil
+		case arbiterRunning:
+			miss = append(miss, "review: the arbiter is still running; wait for its findings")
+			capped = nil
+		case arbiterOpen:
+			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the arbiter found a must-fix still open (%s). Fix it (the arbiter then checks the new code), or put it under \"For you\" in the report and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(capped, ", "), arb.Findings))
+			capped = nil
+		}
+	}
+	if len(capped) > 0 {
 		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(capped, ", ")))
+	}
+	if cleared && report != "" && !strings.Contains(strings.ToLower(strings.Join(Section(report, "review"), "\n")), "cleared by the arbiter") {
+		miss = append(miss, "report: the arbiter found no must-fix open after the reviewers ran out of rounds; say so under ## Review (\"cleared by the arbiter\"), with what no reviewer saw")
 	}
 	if accepted && report != "" && !strings.Contains(strings.ToLower(strings.Join(Section(report, "review"), "\n")), "accepted as is by you") {
 		miss = append(miss, "report: you accepted the reviews as they are when they ran out of rounds; say so under ## Review (\"accepted as is by you\"), with what no reviewer saw")

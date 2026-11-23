@@ -153,7 +153,7 @@ func TestDocs(t *testing.T) {
 	if len(refs) != 2 || refs[0].Path != "src/a.go" || refs[1].Line != 3 {
 		t.Errorf("refs: %+v", refs)
 	}
-	plan := "## Files\n- src/a.go\n- `src/a_test.go`\n## Cases\n- [bug] x -> test: src/a_test.go\n- [edge] y, does not apply, because z\n- no label -> test: q.go\n## Real-world proof\n- api: POST /x returns 201\n- ui: does not apply, because no UI\n"
+	plan := "## Files\n- src/a.go\n- `src/a_test.go`\n## Cases\n- [bug] x -> test: src/a_test.go\n- [edge] y, does not apply, because z\n- no label -> test: q.go\n## Real-world proof\n- api: POST /x returns 201\n- ui: does not apply, because no UI\n## Guards loosened\n- none\n"
 	pc := CheckPlan(plan)
 	if len(pc.Files) != 2 || pc.Files[1] != "src/a_test.go" {
 		t.Errorf("files: %v", pc.Files)

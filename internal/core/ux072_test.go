@@ -269,7 +269,7 @@ func TestGoalLine(t *testing.T) {
 // file named "at", and the approved plan could never finish.
 func TestCaseTestLinkNamesAFile(t *testing.T) {
 	plan := func(cs string) PlanCheck {
-		return CheckPlan("## Goal\nDone when: x.\n## Files\n- src/a.go\n## Cases\n" + cs + "## Real-world proof\n- does not apply, because none\n## Needs your OK\n- none\n")
+		return CheckPlan("## Goal\nDone when: x.\n## Files\n- src/a.go\n## Cases\n" + cs + "## Real-world proof\n- does not apply, because none\n## Needs your OK\n- none\n## Guards loosened\n- none\n")
 	}
 	pc := plan("- [boundary] the 4th wait is 120 s, same test: at 120 s\n")
 	if len(pc.Problems) != 1 || !strings.Contains(pc.Problems[0], `"at" isn't a test file`) || len(pc.CaseTests) != 0 {

@@ -227,10 +227,15 @@ func (c *hookCtx) findingsProblems(run *HelperRun) []string {
 			p = append(p, "finding "+why)
 		}
 	}
+	if checked(run.Kind) {
+		p = append(p, mustFixProblems(text)...)
+	}
+	if run.Kind == HelperArbiter {
+		p = append(p, arbiterFindingsProblems(text)...)
+	}
 	if !isReviewer(run.Kind) {
 		return p
 	}
-	p = append(p, mustFixProblems(text)...)
 	// N5: a withdrawn finding names the code that refutes it, and the files
 	// the lead's disputes cite were opened in this run.
 	withdrew := false
@@ -295,14 +300,66 @@ func (c *hookCtx) findingsProblems(run *HelperRun) []string {
 }
 
 var (
-	reMustFixLabel   = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:\[\s*\d+\s*\]\s*[*_]*\s*)?must[- ]fix\b`)
-	reShouldFixLabel = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:\[\s*\d+\s*\]\s*[*_]*\s*)?should[- ]fix\b`)
+	reMustFixLabel   = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:[\[(][^\])]*[\])]\s*:?\s*[*_]*\s*)?must[- ]fix\b`)
+	reShouldFixLabel = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:[\[(][^\])]*[\])]\s*:?\s*[*_]*\s*)?should[- ]fix\b`)
+	reNumbered       = regexp.MustCompile(`^\s*\d+[.)]\s+`)
 	reFailsWhen      = regexp.MustCompile(`(?i)\bfails when\b[*_]*\s*:[*_]*`)
 )
 
+func labelItems(text string) []string {
+	var lines []string
+	level := 0
+	fence := false
+	for _, l := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			fence = !fence
+		}
+		if strings.HasPrefix(t, "#") && !fence {
+			n := len(t) - len(strings.TrimLeft(t, "#"))
+			name := strings.ToLower(strings.TrimSpace(t[n:]))
+			switch {
+			case level > 0 && n <= level:
+				level = 0
+			case level > 0:
+				lines = append(lines, itemBreak)
+				continue
+			}
+			if level == 0 && strings.HasPrefix(name, "findings") {
+				level = n
+			}
+			continue
+		}
+		if level > 0 {
+			lines = append(lines, reNumbered.ReplaceAllString(l, "- "))
+		}
+	}
+	return items(lines)
+}
+
+func arbiterFindingsProblems(text string) []string {
+	found := labelItems(text)
+	if !hasHeading(text, "findings") || len(found) == 0 {
+		return []string{`write "## Findings" with each must-fix still open, or the single line "- none"`}
+	}
+	var p []string
+	for _, item := range found {
+		if !strictNone(item) && !reMustFixLabel.MatchString(item) {
+			p = append(p, fmt.Sprintf(`%q under "## Findings": label each still-open finding must-fix (with "Fails when"), move what is fixed to "## Checked and fine", or write "- none"`, short(plainLine(item))))
+		}
+	}
+	return p
+}
+
+var reStrictNone = regexp.MustCompile(`^(none|nothing)\.?$`)
+
+func strictNone(item string) bool {
+	return reStrictNone.MatchString(strings.ToLower(strings.TrimSpace(strings.TrimLeft(plainLine(item), "-*+ "))))
+}
+
 func mustFixProblems(text string) []string {
 	var p []string
-	for _, item := range findingItems(text, "findings") {
+	for _, item := range labelItems(text) {
 		if reMustFixLabel.MatchString(item) && !failsWhen(item) {
 			p = append(p, fmt.Sprintf(`must-fix %q has no "Fails when: <input or state> -> <wrong result>": add it, or mark the finding should-fix`, short(plainLine(item))))
 		}
@@ -339,7 +396,7 @@ func (c *hookCtx) laterRunNote(kind string, n int) string {
 	t := c.task
 	runs := t.helperRuns(kind)
 	prev := runs[n-2].Findings
-	if kind == HelperChallenger {
+	if kind == HelperChallenger || kind == HelperGuard {
 		return fmt.Sprintf(" Do a fresh pass first, as if this were your first run, and write those findings. Only then open your earlier findings (%s) and check whether each was really answered.", prev)
 	}
 	again := " An earlier finding that wasn't fixed goes in this run's findings again, with its label."
@@ -464,6 +521,9 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 	allowed := map[string]bool{DocPlan: true, DocUnderstanding: true, DisputesName(kind): true}
 	for _, r := range t.helperRuns(kind) {
 		allowed[r.Findings] = true
+	}
+	for _, name := range t.arbiterReads(kind) {
+		allowed[name] = true
 	}
 	free := shingles(t.Title + "\n" + promptBoilerplate)
 	// Folder paths aren't findings: the repo's, the notes folder's and the

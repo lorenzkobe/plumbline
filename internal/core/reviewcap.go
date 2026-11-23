@@ -1,6 +1,10 @@
 package core
 
-import "strings"
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+)
 
 func (t *Task) reviewLimit(kind string) int {
 	return MaxReviews + t.ReviewExtra[kind]
@@ -87,4 +91,183 @@ func (c *hookCtx) anyReviewerCapped() bool {
 		}
 	}
 	return false
+}
+
+const (
+	arbiterOff     = "off"
+	arbiterDue     = "due"
+	arbiterRunning = "running"
+	arbiterCleared = "cleared"
+	arbiterOpen    = "open"
+	arbiterUsed    = "used"
+	arbiterBlocked = "blocked"
+)
+
+func (t *Task) lastCounted(kind string) *HelperRun {
+	runs := t.helperRuns(kind)
+	for i := len(runs) - 1; i >= 0; i-- {
+		if t.counts(runs[i]) {
+			r := runs[i]
+			return &r
+		}
+	}
+	return nil
+}
+
+func reviewOutOfDate(t *Task, s *Setup, kind, fp string, last *HelperRun) bool {
+	if last == nil || !t.counts(*last) {
+		return true
+	}
+	return last.PrintAfter != fp && !((kind != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp))
+}
+
+func cappedKinds(t *Task, s *Setup, fp string) []string {
+	var out []string
+	for _, k := range RequiredReviewers(t, s) {
+		runs := t.helperRuns(k)
+		if len(runs) == 0 || runs[len(runs)-1].alive() || len(runs) < t.reviewLimit(k) {
+			continue
+		}
+		if reviewOutOfDate(t, s, k, fp, t.lastFinished(k)) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func openMustFix(text string) []string {
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		if item := reNumbered.ReplaceAllString(strings.TrimSpace(l), "- "); reMustFixLabel.MatchString(item) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func arbiterState(t *Task, s *Setup, fp string) (string, *HelperRun) {
+	if !s.PartOn(HelperArbiter) {
+		return arbiterOff, nil
+	}
+	runs := t.helperRuns(HelperArbiter)
+	if len(runs) > 0 && runs[len(runs)-1].alive() {
+		return arbiterRunning, nil
+	}
+	if last := t.lastFinished(HelperArbiter); last != nil && fp != "" && last.PrintAfter == fp && t.counts(*last) && covers(last.Shown, cappedKinds(t, s, fp)) {
+		if len(openMustFix(t.findingsText(*last))) == 0 {
+			return arbiterCleared, last
+		}
+		return arbiterOpen, last
+	}
+	if len(runs) >= MaxArbiterRuns {
+		return arbiterUsed, nil
+	}
+	if fixesUnreadable(t, s, fp) != "" {
+		return arbiterBlocked, nil
+	}
+	return arbiterDue, nil
+}
+
+func covers(shown, capped []string) bool {
+	for _, k := range capped {
+		if !contains(shown, k) {
+			return false
+		}
+	}
+	return true
+}
+
+func fixesUnreadable(t *Task, s *Setup, fp string) string {
+	for _, k := range cappedKinds(t, s, fp) {
+		last := t.lastCounted(k)
+		if last == nil {
+			return fmt.Sprintf("the %s has no review that counted, so there are no findings for the arbiter to check", k)
+		}
+		if _, err := treeChanges(t.Root, last.PrintAfter, fp); err != nil {
+			return fmt.Sprintf("git couldn't list what changed since the %s's last counted review (%v)", k, err)
+		}
+	}
+	return ""
+}
+
+func (c *hookCtx) arbiterStartProblem(fp string, err error) string {
+	t := c.task
+	if t.Phase != PhaseBuilding {
+		return fmt.Sprintf("the arbiter rules on reviews that ran out of rounds, and task %s is at the %s step.", t.ID, t.Phase)
+	}
+	if err != nil || fp == "" {
+		return "Plumbline couldn't read the code's state, so the arbiter's ruling couldn't be tied to this code. Try again."
+	}
+	capped := cappedKinds(t, c.setup, fp)
+	if len(capped) == 0 {
+		return "no reviewer is out of rounds with a review older than the code, so there is nothing for the arbiter to rule on. Run the reviewers the finish check names."
+	}
+	switch st, _ := arbiterState(t, c.setup, fp); st {
+	case arbiterRunning:
+		return "the arbiter is already running; wait for its findings."
+	case arbiterCleared, arbiterOpen:
+		return "the arbiter already ruled on the code as it is now; the finish check says what comes next."
+	case arbiterUsed:
+		return fmt.Sprintf("the arbiter already ran %d times, the most a task gets. Ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\".", MaxArbiterRuns)
+	case arbiterBlocked:
+		return fixesUnreadable(t, c.setup, fp) + ", so the arbiter can't be shown the fixes. Ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\"."
+	}
+	return ""
+}
+
+func (c *hookCtx) arbiterStartNote(fp string) string {
+	t := c.task
+	docs := TaskDocsDir(t.Root, t.ID)
+	var b strings.Builder
+	b.WriteString(" These reviewers used all their runs, and the code changed after their last review. Decide only whether a must-fix is still open on the code as it is now:")
+	for _, k := range cappedKinds(t, c.setup, fp) {
+		last := t.lastCounted(k)
+		if last == nil {
+			continue
+		}
+		changed, _ := treeChanges(t.Root, last.PrintAfter, fp)
+		fmt.Fprintf(&b, " the %s's last counted findings are %s; the fixes since are `git diff %s %s` (%s).", k, filepath.Join(docs, last.Findings), last.PrintAfter, fp, listSome(changed, 20))
+		if newer := t.lastFinished(k); newer != nil && newer.Findings != last.Findings && t.findingsExist(*newer) {
+			fmt.Fprintf(&b, " Its newer run didn't count, but read its must-fix findings too: %s.", filepath.Join(docs, newer.Findings))
+		}
+		if docExists(t, DisputesName(k)) {
+			fmt.Fprintf(&b, " The lead's disputes of them: %s.", filepath.Join(docs, DisputesName(k)))
+		}
+	}
+	fmt.Fprintf(&b, " In the notes folder read only %s, those findings and disputes files, and your own findings, never report.md or self-review.md. Under \"## Findings\" list each must-fix still open, or \"- none\".", DocPlan)
+	return b.String()
+}
+
+func (c *hookCtx) reviewCapEarly() string {
+	t := c.task
+	if t == nil || t.Phase != PhaseBuilding || c.setup == nil {
+		return ""
+	}
+	fp, err := Fingerprint(t.Root, c.ignore())
+	if err != nil || fp == "" || t.ReviewCapOK == fp || len(cappedKinds(t, c.setup, fp)) == 0 {
+		return ""
+	}
+	switch st, run := arbiterState(t, c.setup, fp); st {
+	case arbiterDue:
+		return "start plumbline:arbiter first (Agent tool): it checks the capped reviewers' open must-fix findings and the fixes since. The user is asked only if it finds one still open."
+	case arbiterRunning:
+		return "the arbiter is still running; wait for its findings. The user is asked only if it finds a must-fix still open."
+	case arbiterCleared:
+		if len(c.disputedCapped(fp)) == 0 {
+			return fmt.Sprintf("the arbiter found no must-fix open on this code (%s), so the capped reviews count and there is nothing to ask. Say so under ## Review in the report (\"cleared by the arbiter\").", run.Findings)
+		}
+	}
+	return ""
+}
+
+func (c *hookCtx) disputedCapped(fp string) []string {
+	t := c.task
+	var out []string
+	for _, k := range RequiredReviewers(t, c.setup) {
+		last := t.lastFinished(k)
+		if len(t.helperRuns(k)) >= t.reviewLimit(k) && last != nil && !reviewOutOfDate(t, c.setup, k, fp, last) && t.disputeOpen(k, *last) {
+			out = append(out, k)
+		}
+	}
+	return out
 }

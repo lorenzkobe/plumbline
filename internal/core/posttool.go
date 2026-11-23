@@ -72,6 +72,13 @@ var reTaskStarted = regexp.MustCompile(`plumbline-task-id: ([0-9a-f-]+)`)
 // PostToolUse records what happened: files read, lookups made, code changed,
 // checkpoint answers, and files changed by terminal commands.
 func PostToolUse(in *HookInput) Output {
+	if in.ToolName == "AskUserQuestion" && os.Getenv("PLUMBLINE_DEBUG") != "" {
+		b := in.Raw
+		if len(b) == 0 {
+			b, _ = json.Marshal(in)
+		}
+		_ = writeFileAtomic(filepath.Join(DataDir(), "debug", "askuser-post.json"), b)
+	}
 	c := newCtx(in)
 	defer c.close()
 	if c.root == "" {
@@ -356,7 +363,7 @@ func (c *hookCtx) noteHelperOpened(files ...string) {
 		return
 	}
 	run := c.task.runByAgent(c.in.AgentID)
-	if run == nil || !isReviewer(run.Kind) || !run.Finished.IsZero() {
+	if run == nil || !checked(run.Kind) || !run.Finished.IsZero() {
 		return
 	}
 	added := false
@@ -1074,9 +1081,6 @@ func (c *hookCtx) afterQuestion() Output {
 			continue
 		}
 		ans := findAnswer(c.in.ToolResponse, q.Question)
-		if os.Getenv("PLUMBLINE_DEBUG") != "" {
-			_ = writeFileAtomic(filepath.Join(DataDir(), "debug", "askuser-response.json"), c.in.ToolResponse)
-		}
 		if isDrop(ans, q) {
 			note, err := closeTask(c.task, c.projectKey(), "dropped at the plan question")
 			if err != nil {

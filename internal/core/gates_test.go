@@ -245,7 +245,7 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	// Checkpoint 2 with an incomplete plan: refused.
 	h.docs(DocPlan, "# Plan\nChange A.\n")
 	h.expect(h.cp(2, "Approve"), "deny", "## Files")
-	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n## Needs your OK\n- none\n## Challenge note\n- nothing changed\n")
+	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- api: does not apply, because no API\n- ui: does not apply, because no UI\n## Needs your OK\n- none\n## Guards loosened\n- none\n## Challenge note\n- nothing changed\n")
 	h.expect(h.cp(2, "Approve"), "deny", "plumbline:challenger") // a normal task needs the challenger
 	h.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	h.cp(2, "Approve")
@@ -387,7 +387,7 @@ func TestCombinedCheckpoint(t *testing.T) {
 	must(t, SaveTask(tk))
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	h.docs(DocUnderstanding, "# U\nsrc/a.go:1\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
-	h.docs(DocPlan, "## Goal\nDone when: x works.\n## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\nnone\n")
+	h.docs(DocPlan, "## Goal\nDone when: x works.\n## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\nnone\n## Guards loosened\n- none\n")
 	h.cp(2, "Approve")
 	if h.task().Phase != PhaseBuilding {
 		t.Fatal("combined checkpoint should approve a small task")
@@ -406,7 +406,7 @@ func TestCombinedCheckpoint(t *testing.T) {
 	h2.post("mcp__serena__find_symbol", nil, nil)
 	h2.post("Read", map[string]any{"file_path": filepath.Join(h2.repo, "src", "a.go")}, nil)
 	h2.docs(DocUnderstanding, "# U\nsrc/a.go:3\n## Reuse\n- Searched src/ for a helper that does this: nothing\n")
-	h2.docs(DocPlan, "## Goal\nDone when: x works.\n## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n## Challenge note\n- nothing changed\n")
+	h2.docs(DocPlan, "## Goal\nDone when: x works.\n## Files\n- src/a.go\n## Cases\n- [normal] x -> test: test.sh\n## Real-world proof\n- does not apply, because tiny\n## Needs your OK\n- `npm install zod`\n## Guards loosened\n- none\n## Challenge note\n- nothing changed\n")
 	h2.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	// The plan installs a package (N21): the suite's before-state comes first.
 	h2.expect(h2.pre("AskUserQuestion", q), "deny", "plumbline run test")

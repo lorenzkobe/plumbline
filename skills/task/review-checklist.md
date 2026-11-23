@@ -25,6 +25,11 @@ Before every reviewer run (the first and each fix round), the lead goes through 
 - Input checks: validation belongs where data enters (requests, CLI args, config, env vars, files, external APIs, database rows). A repeated check deeper inside, of something the types already guarantee, is noise to remove (should-fix). A guard that stops a dangerous action in the wrong context stays.
 - Over-engineering and defensive noise are should-fix; the fix is usually deleting code.
 
+## Loosened guards
+- A guard (an ask, a refusal, a permission check, a validation) that the change removes or narrows needs its map in plan.md's `## Guards loosened`: every way the code reaches that guard, and what else it was the only guard for. Check the map against the code: a shape the map misses is must-fix (Fails when: <the missed shape> -> it runs without the check).
+- A loosened guard lets through only shapes the code lists exactly (an allow list: `git switch <name>`, no flags); everything else keeps the old check. A deny list of spellings on a loosened guard (`-f`, `--force`, ...) is must-fix (Fails when: a spelling the list missed, such as combined short flags or an abbreviated option -> it runs without the check).
+- A new command or path that runs without asking counts as a loosened guard.
+
 ## Backward compatibility
 - Who relies on the old behaviour: public APIs, CLIs, schemas, stored data, env vars, feature flags, config defaults; tests and fixtures that encode it. Old and new versions running side by side during a deploy, and a rollback.
 - Breakage a symbol search won't show: API JSON, a database column, a wire format, another language reading the same bytes, a flag, code three hops away.

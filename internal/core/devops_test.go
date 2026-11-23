@@ -177,7 +177,7 @@ func TestOpsKind(t *testing.T) {
 	}
 }
 
-const opsPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- `aws s3 ls`\n- `sls deploy --stage prod`\n- `psql -h db.example.com app -c \"select count(*) from users\"`\n- `aws s3 rm s3://bucket/old.txt`\n"
+const opsPlan = "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- `aws s3 ls`\n- `sls deploy --stage prod`\n- `psql -h db.example.com app -c \"select count(*) from users\"`\n- `aws s3 rm s3://bucket/old.txt`\n## Guards loosened\n- none\n"
 
 func opsTask(t *testing.T, pipeline bool, parts map[string]bool) *harness {
 	h := newHarness(t)
