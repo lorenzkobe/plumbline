@@ -13,7 +13,7 @@ import (
 // API change and the project has a frontend. `plumbline waive e2e` lets it
 // go when it truly can't run.
 func e2eMissing(t *Task, s *Setup, fp string, runs []*Run, changed []string) []string {
-	if s.Commands.E2E == "" || waived(t, "e2e", fp) || DocsOnly(t, s) {
+	if s.Commands.E2E == "" || waived(t, "e2e", fp) || DocsOnly(t, s) || CommandsOnly(t, s) {
 		return nil
 	}
 	why := ""

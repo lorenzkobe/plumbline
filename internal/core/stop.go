@@ -272,15 +272,20 @@ func verdictMissing(t *Task, s *Setup, fp, report string) []string {
 	return miss
 }
 
-// anyShouldFix: a reviewer's findings, in any run, include a should-fix.
 // The challenger's suggestions aren't marked, so it doesn't count.
 func anyShouldFix(t *Task) bool {
+	seen := map[string]bool{}
 	for _, r := range t.Helpers {
-		if r.Kind == HelperChallenger || isWorker(r.Kind) || r.Finished.IsZero() {
+		if r.Kind == HelperChallenger || isWorker(r.Kind) || seen[r.Kind] {
 			continue
 		}
-		if reShouldFix.MatchString(t.findingsText(r)) {
-			return true
+		seen[r.Kind] = true
+		if last := t.lastFinished(r.Kind); last != nil {
+			for _, item := range findingItems(t.findingsText(*last), "findings") {
+				if reShouldFixLabel.MatchString(item) {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -531,9 +536,17 @@ func UncommittedWork(t *Task, s *Setup) []string {
 		ignore = s.IgnoreChanges
 	}
 	others := t.OthersWork()
+	var notes map[string]bool
+	if t.CommandsOnly {
+		var names []string
+		for p := range dirty {
+			names = append(names, p)
+		}
+		notes = untrackedNotes(t.Root, names)
+	}
 	var out []string
 	for p := range dirty {
-		if others[p] || MatchAny(ignore, p) || p == RepoSetupFile {
+		if others[p] || MatchAny(ignore, p) || p == RepoSetupFile || notes[p] {
 			continue
 		}
 		out = append(out, p)

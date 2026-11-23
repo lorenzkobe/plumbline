@@ -254,6 +254,8 @@ func ReadOnly(s Segment) bool {
 		return false
 	case "curl":
 		return curlReads(s)
+	case "helm":
+		return helmNetShow(s)
 	case "wget":
 		return wgetReads(s)
 	case "pip", "pip3", "uv", "poetry", "cargo":
@@ -1783,7 +1785,76 @@ func LooksOnline(s Segment) bool {
 	if name == "docker" {
 		return dockerRemote(s)
 	}
+	if name == "helm" {
+		return helmNetShow(s)
+	}
 	return false
+}
+
+func helmFromNetwork(s Segment) bool {
+	if s.Name() != "helm" {
+		return false
+	}
+	vals := cloudValFlags["helm"]
+	var pos []string
+	repo := false
+	for i := 1; i < len(s.Words); i++ {
+		w := s.Words[i]
+		if strings.HasPrefix(w, "-") {
+			f, _, hasVal := strings.Cut(w, "=")
+			if f == "--repo" {
+				repo = true
+			}
+			if len(pos) == 0 && vals[f] && !hasVal {
+				i++
+			}
+			continue
+		}
+		pos = append(pos, w)
+	}
+	if len(pos) >= 2 && pos[0] == "search" && pos[1] == "hub" {
+		return true
+	}
+	if len(pos) == 0 || pos[0] != "show" {
+		return false
+	}
+	if repo {
+		return true
+	}
+	for _, w := range pos[1:] {
+		if helmRemoteChart(w, s.Dir) {
+			return true
+		}
+	}
+	return false
+}
+
+func helmRemoteChart(w, dir string) bool {
+	if strings.Contains(w, "://") {
+		return true
+	}
+	if w == "." || w == ".." || strings.HasPrefix(w, "./") || strings.HasPrefix(w, "../") || strings.HasPrefix(w, "/") || strings.HasPrefix(w, "~") || !strings.Contains(w, "/") {
+		return false
+	}
+	if dir != "" {
+		if _, err := os.Lstat(filepath.Join(dir, w)); err == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func helmNetShow(s Segment) bool {
+	if !helmFromNetwork(s) || s.dynArgs() || !harmlessCloudEnv(s) || cloudShowsSecret(s) || pointsElsewhere(s) || len(WriteTargets(s)) > 0 {
+		return false
+	}
+	words, _ := cloudWords(s)
+	for _, w := range words {
+		if cloudChangeWords[w] {
+			return false
+		}
+	}
+	return true
 }
 
 // reLocalAddr: an address on this laptop, written plainly: localhost or a

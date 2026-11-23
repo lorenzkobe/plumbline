@@ -18,7 +18,7 @@ Before every reviewer run (the first and each fix round), the lead goes through 
 
 ## Reuse and simplicity
 - A search that found nothing proves little unless it could have found something: did understanding.md's `## Reuse` look by the idea, past the files already open? Run one search yourself for code that already does the job.
-- Duplicated logic where a helper, validator, query or component already exists. Verbatim copies of a logic block are must-fix. Duplication that touches security, money, data access or API behaviour is never fine.
+- Duplicated logic where a helper, validator, query or component already exists. Verbatim copies of a logic block are must-fix (Fails when: one copy is changed and the other isn't -> the two drift apart). Duplication that touches security, money, data access or API behaviour is never fine.
 - Two copies can stay apart; extract on the third, or when the copies must never drift. Self-contained files (prompts, per-service config) may repeat until they drift. Test setup may repeat production setup for clarity.
 - Abstractions that earn nothing: delete it in your head; if the complexity doesn't come back, it only passed calls through. A wrapper with one caller, an adapter with one implementation, a pass-through method, a vague `manager`/`service`/`helper` with one call site.
 - A new switch or map over a value already switched on elsewhere: one shared mapping instead. A new file that repeats a job the repo already does with another tool (a second task runner or lint config).
@@ -35,7 +35,7 @@ Before every reviewer run (the first and each fix round), the lead goes through 
 
 ## Hidden failures
 - A bug hidden instead of fixed: a guard, a retry, a swallowed error, a clamped value, discarded state.
-- Swallowed errors, partial error handling, catching too broad a type, re-throwing without the cause. These are must-fix.
+- Swallowed errors, partial error handling, catching too broad a type, re-throwing without the cause. These are must-fix (Fails when: the call fails -> the error is lost and the caller goes on as if it worked).
 - A fallback for "the tool is missing" that also fires when the tool ran and failed.
 - "It throws, so the queue retries" holds only if the throw escapes the handler. Does a failure stop cleanly, without a hidden partial success?
 - Warnings in the test or build output are findings.
@@ -72,19 +72,20 @@ If the lead disputes your findings, Plumbline tells you the file (`<your kind>-d
 - SocratiCode finds related code; Serena finds exact callers and definitions.
 - You run without the user. Never ask them anything; put open questions in your findings.
 - Write findings to your findings file as you go, so nothing is lost if you are stopped.
-- A later run: review fresh first, as if it were your first run, and write those findings. Only then open your earlier findings and check whether each was really fixed (or, for the challenger, answered).
+- A later run: Plumbline's note says what kind of round it is. A full pass: review fresh first, as if it were your first run, and write those findings; only then open your earlier findings and check whether each was really fixed (or, for the challenger, answered). A focused round, when the fix stayed in the files your last counted run's findings cited (plus tests): review the diff the note gives, check each earlier finding, and open other code only where the fix's callers need it. No code change since your last run: answer the disputes and check your earlier findings.
+- An earlier finding that wasn't fixed goes in this run's findings again, with its label: only your last run's should-fix findings count as open.
 - Two findings with one root cause are one finding when fixing one fixes the other.
 - Never copy a secret's value into a finding; give the file:line and what kind of secret it is.
 
 ## Scoring
-Give each finding a confidence score from 0 to 100: how sure you are that it is real and matters. List every finding with its score, unsure ones too; for an unsure one, name the check that would settle it. Reviewers mark each finding must-fix or should-fix. An empty list is a fine result when you checked properly; say what you checked.
+Give each finding a confidence score from 0 to 100: how sure you are that it is real and matters. List every finding with its score, unsure ones too; for an unsure one, name the check that would settle it. Reviewers mark each finding must-fix or should-fix. A must-fix says how it fails: `Fails when: <input or state> -> <wrong result>`, text on both sides of the arrow ("Fails when: an empty cart -> total is NaN and the charge goes through"). Plumbline sends back a must-fix without one: add it, or mark the finding should-fix. An empty list is a fine result when you checked properly; say what you checked.
 
 ## Findings file
 ```
 # <Challenge | Plan review | Code review | Security review | Data review | UX review> <round>: <task title>
 
 ## Findings
-- [95] must-fix: <what is wrong> (src/orders/service.ts:142 `total = price * qty`). Why: <evidence>. Fix: <the smallest fix>.
+- [95] must-fix: <what is wrong> (src/orders/service.ts:142 `total = price * qty`). Why: <evidence>. Fails when: <input or state> -> <wrong result>. Fix: <the smallest fix>.
 - [40] should-fix: <what may be wrong> (src/orders/service.ts:150 `await charge(order)`). Why: <evidence>. Settle it: <the check>. Fix: <the smallest fix>.
 
 ## Weakened tests (reviewers)
@@ -103,7 +104,7 @@ Give each finding a confidence score from 0 to 100: how sure you are that it is 
 ## Disputes (only when the lead disputed your findings)
 - withdrawn: <finding>, because <the code that refutes it> (file:line `quote`) / upheld: <finding>, because <evidence>
 ```
-The code reviewer lists every changed file under `## Coverage` (`git diff <base> --name-only` plus new files), covered when you read its change: a file not covered makes the verdict Not ready, so cover it unless you truly can't.
+The code reviewer lists every changed file under `## Coverage` (`git diff <base> --name-only` plus new files), covered when you read its change: a file not covered makes the verdict Not ready, so cover it unless you truly can't. In a focused round, a line copied from your last run for a file unchanged since then counts.
 The challenger writes "Suggest: <the change to the understanding or plan>" instead of "Fix", no must-fix mark, and no Set aside or Coverage section.
 
 Plain words, no filler, no em dashes. Your final message is a three-line summary and the path of the findings file.

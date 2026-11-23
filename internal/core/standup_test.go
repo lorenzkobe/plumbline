@@ -213,7 +213,6 @@ func TestSprintFileTracker(t *testing.T) {
 		t.Fatalf("tracker = %q / %q, want %q", got, TrackerPath(h.repo), sprint)
 	}
 
-	// Setting it asks; reading the standup doesn't.
 	h.expect(h.bash("plumbline standup tracker --set coverage/sprint.md"), "ask", "sprint file")
 	h.expect(h.bash("plumbline standup --date 2026-11-16"), "allow", "")
 	h.expect(h.bash("plumbline standup tracker"), "allow", "")

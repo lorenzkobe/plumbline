@@ -265,15 +265,18 @@ var reTestLink = regexp.MustCompile("(?i)\\btest:\\s*(?:`([^`]+)`|([^\\s`]+))")
 
 const notApply = "does not apply, because"
 
+const commandsOnlyLine = "none (commands only)"
+
 // "test: does not apply, because ..." names no test file (PL1).
 var reTestNotApply = regexp.MustCompile(`(?i)\btest:\s*(does not apply)`)
 
 // PlanCheck is what the checkpoint needs from plan.md.
 type PlanCheck struct {
-	Files     []string
-	NewFiles  []string
-	Cases     int
-	CaseTests []string // test files the cases link to
+	Files        []string
+	CommandsOnly bool
+	NewFiles     []string
+	Cases        int
+	CaseTests    []string // test files the cases link to
 	// BugTests: the [bug] cases' test links ("file" or "file::name"), whose
 	// test must be seen failing before the fix (WF4).
 	BugTests []string
@@ -329,8 +332,14 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 	if pc.Goal == "" {
 		pc.Problems = append(pc.Problems, `plan.md needs a "## Goal" line first: what done looks like, in the user's words ("Done when: ..."), so the work can be checked against it`)
 	}
+	none, exact := false, false
 	for _, l := range Section(text, "files") {
 		if b, ok := bullet(l); ok {
+			if plain := strings.ToLower(strings.TrimSpace(reMarkup.ReplaceAllString(b, ""))); plain == "none" || strings.HasPrefix(plain, "none ") || strings.HasPrefix(plain, "none(") {
+				none = true
+				exact = exact || plain == commandsOnlyLine
+				continue
+			}
 			f, isNew := planFileEntry(b)
 			if f == "" {
 				continue
@@ -341,8 +350,15 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 			}
 		}
 	}
-	if len(pc.Files) == 0 {
-		pc.Problems = append(pc.Problems, `plan.md needs a "## Files" list naming every file the plan changes`)
+	switch {
+	case none && len(pc.Files) > 0:
+		pc.Problems = append(pc.Problems, `plan.md's ## Files has "none" next to real files: "- none (commands only)" must be the only line, for a task that changes no files; otherwise list the files and drop "none"`)
+	case none && !exact:
+		pc.Problems = append(pc.Problems, `plan.md's ## Files says "none": for a task that changes no files, write the single line "- none (commands only)"`)
+	case none:
+		pc.CommandsOnly = true
+	case len(pc.Files) == 0:
+		pc.Problems = append(pc.Problems, `plan.md needs a "## Files" list naming every file the plan changes, or the single line "- none (commands only)" for a task that only runs commands`)
 	}
 	refs := map[string]int{}
 	for _, l := range Section(text, "cases") {
@@ -357,6 +373,10 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 		b = reTestNotApply.ReplaceAllString(b, "$1")
 		lower := strings.ToLower(b)
 		if ref, bad := caseTestLink(b); ref != "" || bad != "" {
+			if pc.CommandsOnly {
+				pc.Problems = append(pc.Problems, fmt.Sprintf("case %q links a test, but the plan is commands only (## Files is \"none\"), so no test can be written: write \"does not apply, because ...\", or list the files the change needs", short(b)))
+				continue
+			}
 			if ref == "" {
 				// "same test: at 120 s" isn't a link to a file named "at" (PL2)
 				pc.Problems = append(pc.Problems, fmt.Sprintf("case %q: %q isn't a test file; write \"test: <path to the test file>\" (a path or a file name like a_test.go), or \"does not apply, because ...\"", short(b), bad))

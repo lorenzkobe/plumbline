@@ -33,7 +33,7 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
-	case "hook", "version", "--version", "-v", "help", "--help", "-h":
+	case "hook", "version", "--version", "-v", "help", "--help", "-h", "env-names":
 	default:
 		// Hooks run outside Claude Code's sandbox; commands may not.
 		if err := core.CheckDataDir(); err != nil {
@@ -63,6 +63,8 @@ func main() {
 		fmt.Print(core.Stats(*months))
 	case "docs-dir":
 		err = cmdDocsDir(args)
+	case "env-names":
+		err = cmdEnvNames(args)
 	case "setup":
 		err = cmdSetup(args)
 	case "waive":
@@ -118,6 +120,7 @@ func usage() {
   plumbline run checks                  every saved check above (not related or e2e), each recorded
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
+  plumbline env-names <.env file>       the variable names in a .env file, never the values
   plumbline setup show|laptop|undo-laptop
   plumbline setup save [--file f]       the whole setup as JSON, on stdin or in the file
   plumbline setup sandbox [--exclude psql,mysql] | undo-sandbox   Claude Code's Bash sandbox, this checkout
@@ -196,6 +199,20 @@ func runHook(args []string) (code int) {
 	}
 	out.Write(os.Stdout)
 	return 0
+}
+
+func cmdEnvNames(args []string) error {
+	if len(args) != 1 {
+		return errors.New("which .env file? plumbline env-names <file>")
+	}
+	names, err := core.EnvNames(args[0])
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		fmt.Println(n)
+	}
+	return nil
 }
 
 func mustRoot() string {
@@ -678,14 +695,19 @@ func runChecks(args []string) (int, error) {
 		{"format", s.Commands.Format}, {"typecheck", s.Commands.Typecheck}, {"security", s.Commands.Security},
 	}
 	f, _, _ := flags(args)
-	docs := false
+	docs, cmds := false, false
 	if t, terr := core.ActiveTask(root, "", f["task"]); terr == nil && t != nil && t.Phase == core.PhaseBuilding {
 		docs = core.DocsOnly(t, s)
+		cmds = core.CommandsOnly(t, s)
 	}
 	exit := 0
 	var summary []string
 	for _, c := range saved {
 		if strings.TrimSpace(c.cmd) == "" {
+			continue
+		}
+		if cmds {
+			summary = append(summary, c.name+": not needed (commands only: the task changes no files)")
 			continue
 		}
 		if docs && c.name == "test" {
@@ -788,6 +810,9 @@ func cmdStatus(args []string) error {
 	if t.Phase == core.PhaseBuilding && s != nil {
 		if core.DocsOnly(t, s) {
 			fmt.Println("Docs only: no test suite, blind QA or e2e needed; lint, build and the code review still are.")
+		}
+		if core.CommandsOnly(t, s) {
+			fmt.Println("Commands only: no file changes, so no saved checks, blind QA, e2e or reviewers are needed; real-world proof, the cases and the report still are.")
 		}
 		if r := core.RequiredReviewers(t, s); len(r) > 0 {
 			fmt.Println("Reviewers needed:", strings.Join(r, ", "))

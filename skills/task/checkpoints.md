@@ -45,6 +45,7 @@ Done when: <what the user will see or be able to do, in their words; and what st
 ## Files
 - src/orders/service.ts
 - src/orders/service.test.ts (new)
+(A task that only runs commands and changes no files: the single line `- none (commands only)`. Every case is then "does not apply, because ...". It needs no saved checks, blind QA, e2e or reviewers; real-world proof and the report still count. Any file edit is refused until a replan lists the files.)
 
 ## Cases
 - [bug] refund of an already-refunded order is refused -> test: src/orders/service.test.ts

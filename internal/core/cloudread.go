@@ -236,7 +236,7 @@ func cloudRead(s Segment) bool {
 	}
 	name := s.Name()
 	words, _ := cloudWords(s)
-	if len(words) == 0 || s.dynArgs() || !harmlessCloudEnv(s) || cloudShowsSecret(s) || pointsElsewhere(s) {
+	if helmFromNetwork(s) || len(words) == 0 || s.dynArgs() || !harmlessCloudEnv(s) || cloudShowsSecret(s) || pointsElsewhere(s) {
 		return false
 	}
 	for _, w := range words {

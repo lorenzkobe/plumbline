@@ -1112,6 +1112,7 @@ func (c *hookCtx) afterQuestion() Output {
 			t.Phase = PhaseBuilding
 			t.Checkpoint2At = Now()
 			t.PlanFiles = pc.Files
+			t.CommandsOnly = pc.CommandsOnly
 			t.Goal = pc.Goal
 			t.ProofKinds = pc.ProofKinds
 			t.ApprovedCmds = pc.Approved

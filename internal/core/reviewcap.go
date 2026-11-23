@@ -38,9 +38,6 @@ func (c *hookCtx) recordReviewCap(q question) Output {
 	if c.in.AgentID != "" || t == nil || t.Phase != PhaseBuilding || !reviewCapPlain(q) || c.setup == nil {
 		return nil
 	}
-	if pre, ok := c.in.Input()["answers"].(map[string]any); ok && len(pre) > 0 {
-		return nil
-	}
 	switch reviewCapAnswer(findAnswer(c.in.ToolResponse, q.Question), q) {
 	case "accept as is":
 		if !c.anyReviewerCapped() {

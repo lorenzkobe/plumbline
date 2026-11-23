@@ -176,7 +176,7 @@ func TestHandbackGetsTheStopCheck(t *testing.T) {
 		return PreToolUse(h.helperIn(id, HelperCodeReviewer, "SubagentHandback", map[string]any{"report": "done"}))
 	}
 	h.expect(hand(), "deny", "write your findings to")
-	write(t, p, h.complete(HelperCodeReviewer, "# Code review 1\n## Findings\n- [90] must-fix: wrong value (src/a.go:3)\n"))
+	write(t, p, h.complete(HelperCodeReviewer, "# Code review 1\n## Findings\n- [90] must-fix: wrong value (src/a.go:3). Fails when: A() is called -> it returns 2\n"))
 	h.expect(hand(), "deny", "has no quote")
 	// the same file again goes through (as a second stop does); the stop
 	// then records the problems and the run doesn't count
@@ -191,7 +191,7 @@ func TestHandbackGetsTheStopCheck(t *testing.T) {
 
 	// a fixed file hands back with no refusal
 	id2, _ := h.startHelper(HelperCodeReviewer)
-	write(t, h.findingsPath(id2), h.complete(HelperCodeReviewer, "# Code review 2\n## Findings\n- [90] must-fix: wrong value (src/a.go:3 `return 2`)\n"))
+	write(t, h.findingsPath(id2), h.complete(HelperCodeReviewer, "# Code review 2\n## Findings\n- [90] must-fix: wrong value (src/a.go:3 `return 2`). Fails when: A() is called -> it returns 2\n"))
 	h.expect(PreToolUse(h.helperIn(id2, HelperCodeReviewer, "SubagentHandback", map[string]any{"report": "done"})), "", "")
 	// the lead's own handback (no helper) isn't checked
 	h.expect(h.pre("SubagentHandback", map[string]any{"report": "x"}), "", "")

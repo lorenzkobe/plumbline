@@ -15,7 +15,7 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change (`git diff <base>` plus new files) and the components and styles around it.
 4. Go through the shared checklist, then your focus, and write your findings.
-5. In a later run, only after steps 3 and 4: read your earlier findings and check whether each was really fixed.
+5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, with its label.
 
 ## Your focus: would a real person trip over it?
 - Mobile first: works at about 360px wide with no sideways page scroll; tap targets finger-sized; nothing depends on hover; dialogs fit with the on-screen keyboard up.

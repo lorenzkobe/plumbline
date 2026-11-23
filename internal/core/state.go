@@ -124,6 +124,7 @@ type Task struct {
 	Checkpoint2At time.Time `json:"checkpoint2_at,omitempty"`
 	PlanHash      string    `json:"plan_hash,omitempty"`
 	PlanFiles     []string  `json:"plan_files,omitempty"` // repo-relative
+	CommandsOnly  bool      `json:"commands_only,omitempty"`
 	ProofKinds    []string  `json:"proof_kinds,omitempty"`
 	ApprovedCmds  []string  `json:"approved_cmds,omitempty"` // "Needs your OK" list in the approved plan
 	// The test files the approved plan's cases link to, kept at approval so

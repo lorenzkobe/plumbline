@@ -421,3 +421,66 @@ func TestRunChecksDocsOnlySkipsSuite(t *testing.T) {
 		t.Fatalf("a task with code runs the suite: %s", out)
 	}
 }
+
+func TestEnvNamesRefusesOtherFiles(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	for _, name := range []string{"id_rsa", "a.pem", "notes.txt", ".envrc", "env"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("TOPSECRET=hunter2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, code := plumbline(t, dir, home, "", "env-names", name)
+		if code == 0 || strings.Contains(out, "TOPSECRET") || strings.Contains(out, "hunter2") {
+			t.Errorf("%s: exit %d, output %q", name, code, out)
+		}
+	}
+	out, code := plumbline(t, dir, home, "", "env-names", ".env")
+	if code == 0 || strings.Contains(out, "TOPSECRET") {
+		t.Errorf("missing .env: exit %d, output %q", code, out)
+	}
+	if out, code := plumbline(t, dir, home, "", "env-names"); code == 0 {
+		t.Errorf("no file: exit %d, output %q", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TOPSECRET=hunter2\nexport B='x'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := plumbline(t, dir, home, "", "env-names", ".env"); code != 0 || out != "TOPSECRET\nB\n" {
+		t.Errorf(".env: exit %d, output %q", code, out)
+	}
+}
+
+func TestRunChecksCommandsOnly(t *testing.T) {
+	home, dir := t.TempDir(), gitRepo(t)
+	t.Setenv("PLUMBLINE_HOME", home)
+	setup := `{"kind": "personal", "commands": {"test": "echo tests-ran", "lint": "echo lint-ran"}}`
+	if out, code := plumbline(t, dir, home, setup, "setup", "save"); code != 0 {
+		t.Fatalf("setup: %d %s", code, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "add", "-A").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %s", out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "commit", "-q", "-m", "setup").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %s", out)
+	}
+	tk := &core.Task{ID: core.NewID(), Title: "clear the cache", Size: "normal", Root: dir, Branch: "main", Phase: core.PhaseBuilding, Created: core.Now(), StartCommit: core.HeadCommit(dir), CommandsOnly: true}
+	if err := os.MkdirAll(core.TaskDocsDir(dir, tk.ID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	out, code := plumbline(t, dir, home, "", "run", "checks", "--task", tk.ID)
+	if code != 0 || strings.Contains(out, "tests-ran") || strings.Contains(out, "lint-ran") || !strings.Contains(out, "commands only") {
+		t.Fatalf("a commands-only task's checks run nothing and say why: %d %s", code, out)
+	}
+	out, _ = plumbline(t, dir, home, "", "status", "--task", tk.ID)
+	if !strings.Contains(out, "Commands only") || strings.Contains(out, "Reviewers needed") || strings.Contains(out, "full test suite") {
+		t.Fatalf("status says commands only and lists no suite or reviewers: %s", out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = plumbline(t, dir, home, "", "run", "checks", "--task", tk.ID)
+	if !strings.Contains(out, "tests-ran") || strings.Contains(out, "commands only") {
+		t.Fatalf("with a file changed, the checks run again: %s", out)
+	}
+}

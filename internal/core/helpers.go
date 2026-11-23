@@ -251,7 +251,7 @@ func TeamReviewers(plan string) []string {
 // The approved plan's Team adds to the ones size and risk call for, and
 // files changed outside the plan count as well.
 func RequiredReviewers(t *Task, s *Setup) []string {
-	if !s.PartOn("reviewer") {
+	if !s.PartOn("reviewer") || CommandsOnly(t, s) {
 		return nil
 	}
 	files := append([]string{}, t.PlanFiles...)
@@ -944,11 +944,7 @@ func SubagentStart(in *HookInput) Output {
 	if n > 1 && !isWorker(kind) {
 		// A fresh pass first: a reviewer who reads its earlier verdict first
 		// anchors on it and misses what the fix broke.
-		done := "fixed"
-		if kind == HelperChallenger {
-			done = "answered"
-		}
-		fmt.Fprintf(&b, " Do a fresh pass first, as if this were your first run, and write those findings. Only then open your earlier findings (%s) and check whether each was really %s.", t.helperRuns(kind)[n-2].Findings, done)
+		b.WriteString(c.laterRunNote(kind, n))
 	}
 	if plan, _, err := ReadDoc(t, DocPlan); err == nil {
 		if shared := CheckPlan(plan).SharedTests; len(shared) > 0 {

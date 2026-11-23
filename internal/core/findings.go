@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -229,6 +230,7 @@ func (c *hookCtx) findingsProblems(run *HelperRun) []string {
 	if !isReviewer(run.Kind) {
 		return p
 	}
+	p = append(p, mustFixProblems(text)...)
 	// N5: a withdrawn finding names the code that refutes it, and the files
 	// the lead's disputes cite were opened in this run.
 	withdrew := false
@@ -290,6 +292,128 @@ func (c *hookCtx) findingsProblems(run *HelperRun) []string {
 		}
 	}
 	return p
+}
+
+var (
+	reMustFixLabel   = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:\[\s*\d+\s*\]\s*[*_]*\s*)?must[- ]fix\b`)
+	reShouldFixLabel = regexp.MustCompile(`(?i)^[-*+]?\s*[*_]*\s*(?:\[\s*\d+\s*\]\s*[*_]*\s*)?should[- ]fix\b`)
+	reFailsWhen      = regexp.MustCompile(`(?i)\bfails when\b[*_]*\s*:[*_]*`)
+)
+
+func mustFixProblems(text string) []string {
+	var p []string
+	for _, item := range findingItems(text, "findings") {
+		if reMustFixLabel.MatchString(item) && !failsWhen(item) {
+			p = append(p, fmt.Sprintf(`must-fix %q has no "Fails when: <input or state> -> <wrong result>": add it, or mark the finding should-fix`, short(plainLine(item))))
+		}
+	}
+	return p
+}
+
+func failsWhen(item string) bool {
+	for _, loc := range reFailsWhen.FindAllStringIndex(item, -1) {
+		rest := item[loc[1]:]
+		i, w := strings.Index(rest, "->"), len("->")
+		if j := strings.Index(rest, "→"); j >= 0 && (i < 0 || j < i) {
+			i, w = j, len("→")
+		}
+		if i >= 0 && hasWord(rest[:i]) && hasWord(firstField(rest[i+w:])) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstField(s string) string {
+	if f := strings.Fields(s); len(f) > 0 {
+		return f[0]
+	}
+	return ""
+}
+
+func hasWord(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0
+}
+
+func (c *hookCtx) laterRunNote(kind string, n int) string {
+	t := c.task
+	runs := t.helperRuns(kind)
+	prev := runs[n-2].Findings
+	if kind == HelperChallenger {
+		return fmt.Sprintf(" Do a fresh pass first, as if this were your first run, and write those findings. Only then open your earlier findings (%s) and check whether each was really answered.", prev)
+	}
+	again := " An earlier finding that wasn't fixed goes in this run's findings again, with its label."
+	fresh := func(findings, list string) string {
+		s := " Do a fresh pass first, as if this were your first run, and write those findings."
+		if list != "" {
+			s += " Files changed since that run: " + list + "."
+		}
+		return s + fmt.Sprintf(" Only then open your earlier findings (%s) and check whether each was really fixed.", findings) + again
+	}
+	var last *HelperRun
+	for i := n - 2; i >= 0; i-- {
+		if t.counts(runs[i]) {
+			last = &runs[i]
+			break
+		}
+	}
+	if last == nil {
+		return fresh(prev, "")
+	}
+	fp := runs[n-1].PrintBefore
+	if fp == "" {
+		return fresh(last.Findings, "")
+	}
+	changed, err := treeChanges(t.Root, last.PrintAfter, fp)
+	if err != nil {
+		return fresh(last.Findings, "")
+	}
+	list := listSome(changed, 20)
+	if t.Checkpoint2At.After(last.Finished) {
+		return fresh(last.Findings, list)
+	}
+	coverage := ""
+	if kind == HelperCodeReviewer {
+		coverage = ` Under "## Coverage", copy your last run's lines for files unchanged since then.`
+	}
+	if len(changed) == 0 {
+		return fmt.Sprintf(" The code hasn't changed since your last counted run (%s): answer the lead's disputes, if any, and check each earlier finding there; no fresh pass is needed.", last.Findings) + again + coverage
+	}
+	if !c.fixStayedCited(*last, changed) {
+		return fresh(last.Findings, list)
+	}
+	return fmt.Sprintf(" This round is focused: since your last counted run (%s), only files its findings cited and test files changed: %s. Review that fix, `git diff %s %s`, and check each earlier finding in %s was really fixed; open other code only where the fix's callers need it.", last.Findings, list, last.PrintAfter, fp, last.Findings) + again + coverage
+}
+
+func (c *hookCtx) fixStayedCited(last HelperRun, changed []string) bool {
+	t := c.task
+	out, err := gitOut(t.Root, "ls-tree", "-r", "-z", "--name-only", last.PrintAfter)
+	if err != nil {
+		return false
+	}
+	inTree := map[string]bool{}
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			inTree[foldPath(p)] = true
+		}
+	}
+	cited := map[string]bool{}
+	for _, r := range Refs(strings.Join(Section(t.findingsText(last), "findings"), "\n")) {
+		if isNotesDoc(r.Path) {
+			continue
+		}
+		rel := path.Clean(filepath.ToSlash(r.Path))
+		if !inTree[foldPath(rel)] {
+			return false
+		}
+		cited[foldPath(rel)] = true
+	}
+	for _, p := range changed {
+		if GateFile(p) || !(cited[foldPath(p)] || TestFile(p, c.setup)) {
+			return false
+		}
+	}
+	return true
 }
 
 // --- R3: what the lead tells an independent helper ---

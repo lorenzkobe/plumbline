@@ -425,7 +425,7 @@ func TestFindingsQuoteTheCitedLine(t *testing.T) {
 
 	// Quoted near the line, now or at the task's start: fine.
 	h2 := provenTask(t)
-	h2.runHelper(HelperCodeReviewer, "# Code review 1\n## Findings\n- [90] must-fix: it returned 1 (src/a.go:3 `return 1`), now `return 2` (src/a.go:1-2)\n## Checked and fine\n- the package line (src/a.go:1 `package src`)\n")
+	h2.runHelper(HelperCodeReviewer, "# Code review 1\n## Findings\n- [90] must-fix: it returned 1 (src/a.go:3 `return 1`), now `return 2` (src/a.go:1-2). Fails when: A() is called -> it returns 2\n## Checked and fine\n- the package line (src/a.go:1 `package src`)\n")
 }
 
 // --- N4: the code reviewer's coverage decides the verdict ---

@@ -42,7 +42,7 @@ func (c *hookCtx) isTestFile(rel string) bool { return TestFile(rel, c.setup) }
 // finished run with findings, no waiver), so code in this checkout waits:
 // once QA could see new code it isn't blind any more (QA1).
 func (t *Task) qaFirst(s *Setup) bool {
-	if t.Size != "big" || s == nil || !s.PartOn(HelperQA) || DocsOnly(t, s) {
+	if t.Size != "big" || s == nil || !s.PartOn(HelperQA) || DocsOnly(t, s) || CommandsOnly(t, s) {
 		return false
 	}
 	for _, w := range t.Waivers {
@@ -470,7 +470,7 @@ func builderMissing(t *Task) []string {
 // qaMissing: big tasks need blind QA's tests, and the report says what they
 // caught, so its value shows in the logs.
 func qaMissing(t *Task, s *Setup, report string) []string {
-	if t.Size != "big" || !s.PartOn(HelperQA) || DocsOnly(t, s) {
+	if t.Size != "big" || !s.PartOn(HelperQA) || DocsOnly(t, s) || CommandsOnly(t, s) {
 		return nil
 	}
 	for _, w := range t.Waivers {

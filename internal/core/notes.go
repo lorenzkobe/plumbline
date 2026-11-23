@@ -257,6 +257,23 @@ func notesSinceApproval(t *Task, s *Setup, fp string) bool {
 	return err == nil && noteFiles(t.Root, diff)
 }
 
+func CommandsOnly(t *Task, s *Setup) bool {
+	if t == nil || !t.CommandsOnly || t.Hotfix() || len(t.PlanFiles) > 0 {
+		return false
+	}
+	files, err := changedNames(t, s)
+	if err != nil {
+		return false
+	}
+	notes := untrackedNotes(t.Root, files)
+	for _, f := range files {
+		if !notes[filepath.ToSlash(f)] {
+			return false
+		}
+	}
+	return true
+}
+
 func DocsOnly(t *Task, s *Setup) bool {
 	if t == nil || t.Hotfix() || len(t.PlanFiles) == 0 {
 		return false

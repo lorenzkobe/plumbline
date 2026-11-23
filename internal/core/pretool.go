@@ -1107,6 +1107,8 @@ func plumblineReads(s Segment) bool {
 	switch s.Arg(1) {
 	case "status", "docs-dir", "version", "--version", "-v", "stats", "help", "--help", "-h", "":
 		return true
+	case "env-names":
+		return s.Words[0] == "plumbline" && len(s.Env) == 0 && !s.dyn(0)
 	case "task":
 		return s.Arg(2) == "show" || s.Arg(2) == "list" || s.Arg(2) == ""
 	case "setup":
@@ -1117,6 +1119,65 @@ func plumblineReads(s Segment) bool {
 		return !standupSetsTracker(s)
 	}
 	return false
+}
+
+func (c *hookCtx) dirtyFor(s Segment) bool {
+	g := gitParse(s)
+	if g.otherGit || g.dir == "" {
+		return true
+	}
+	d, err := DirtyFiles(g.dir)
+	return err != nil || len(d) > 0
+}
+
+func plainSwitchOrUnstage(s Segment, sub string, args []string) bool {
+	first := len(s.Words) - len(args)
+	if sub == "switch" {
+		return len(args) == 1 && !strings.HasPrefix(args[0], "-") && !s.dyn(first)
+	}
+	if sub != "restore" {
+		return false
+	}
+	staged := false
+	for i, a := range args {
+		switch {
+		case s.dyn(first + i):
+			return false
+		case a == "--staged" || a == "-S":
+			staged = true
+		case strings.HasPrefix(a, "-"):
+			return false
+		}
+	}
+	return staged
+}
+
+func (c *hookCtx) adoptTakesOver(s Segment) string {
+	unclear := "this continues an earlier task in this session, and Plumbline can't tell which task or whether another Claude session still holds it."
+	var ids []string
+	for i := 3; i < len(s.Words); i++ {
+		if s.dyn(i) {
+			return unclear
+		}
+		if !strings.HasPrefix(s.Words[i], "-") {
+			ids = append(ids, s.Words[i])
+		}
+	}
+	root := c.root
+	if s.Dir != "" {
+		root = RepoRoot(s.Dir)
+	}
+	if len(ids) != 1 || root == "" {
+		return unclear
+	}
+	t, err := LoadTask(root, ids[0])
+	if err != nil {
+		return unclear
+	}
+	if t.SessionID != c.in.SessionID && !SessionEnded(t.SessionID) {
+		return fmt.Sprintf("task %s (\"%s\") is held by another Claude session that is still open. Continuing it here takes over that session's work.", t.ID, t.Title)
+	}
+	return ""
 }
 
 // finishLeavesWork: plumbline task finish --uncommitted (CM1).
@@ -1290,6 +1351,9 @@ const ownFilesFromShell = "Plumbline's own files can't be read or changed from t
 // outside-plan files in the same command. It returns the rule and the reason
 // when the file is refused.
 func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
+	if c.task.CommandsOnly && CommandsOnly(c.task, c.setup) && !c.writeIgnored(rel) && !untrackedNote(c.task.Root, rel) {
+		return "commands-only", fmt.Sprintf("this task is commands only: its plan changes no files, so it runs without the saved checks, blind QA or a review, and %s would be a changed file. To change files, replan to change files (plumbline task replan, list them in plan.md's ## Files, then the plan question).", rel)
+	}
 	if need := c.baselineMissing(); len(need) > 0 {
 		if c.in.AgentID != "" {
 			return "baseline-first", fmt.Sprintf("the lead hasn't recorded how the saved checks stand before any change (%s), so %s waits. Stop and tell the lead in your notes.", strings.Join(need, ", "), rel)
@@ -1341,7 +1405,7 @@ func (c *hookCtx) baselineMissing() []string {
 	t := c.task
 	// A task approved before 0.5.0 has no approval fingerprint, so no run
 	// after approval can be one.
-	if t == nil || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" {
+	if t == nil || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" || CommandsOnly(t, c.setup) {
 		return nil
 	}
 	edited := !t.LastCodeChange.IsZero()
@@ -1507,11 +1571,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				}
 			case "standup":
 				if standupSetsTracker(s) {
-					v.a("tracker-set", "this remembers your sprint file for this project. Claude may then suggest edits to it, and each edit asks you first.")
+					v.a("tracker-set", "this remembers your sprint file for this project. Claude may then suggest edits to it, each edit asks you first, and Plumbline shows Claude the file's changed lines after commands that may change it.")
 				}
 			case "task":
 				if s.Arg(2) == "adopt" {
-					v.a("adopt", "this continues an earlier task in this session.")
+					if why := c.adoptTakesOver(s); why != "" {
+						v.a("adopt", why)
+					}
 				}
 			case "run":
 				quiet = true // a saved command, or proof whose command after -- is its own segment
@@ -1580,21 +1646,19 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			case "checkout", "switch", "restore":
 				discard := false
 				for _, a := range args {
-					if a == "--" || a == "." || a == "-f" || a == "--force" || a == "--discard-changes" {
+					if a == "--" || a == "." || a == "-f" || a == "--force" || a == "--discard-changes" || strings.HasPrefix(a, "--pathspec-from-file") {
 						discard = true
 					}
 				}
-				if sub == "restore" && !contains(args, "--staged") {
+				if sub == "restore" && (!contains(args, "--staged") || contains(args, "--worktree") || contains(args, "-W")) {
 					discard = true
 				}
 				if discard {
 					v.a("destructive-git", "this throws away uncommitted changes in those files.")
-				} else if contains(args, "-b") || contains(args, "-B") || contains(args, "-c") || contains(args, "--create") {
-					// a new branch carries the changes along; nothing is lost
-				} else if c.root != "" {
-					if d, _ := DirtyFiles(c.root); len(d) > 0 {
-						v.a("dirty-switch", "there are uncommitted changes. Switching branches carries them along or fails; check what should happen to them first.")
-					}
+				} else if contains(args, "-b") || contains(args, "-B") || contains(args, "-c") || contains(args, "--create") || contains(args, "--orphan") {
+				} else if plainSwitchOrUnstage(s, sub, args) {
+				} else if c.dirtyFor(s) {
+					v.a("dirty-switch", "there are uncommitted changes. This can carry them along, merge them, or overwrite them in the files it names; check what should happen to them first.")
 				}
 			case "stash":
 				if len(args) > 0 && (args[0] == "drop" || args[0] == "clear") {
@@ -1610,8 +1674,15 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				}
 			}
 		}
+		if isPlumblineBin(name) && s.Arg(1) == "env-names" && !plumblineReads(s) && (s.dyn(2) || IsSecretFile(s.Arg(2))) {
+			v.a("secret-read", "this runs env-names from a program that may not be the installed Plumbline (a path, or a PATH set on the line), so it could print the file's values. Run it as plain plumbline env-names <file>.")
+		}
 		if f := ReadsSecretFile(s); f != "" {
-			v.a("secret-read", fmt.Sprintf("this shows or sends the values in %s. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).", filepath.Base(f)))
+			names := ""
+			if envFileRe.MatchString(strings.ToLower(filepath.Base(filepath.ToSlash(f)))) {
+				names = " To list only the variable names: plumbline env-names <file>."
+			}
+			v.a("secret-read", fmt.Sprintf("this shows or sends the values in %s. Allow only if Claude really needs to see them. To just use them, load and use in one step (for example: set -a; . ./.env; set +a; psql ...).%s", filepath.Base(f), names))
 		} else if PrintsEnvSecrets(s) {
 			v.a("secret-read", "this prints environment variables, where keys, tokens and passwords live, so it may show a secret. Allow only if Claude really needs to see them. To check one is set without showing it: test -n \"$NAME\" && echo set.")
 		} else if composeShowsEnv(s) {
@@ -1701,7 +1772,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 		}
 		if approved {
 			// in the plan you approved: runs as listed
-		} else if cloudCmds[name] && !cloudRead(s) {
+		} else if cloudCmds[name] && !cloudRead(s) && !helmNetShow(s) {
 			v.a("outside-laptop", cloudAskReason(s, name))
 		}
 		if name == "supabase" && !supabaseRead(s) {
@@ -1829,6 +1900,8 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string, single boo
 	switch {
 	case hotfix:
 		kind = "hotfix commit, related tests and the saved checks passed; the full suite and every reviewer run right after it"
+	case final && CommandsOnly(ctx.task, ctx.setup):
+		kind = "last commit of a commands-only task: no repo file changed, so no saved checks ran"
 	case final && DocsOnly(ctx.task, ctx.setup):
 		kind = "last commit of a docs-only task: only markdown notes changed, so no test suite ran; lint, build and the other saved checks passed"
 	case final:
@@ -1916,6 +1989,9 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 	fp, err := Fingerprint(t.Root, s.IgnoreChanges)
 	if err != nil {
 		return []string{"couldn't read the code state: " + err.Error()}
+	}
+	if CommandsOnly(t, s) {
+		return nil
 	}
 	runs := LoadRuns(t.Root)
 	docs := DocsOnly(t, s)

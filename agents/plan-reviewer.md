@@ -15,11 +15,11 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change: `git diff <base>` plus new files from `git status --porcelain`.
 4. Go through the shared checklist, then your focus, and write your findings.
-5. In a later run, only after steps 3 and 4: read your earlier findings and check whether each was really fixed.
+5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, with its label.
 
 ## Your focus: does it match the approved plan?
 - Every file in `## Files` changed as the approach says; any other changed file is one the lead must list in the report.
 - Every case in `## Cases` has its test, and the test checks that case (not a nearby one).
 - `## Real-world proof` can be done with what was built.
-- Nothing the plan left out was changed (behaviour, APIs, data, permissions). A change the user didn't approve is must-fix.
+- Nothing the plan left out was changed (behaviour, APIs, data, permissions). A change the user didn't approve is must-fix (Fails when: the change ships -> the user gets behaviour they didn't approve).
 - The understanding still holds: the cause named there is the one the change fixes.

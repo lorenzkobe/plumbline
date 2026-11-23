@@ -15,7 +15,7 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change: `git diff <base>` plus new files from `git status --porcelain`. Open changed files in full where the diff alone doesn't show enough, and the callers of anything changed.
 4. Go through the shared checklist, then your focus, and write your findings. List every changed file under `## Coverage` (covered, or not covered with why); one not covered makes the verdict Not ready.
-5. In a later run, only after steps 3 and 4: read your earlier findings and check whether each was really fixed.
+5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, with its label.
 
 ## Your focus: is the code good?
 - Logic errors, wrong assumptions, unhandled input, swallowed errors.

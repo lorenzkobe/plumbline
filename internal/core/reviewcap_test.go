@@ -120,13 +120,25 @@ func TestOneMoreRoundCoversAReviewerCappedWithOpenDisputes(t *testing.T) {
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"}), "", "")
 }
 
+func TestReviewCapAnswerRecordedWhenClaudeCodeFillsTheInput(t *testing.T) {
+	h := cappedTask(t)
+	q := reviewCapQ()
+	h.expect(h.pre("AskUserQuestion", q), "", "")
+	ans := map[string]any{"The reviewers are out of rounds. How to go on?": "One more round"}
+	filled := reviewCapQ()
+	filled["answers"] = ans
+	h.post("AskUserQuestion", filled, map[string]any{"answers": ans})
+	if d, r := decision(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"})); d == "deny" && strings.Contains(r, "bring what's left") {
+		t.Fatalf("the user's One more round, with the answers Claude Code puts in the tool input, wasn't recorded: %s", r)
+	}
+}
+
 func TestReviewCapAnswersThatRecordNothing(t *testing.T) {
 	t.Run("pre-answered", func(t *testing.T) {
 		h := cappedTask(t)
 		q := reviewCapQ()
 		q["answers"] = map[string]any{"The reviewers are out of rounds. How to go on?": "Accept as is"}
-		h.pre("AskUserQuestion", q)
-		h.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"The reviewers are out of rounds. How to go on?": "Accept as is"}})
+		h.expect(h.pre("AskUserQuestion", q), "deny", "pre-answered")
 		h.docs(DocReport, acceptedReport)
 		if m := h.finishMissing(); !strings.Contains(m, "runs are used") {
 			t.Fatalf("a pre-answered Review cap question recorded an answer: %s", m)
