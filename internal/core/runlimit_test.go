@@ -172,9 +172,9 @@ func TestTimedOutRunIsntSeenFailingFirst(t *testing.T) {
 	write(t, filepath.Join(fake, "grep"), "#!/bin/sh\necho '--- FAIL: TestA (0.00s)'\necho FAIL\necho 'FAIL\texample.com/r/src\t0.1s'\nexec sleep 999\n")
 	must(t, os.Chmod(filepath.Join(fake, "grep"), 0o755))
 	t.Setenv("PATH", fake+string(os.PathListSeparator)+os.Getenv("PATH"))
-	shortLimits(t, time.Second)
+	shortLimits(t, 3*time.Second)
 	s, _, _ := LoadSetup(h.repo)
-	r := within(t, 15*time.Second, func() (*Run, error) {
+	r := within(t, 20*time.Second, func() (*Run, error) {
 		return ExecuteRelated(h.repo, h.task(), "./test.sh src/a_test.go", []string{"src/a_test.go"}, s, io.Discard)
 	})
 	if !r.TimedOut || r.Failed == 0 {

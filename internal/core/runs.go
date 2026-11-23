@@ -68,10 +68,15 @@ type Run struct {
 	Baseline bool     `json:"baseline,omitempty"` // run before any task edit
 	// Rebased: a baseline taken on the code a checkout or pull after the
 	// approval landed on (Task.BaselinePrint); these replace earlier ones.
-	Rebased  bool `json:"rebased,omitempty"`
-	TimedOut bool `json:"timed_out,omitempty"`
-	Stopped  bool `json:"stopped,omitempty"`
-	PID      int  `json:"pid,omitempty"`
+	Rebased   bool   `json:"rebased,omitempty"`
+	TimedOut  bool   `json:"timed_out,omitempty"`
+	Stopped   bool   `json:"stopped,omitempty"`
+	PID       int    `json:"pid,omitempty"`
+	Root      string `json:"root,omitempty"`
+	IgnoreKey string `json:"ignore_key,omitempty"`
+	EnvKey    string `json:"env_key,omitempty"`
+	Rescued   bool   `json:"rescued,omitempty"`
+	Reused    string `json:"reused,omitempty"`
 }
 
 var (
@@ -256,7 +261,7 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	if err != nil {
 		return nil, err
 	}
-	r := &Run{ID: newID() + "-" + kind, Kind: kind, Sub: sub, Command: command, Started: Now(), PrintBefore: before, Ran: -1}
+	r := &Run{ID: newID() + "-" + kind, Kind: kind, Sub: sub, Command: command, Started: Now(), PrintBefore: before, Ran: -1, Root: root, IgnoreKey: ignoreKey(ignore), EnvKey: envKey(root)}
 	for _, f := range files {
 		if f = cleanRel(f); f != "" {
 			r.Files = append(r.Files, f)
@@ -282,7 +287,11 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	if os.MkdirAll(filepath.Dir(live.path), 0o700) == nil && os.WriteFile(live.path, nil, 0o600) == nil {
 		defer os.Remove(live.path)
 	}
-	cmd := exec.Command("/bin/sh", "-c", command)
+	shell := command
+	if kind == KindTest || kind == KindRelated {
+		shell, _ = goShardWrap(root, command)
+	}
+	cmd := exec.Command("/bin/sh", "-c", shell)
 	cmd.Dir = root
 	both := io.MultiWriter(out, &buf, live)
 	cmd.Stdout, cmd.Stderr = both, both
@@ -320,6 +329,7 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 		if setup != nil {
 			pat = setup.TestsRanPattern
 		}
+		r.Rescued = strings.Contains(text, flakyMark)
 		c := ParseTestOutput(text, pat)
 		r.Ran, r.Failed, r.FailedIDs, r.Skipped = c.Ran, c.Failed, c.IDs, c.Skipped
 		if t != nil {

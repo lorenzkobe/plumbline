@@ -1475,6 +1475,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			switch s.Arg(1) {
 			case "hook":
 				v.d("own-files", "Plumbline's hooks are run by Claude Code only.")
+			case "gotest-shard":
+				v.d("gotest-shard", "Plumbline runs gotest-shard itself, inside plumbline run test and run related. Run those instead.")
 			case "pause", "resume", "cancel", "wrong":
 				why := fmt.Sprintf("only the user can %s, by typing /plumbline:%s.", s.Arg(1), s.Arg(1))
 				if s.Arg(1) == "cancel" {
@@ -1928,7 +1930,7 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 			miss = append(miss, "full test suite: "+full.Reason+" (run: plumbline run test)")
 		}
 		if !final && !full.OK {
-			rel := Judge(LatestFor(runs, t.ID, KindRelated, "", s.Commands.TestRelated, fp), BaselineFor(runs, t.ID, KindTest))
+			rel := Judge(LatestFor(runs, t.ID, KindRelated, "", savedCommand(s, KindRelated), fp), BaselineFor(runs, t.ID, KindTest))
 			if !rel.OK {
 				miss = append(miss, "related tests: "+rel.Reason+" (run: plumbline run related --files <changed files>)")
 			}
@@ -2034,6 +2036,15 @@ func (c *hookCtx) gateQuestion() Output {
 				}
 				if !closeQuestionPlain(qs, q) {
 					return c.deny("close-format", "ask the close question on its own, with exactly the options \"Close it\" and \"Keep it open\" and no descriptions, so the user's click means only that.")
+				}
+				continue
+			}
+			if isReviewCapQ(q) {
+				if len(answers) > 0 {
+					return c.deny("self-approval", "the Review cap question can't come pre-answered. Only the user answers it.")
+				}
+				if !reviewCapPlain(q) || len(qs) != 1 {
+					return c.deny("review-cap-format", "ask the Review cap question on its own, with exactly the options \"Accept as is\" and \"One more round\", so the user's click means only that.")
 				}
 				continue
 			}

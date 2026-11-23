@@ -273,6 +273,7 @@ func SaveSetup(root string, s *Setup) (string, error) {
 	if err := writeFileAtomic(p, b); err != nil {
 		return "", err
 	}
+	ClearGoShardState(root)
 	return p, ConfirmSetup(root)
 }
 

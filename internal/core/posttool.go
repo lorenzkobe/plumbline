@@ -1056,6 +1056,12 @@ func (c *hookCtx) afterQuestion() Output {
 				}
 				continue
 			}
+			if isReviewCapQ(q) {
+				if o := c.recordReviewCap(q); o != nil {
+					return o
+				}
+				continue
+			}
 			if isCommitQ(q) && c.task.Phase == PhaseBuilding {
 				c.recordCommitAnswer(q)
 				continue

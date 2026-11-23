@@ -116,7 +116,7 @@ func bugRedMissing(t *Task, s *Setup, fp string, runs []*Run) []string {
 		}
 		return contains(changed, file)
 	}
-	takesFiles := strings.Contains(s.Commands.TestRelated, "{files}")
+	takesFiles := strings.Contains(savedCommand(s, KindRelated), "{files}")
 	base := BaselineFor(runs, t.ID, KindTest)
 	var miss []string
 	for _, ref := range refs {

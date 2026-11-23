@@ -341,7 +341,7 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 	for _, r := range t.helperRuns(kind) {
 		allowed[r.Findings] = true
 	}
-	free := shingles(t.Title)
+	free := shingles(t.Title + "\n" + promptBoilerplate)
 	// Folder paths aren't findings: the repo's, the notes folder's and the
 	// builder copies' paths show up in every helper's notes (REV2).
 	paths := []string{t.Root, docs, filepath.Join(t.Root, ".claude", "worktrees")}
@@ -352,15 +352,18 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 	}
 	// So are the changed files' names: the reviewer sees them in the diff
 	// anyway (RL2).
-	paths = append(paths, ChangedSince(t.Root, t.StartCommit)...)
+	changed := ChangedSince(t.Root, t.StartCommit)
+	paths = append(paths, changed...)
 	for _, p := range paths {
 		for s := range shingles(p) {
 			free[s] = true
 		}
 	}
+	mask := pathMasker(changed)
+	prompt = mask(prompt)
 	for name := range allowed {
 		if b, err := os.ReadFile(filepath.Join(docs, name)); err == nil {
-			for s := range shingles(string(b)) {
+			for s := range shingles(mask(string(b))) {
 				free[s] = true
 			}
 		}
@@ -385,7 +388,7 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 		if err != nil {
 			continue
 		}
-		for s := range shingles(string(b)) {
+		for s := range shingles(mask(string(b))) {
 			if mine[s] {
 				return fmt.Sprintf("the prompt repeats text from %s (%q), which the %s must not see: each review stays independent. Give it the task and the plan, not other helpers' notes or the report. If the user added to the task since the plan, write that into plan.md first; the reviewer may read it there.", name, s, kind)
 			}
@@ -393,3 +396,27 @@ func (c *hookCtx) promptProblem(kind, prompt string) string {
 	}
 	return ""
 }
+
+func pathMasker(paths []string) func(string) string {
+	norm := func(s string) string { return strings.ReplaceAll(strings.ToLower(s), "\\", "/") }
+	ps := append([]string{}, paths...)
+	sort.Slice(ps, func(i, j int) bool { return len(ps[i]) > len(ps[j]) })
+	var res []*regexp.Regexp
+	for _, p := range ps {
+		if p = norm(strings.TrimSpace(p)); len(p) > 2 && strings.ContainsAny(p, "/.") {
+			res = append(res, regexp.MustCompile(`(^|[^a-z0-9_./-])`+regexp.QuoteMeta(p)+`($|[^a-z0-9_/-])`))
+		}
+	}
+	return func(s string) string {
+		if len(res) == 0 {
+			return s
+		}
+		s = norm(s)
+		for _, re := range res {
+			s = re.ReplaceAllString(s, "${1} plbpath ${2}")
+		}
+		return s
+	}
+}
+
+const promptBoilerplate = "Review the change for this task against the approved plan. Review again whether the built change matches the approved plan. Diff base: the task's start commit, plus new files from git status. Diff base: the task's start commit, plus new files. The notes folder has the plan and understanding. Round 1, round 2, round 3."

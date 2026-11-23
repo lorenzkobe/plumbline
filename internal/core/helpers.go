@@ -496,8 +496,8 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if t.Phase != PhaseBuilding {
 			return c.deny("reviewer-phase", fmt.Sprintf("the %s checks the built change, and task %s is at the %s step. Before the checkpoint, the challenger (plumbline:challenger) is the one to run.", kind, t.ID, t.Phase))
 		}
-		if n := len(t.helperRuns(kind)); n >= MaxReviews {
-			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times (the first review plus 2 fix rounds). Stop and bring what's left to the user, with your suggestion.", kind, n))
+		if n := len(t.helperRuns(kind)); n >= t.reviewLimit(kind) {
+			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times, the most it gets. Stop and bring what's left to the user, with your suggestion: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\".", kind, n))
 		}
 		if why := c.disputeProblem(kind); why != "" {
 			return c.deny("dispute-evidence", why)
@@ -933,7 +933,7 @@ func SubagentStart(in *HookInput) Output {
 		if base == "" {
 			base = "HEAD"
 		}
-		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is run %d of at most %d for the %s. Other reviewers check the change on their own: in the notes folder read only %s, %s and your own earlier findings.", DocPlan, base, n, MaxReviews, kind, DocUnderstanding, DocPlan)
+		fmt.Fprintf(&b, " Review the change against the approved %s: `git diff %s` plus new files from `git status --porcelain`. This is run %d of at most %d for the %s. Other reviewers check the change on their own: in the notes folder read only %s, %s and your own earlier findings.", DocPlan, base, n, t.reviewLimit(kind), kind, DocUnderstanding, DocPlan)
 		if kind == HelperCodeReviewer {
 			b.WriteString(` List every changed file under "## Coverage" as "- <path>: covered" or "- <path>: not covered, <why>"; a file not covered makes the verdict Not ready.`)
 		}
@@ -1161,6 +1161,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		return nil
 	}
 	var notRun, running, again, capped, answer, answerCapped, upheld []string
+	capLimit := MaxReviews
 	var lastDone time.Time
 	for _, k := range kinds {
 		runs := t.helperRuns(k)
@@ -1175,13 +1176,15 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		case runs[len(runs)-1].alive():
 			running = append(running, name)
 		case last == nil || !t.counts(*last) || last.PrintAfter != fp && !((k != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)):
-			if len(runs) >= MaxReviews {
+			if len(runs) >= t.reviewLimit(k) {
+				capLimit = max(capLimit, t.reviewLimit(k))
 				capped = append(capped, name)
 			} else {
 				again = append(again, name)
 			}
 		case t.disputeOpen(k, *last):
-			if len(runs) >= MaxReviews {
+			if len(runs) >= t.reviewLimit(k) {
+				capLimit = max(capLimit, t.reviewLimit(k))
 				answerCapped = append(answerCapped, name)
 			} else {
 				answer = append(answer, name)
@@ -1202,15 +1205,24 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 	if len(again) > 0 {
 		miss = append(miss, "review: the code changed after the last review (or during it, or a run never finished, left no findings file or one that failed Plumbline's checks); run these again to check the fixes: "+strings.Join(again, ", "))
 	}
+	accepted := fp != "" && t.ReviewCapOK == fp
+	if accepted {
+		capped = nil
+	}
 	if len(capped) > 0 {
-		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used (the first plus 2 fix rounds) for %s; stop and ask the user how to go on", MaxReviews, strings.Join(capped, ", ")))
+		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(capped, ", ")))
+	}
+	if accepted && report != "" && !strings.Contains(strings.ToLower(strings.Join(Section(report, "review"), "\n")), "accepted as is by you") {
+		miss = append(miss, "report: you accepted the reviews as they are when they ran out of rounds; say so under ## Review (\"accepted as is by you\"), with what no reviewer saw")
 	}
 	if len(answer) > 0 {
 		miss = append(miss, "review: you disputed findings (<reviewer>-disputes.md in the notes folder); run these again so each answers its disputes, withdrawn or upheld: "+strings.Join(answer, ", "))
 	}
 	forYou := strings.ToLower(strings.Join(Section(report, "for you"), "\n"))
-	if len(answerCapped) > 0 && !strings.Contains(forYou, "disput") {
-		miss = append(miss, fmt.Sprintf("review: you disputed findings, but all %d runs are used for %s; put the disputes under \"For you\" in the report (say \"disputed\", with both sides) and stop and ask the user", MaxReviews, strings.Join(answerCapped, ", ")))
+	if len(answerCapped) > 0 && accepted && !strings.Contains(forYou, "disput") {
+		miss = append(miss, "report: you accepted the reviews as they are, and your disputes with "+strings.Join(answerCapped, ", ")+" are still open; put them under \"For you\" in the report (say \"disputed\", with both sides)")
+	} else if len(answerCapped) > 0 && !accepted && !strings.Contains(forYou, "disput") {
+		miss = append(miss, fmt.Sprintf("review: you disputed findings, but all %d runs are used for %s; put the disputes under \"For you\" in the report (say \"disputed\", with both sides) and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\"", capLimit, strings.Join(answerCapped, ", ")))
 	}
 	if len(upheld) > 0 && report != "" && !strings.Contains(forYou, "upheld") {
 		miss = append(miss, "report: reviewers upheld findings you disputed, so they're the user's call; list each under \"For you\" (say \"upheld\", with both sides): "+strings.Join(upheld, ", "))

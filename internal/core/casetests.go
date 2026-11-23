@@ -133,7 +133,10 @@ func savedCommand(s *Setup, kind string) string {
 	case KindTest:
 		return s.Commands.Test
 	case KindRelated:
-		return s.Commands.TestRelated
+		if s.Commands.TestRelated != "" {
+			return s.Commands.TestRelated
+		}
+		return derivedRelated(s.Commands.Test)
 	case KindE2E:
 		return s.Commands.E2E
 	case KindLint:
@@ -160,7 +163,7 @@ func savedCommand(s *Setup, kind string) string {
 func caseRunMissing(t *Task, s *Setup, fp string, runs []*Run, report string) []string {
 	var miss []string
 	weak := weakenedLine(report)
-	takesFiles := strings.Contains(s.Commands.TestRelated, "{files}")
+	takesFiles := strings.Contains(savedCommand(s, KindRelated), "{files}")
 	base := BaselineFor(runs, t.ID, KindTest)
 	extraSkips := func(r *Run) int {
 		if r.Kind == KindTest && base != nil {

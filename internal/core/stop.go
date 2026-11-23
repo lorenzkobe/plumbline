@@ -53,6 +53,10 @@ func FinishMissing(t *Task, s *Setup) []string {
 		reportTime = fi.ModTime()
 	}
 	miss = append(miss, reviewMissing(t, s, fp, report, reportTime)...)
+	if r := LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp); r != nil && r.Rescued && report != "" &&
+		!strings.Contains(strings.ToLower(strings.Join(Section(report, "for you"), "\n")), "only in parallel") {
+		miss = append(miss, "report: the full suite passed only after tests that failed in parallel passed when run alone (its output names them); a timing bug in the change could hide there, so say so under \"For you\" (\"only in parallel\", with the test names)")
+	}
 	miss = append(miss, builderMissing(t)...)
 	miss = append(miss, qaMissing(t, s, report)...)
 	if s.JiraTicket(t.Ticket) {

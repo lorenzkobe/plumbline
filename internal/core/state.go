@@ -179,6 +179,8 @@ type Task struct {
 	BugStored bool     `json:"bug_stored,omitempty"`
 
 	SelfReview    *SelfReview     `json:"self_review,omitempty"`
+	ReviewCapOK   string          `json:"review_cap_ok,omitempty"`
+	ReviewExtra   map[string]int  `json:"review_extra,omitempty"`
 	ReviewerStart []ReviewerStart `json:"reviewer_start,omitempty"`
 
 	LastCodeChange time.Time `json:"last_code_change,omitempty"`

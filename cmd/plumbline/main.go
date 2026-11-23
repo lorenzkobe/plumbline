@@ -46,6 +46,8 @@ func main() {
 		os.Exit(runHook(args))
 	case "task":
 		err = cmdTask(args)
+	case "gotest-shard":
+		os.Exit(cmdGoTestShard(args))
 	case "run":
 		var code int
 		code, err = cmdRun(args)
@@ -475,7 +477,8 @@ func cmdRun(args []string) (int, error) {
 		command = s.Commands.Test
 		kind = core.KindTest
 	case "related":
-		if s.Commands.TestRelated == "" {
+		template := core.RelatedTemplate(s)
+		if template == "" {
 			fmt.Println("No related-tests command is saved; running the full suite instead.")
 			command, kind = s.Commands.Test, core.KindTest
 			break
@@ -500,12 +503,38 @@ func cmdRun(args []string) (int, error) {
 			}
 			sort.Strings(files)
 		}
-		q := []string{}
-		for _, x := range files {
-			q = append(q, shellQuote(strings.TrimSpace(x)))
+		for i := range files {
+			files[i] = strings.TrimSpace(files[i])
 		}
-		command = strings.ReplaceAll(s.Commands.TestRelated, "{files}", strings.Join(q, " "))
-		if !strings.Contains(s.Commands.TestRelated, "{files}") {
+		args := files
+		switch {
+		case core.IsDerivedGo(s):
+			pkgs, why := core.GoRelatedPkgs(root, files)
+			if why != "" {
+				fmt.Printf("No related Go packages for this change (%s); running the full suite instead.\n", why)
+				command, kind, files = s.Commands.Test, core.KindTest, nil
+			}
+			args = pkgs
+		case core.IsDerivedPytest(s):
+			tests, why := core.PytestRelated(root, files)
+			if why != "" {
+				fmt.Printf("No related pytest files for this change (%s); running the full suite instead.\n", why)
+				command, kind, files = s.Commands.Test, core.KindTest, nil
+			}
+			args = tests
+		}
+		if kind == core.KindTest {
+			break
+		}
+		q := []string{}
+		for _, x := range args {
+			if strings.HasPrefix(x, "-") {
+				x = "./" + x
+			}
+			q = append(q, shellQuote(x))
+		}
+		command = strings.ReplaceAll(template, "{files}", strings.Join(q, " "))
+		if !strings.Contains(template, "{files}") {
 			files = nil // the command doesn't take them, so they didn't run because of it
 		}
 		kind = core.KindRelated
@@ -557,9 +586,19 @@ func cmdRun(args []string) (int, error) {
 		core.MarkDevDBAllowed(root, t.ID, s) // the hook asked before this ran
 	}
 	var r *core.Run
-	if kind == core.KindRelated {
+	if kind != core.KindRelated && sub == "" {
+		if r, err = core.ReuseBaseline(root, t, kind, command, s); err != nil {
+			return 0, err
+		}
+		if r != nil {
+			fmt.Printf("plumbline: reused the passing run from %s on the same code; nothing ran.\n", r.Finished.Local().Format("15:04"))
+		}
+	}
+	switch {
+	case r != nil:
+	case kind == core.KindRelated:
 		r, err = core.ExecuteRelated(root, t, command, files, s, os.Stdout)
-	} else {
+	default:
 		r, err = core.Execute(root, t, kind, sub, command, s, os.Stdout)
 	}
 	if err != nil {
@@ -1048,4 +1087,24 @@ func claudeSettingsPath() string {
 	}
 	h, _ := os.UserHomeDir()
 	return filepath.Join(h, ".claude", "settings.json")
+}
+
+func cmdGoTestShard(args []string) int {
+	if len(args) == 1 && args[0] == "--probe" {
+		fmt.Println("gotest-shard ok")
+		return 0
+	}
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "plumbline: gotest-shard -- go test <flags> <packages>")
+		return 2
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "plumbline:", err)
+		return 1
+	}
+	return core.RunGoShard(dir, strings.Join(args, " "), os.Stdout)
 }
