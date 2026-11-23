@@ -319,12 +319,68 @@ func (t *Task) HelperRunning() bool {
 }
 
 func (t *Task) runByAgent(agentID string) *HelperRun {
+	var newest *HelperRun
 	for i := len(t.Helpers) - 1; i >= 0; i-- {
-		if t.Helpers[i].AgentID == agentID && agentID != "" {
-			return &t.Helpers[i]
+		r := &t.Helpers[i]
+		if r.AgentID != agentID || agentID == "" {
+			continue
+		}
+		if r.Kind == HelperBuilder && r.Finished.IsZero() && r.Worktree != "" {
+			return r
+		}
+		if newest == nil {
+			newest = r
+		}
+	}
+	return newest
+}
+
+const BuilderStoppedByPlumbline = "stopped by Plumbline"
+
+func (c *hookCtx) helperHalted(reason string) {
+	if c.task == nil || c.in.AgentID == "" {
+		return
+	}
+	run := c.task.runByAgent(c.in.AgentID)
+	if run == nil || !run.Finished.IsZero() {
+		return
+	}
+	run.Finished = Now()
+	run.Status = BuilderStoppedByPlumbline
+	run.Error = reason
+	where := c.task.Root
+	if run.Worktree != "" {
+		where = run.Worktree
+	}
+	run.PrintAfter, _ = Fingerprint(where, c.ignore())
+	_ = SaveTask(c.task)
+	c.log("helper", run.Kind+"-halted", reason)
+}
+
+func (t *Task) reopenableBuilder(agentID string) *HelperRun {
+	for i := len(t.Helpers) - 1; i >= 0; i-- {
+		r := &t.Helpers[i]
+		if r.AgentID != agentID || agentID == "" || r.Kind != HelperBuilder || r.Worktree == "" || r.Merged || r.Dropped {
+			continue
+		}
+		if _, err := os.Stat(r.Worktree); err == nil {
+			return r
 		}
 	}
 	return nil
+}
+
+func (t *Task) helperNumber(run *HelperRun) int {
+	n := 0
+	for i := range t.Helpers {
+		if t.Helpers[i].Kind == run.Kind {
+			n++
+		}
+		if &t.Helpers[i] == run {
+			return n
+		}
+	}
+	return n
 }
 
 func (t *Task) findingsExist(r HelperRun) bool {
@@ -768,7 +824,11 @@ func SubagentStart(in *HookInput) Output {
 		return Context("SubagentStart", msg(fmt.Sprintf("no open task was found, so this %s run isn't recorded and can't write a findings file. Give your findings in your final message.", kind)))
 	}
 	var made builderCopy
+	var reopened *HelperRun
 	if kind == HelperBuilder {
+		reopened = c.task.reopenableBuilder(in.AgentID)
+	}
+	if kind == HelperBuilder && reopened == nil {
 		// Checking out a copy can take a while, so it's made outside the
 		// task lock; the run is recorded under the lock afterwards.
 		made = c.makeBuilderCopy()
@@ -777,25 +837,39 @@ func SubagentStart(in *HookInput) Output {
 		}
 	}
 	t := c.task
-	n := len(t.helperRuns(kind)) + 1
-	run := HelperRun{Kind: kind, AgentID: in.AgentID, Started: Now(), Findings: findingsName(kind, n),
-		SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan),
-		Session: in.SessionID, Transcript: helperTranscriptPath(in.TranscriptPath, in.AgentID)}
-	run.PrintBefore, _ = Fingerprint(t.Root, c.ignore())
-	if kind == HelperBuilder {
-		run.Worktree, run.BaseCommit, run.Error, run.Setup = made.path, made.base, made.err, made.setup
-		if made.path != "" {
-			run.PrintBefore = made.tree
+	var run HelperRun
+	var n int
+	if reopened != nil {
+		reopened.Started, reopened.LastSeen = Now(), Now()
+		reopened.Session, reopened.Transcript = in.SessionID, helperTranscriptPath(in.TranscriptPath, in.AgentID)
+		reopened.Finished, reopened.Status, reopened.Error, reopened.HandbackDenied = time.Time{}, "", "", ""
+		reopened.Problems, reopened.PrintAfter = nil, ""
+		run, n = *reopened, t.helperNumber(reopened)
+	} else {
+		n = len(t.helperRuns(kind)) + 1
+		run = HelperRun{Kind: kind, AgentID: in.AgentID, Started: Now(), Findings: findingsName(kind, n),
+			SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan),
+			Session: in.SessionID, Transcript: helperTranscriptPath(in.TranscriptPath, in.AgentID)}
+		run.PrintBefore, _ = Fingerprint(t.Root, c.ignore())
+		if kind == HelperBuilder {
+			run.Worktree, run.BaseCommit, run.Error, run.Setup = made.path, made.base, made.err, made.setup
+			if made.path != "" {
+				run.PrintBefore = made.tree
+			}
 		}
+		t.Helpers = append(t.Helpers, run)
 	}
-	t.Helpers = append(t.Helpers, run)
 	_ = SaveTask(t)
 	root := c.root
 	if run.Worktree != "" {
 		root = run.Worktree
 	}
 	RefreshSnapshot(c.snapID(), root) // its own snapshot, for its changed-files check
-	c.log("helper", kind+"-start", run.Error)
+	event := kind + "-start"
+	if reopened != nil {
+		event = kind + "-resume"
+	}
+	c.log("helper", event, run.Error)
 	docs := TaskDocsDir(t.Root, t.ID)
 	var b strings.Builder
 	fmt.Fprintf(&b, "you are the %s for task %s \"%s\" (%s). Notes folder: %s.", kind, t.ID, t.Title, t.Size, docs)

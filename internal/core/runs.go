@@ -4,14 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -64,13 +68,91 @@ type Run struct {
 	Baseline bool     `json:"baseline,omitempty"` // run before any task edit
 	// Rebased: a baseline taken on the code a checkout or pull after the
 	// approval landed on (Task.BaselinePrint); these replace earlier ones.
-	Rebased bool `json:"rebased,omitempty"`
+	Rebased  bool `json:"rebased,omitempty"`
+	TimedOut bool `json:"timed_out,omitempty"`
+	Stopped  bool `json:"stopped,omitempty"`
+	PID      int  `json:"pid,omitempty"`
+}
+
+var (
+	RunLimitFloor   = 10 * time.Minute
+	RunLimitDefault = time.Hour
+)
+
+func RunLimit(kind string, s *Setup) time.Duration {
+	if (kind == KindTest || kind == KindRelated) && s != nil && s.SuiteSeconds > 0 {
+		if d := 3 * time.Duration(s.SuiteSeconds) * time.Second; d > RunLimitFloor {
+			return d
+		}
+		return RunLimitFloor
+	}
+	return RunLimitDefault
+}
+
+func runLimited(cmd *exec.Cmd, limit time.Duration, r *Run, started func()) error {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	r.PID = cmd.Process.Pid
+	started()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
+	group := -cmd.Process.Pid
+	select {
+	case err := <-done:
+		if errors.Is(err, exec.ErrWaitDelay) {
+			_ = syscall.Kill(group, syscall.SIGKILL)
+		}
+		return err
+	case <-timer.C:
+		r.TimedOut = true
+		_ = syscall.Kill(group, syscall.SIGKILL)
+	case s := <-sigs:
+		r.Stopped = true
+		_ = syscall.Kill(group, s.(syscall.Signal))
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(5 * time.Second):
+			_ = syscall.Kill(group, syscall.SIGKILL)
+		}
+	}
+	return <-done
+}
+
+func RoundMinutes(d time.Duration) string {
+	if d < time.Minute {
+		return d.Round(time.Second).String()
+	}
+	return fmt.Sprintf("%d min", int(d.Round(time.Minute)/time.Minute))
+}
+
+func liveOutputPath(root, id string) string {
+	return filepath.Join(ProjectDir(root), "live", id)
+}
+
+type liveWriter struct {
+	path string
+	last time.Time
+}
+
+func (w *liveWriter) Write(p []byte) (int, error) {
+	if now := time.Now(); now.Sub(w.last) >= time.Second {
+		w.last = now
+		_ = os.Chtimes(w.path, now, now)
+	}
+	return len(p), nil
 }
 
 // Complete is true only when the run finished and the code did not change
 // while it ran. A run that started but never finished is not proof.
 func (r *Run) Complete() bool {
-	return !r.Finished.IsZero() && r.PrintAfter != "" && r.PrintAfter == r.PrintBefore
+	return !r.Finished.IsZero() && !r.Stopped && r.PrintAfter != "" && r.PrintAfter == r.PrintBefore
 }
 
 func runsPath(root string) string { return filepath.Join(ProjectDir(root), "runs.jsonl") }
@@ -103,6 +185,30 @@ func LoadRuns(root string) []*Run {
 		return nil
 	}
 	defer f.Close()
+	return parseRuns(f)
+}
+
+func loadRunsTail(root string, max int64) []*Run {
+	f, err := os.Open(runsPath(root))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() <= max {
+		return parseRuns(f)
+	}
+	if _, err := f.Seek(fi.Size()-max, io.SeekStart); err != nil {
+		return nil
+	}
+	rd := bufio.NewReader(f)
+	if _, err := rd.ReadString('\n'); err != nil {
+		return nil
+	}
+	return parseRuns(rd)
+}
+
+func parseRuns(f io.Reader) []*Run {
 	byID := map[string]*Run{}
 	order := []string{}
 	sc := bufio.NewScanner(f)
@@ -169,19 +275,38 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 		return nil, err
 	}
 	var buf bytes.Buffer
+	live := &liveWriter{path: liveOutputPath(root, r.ID)}
+	if os.MkdirAll(filepath.Dir(live.path), 0o700) == nil && os.WriteFile(live.path, nil, 0o600) == nil {
+		defer os.Remove(live.path)
+	}
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = root
-	cmd.Stdout = io.MultiWriter(out, &buf)
-	cmd.Stderr = io.MultiWriter(out, &buf)
+	both := io.MultiWriter(out, &buf, live)
+	cmd.Stdout, cmd.Stderr = both, both
 	cmd.Env = os.Environ()
-	runErr := cmd.Run()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = 5 * time.Second
+	limit := RunLimit(kind, setup)
+	runErr := runLimited(cmd, limit, r, func() { _ = appendRun(root, r) })
 	r.Exit = 0
-	if runErr != nil {
-		if ee, ok := runErr.(*exec.ExitError); ok {
-			r.Exit = ee.ExitCode()
-		} else {
-			r.Exit = 127
+	switch ee, ok := runErr.(*exec.ExitError); {
+	case r.TimedOut:
+		r.Exit = 124
+	case runErr == nil:
+	case errors.Is(runErr, exec.ErrWaitDelay) && cmd.ProcessState != nil:
+		r.Exit = cmd.ProcessState.ExitCode()
+	case ok && ee.ExitCode() >= 0:
+		r.Exit = ee.ExitCode()
+	case ok:
+		r.Exit = 128
+		if ws, wok := ee.Sys().(syscall.WaitStatus); wok && ws.Signaled() {
+			r.Exit = 128 + int(ws.Signal())
 		}
+	default:
+		r.Exit = 127
+	}
+	if r.TimedOut {
+		fmt.Fprintf(out, "\nplumbline: stopped after %s without finishing: something likely hangs. Last output: %s\n", RoundMinutes(limit), lastLines(buf.String(), 3))
 	}
 	r.Finished = Now()
 	r.PrintAfter, _ = Fingerprint(root, ignore)
@@ -536,6 +661,12 @@ func Judge(r *Run, baseline *Run) Verdict {
 	if r == nil {
 		return Verdict{false, "no run on the current code"}
 	}
+	switch {
+	case r.TimedOut:
+		return Verdict{false, "stopped at its time limit, so something likely hangs"}
+	case r.Stopped:
+		return Verdict{false, "stopped before it finished (Ctrl-C or a stop signal)"}
+	}
 	if !r.Complete() {
 		if r.Finished.IsZero() {
 			return Verdict{false, "the last run started but never finished"}
@@ -765,8 +896,13 @@ func baselineRuns(runs []*Run, taskID, kind string) []*Run {
 // brokenBaseline: every test failed in each run before the first edit, so
 // none of them is a starting point (BaselineFor).
 func brokenBaseline(runs []*Run, taskID, kind string) bool {
-	b := baselineRuns(runs, taskID, kind)
-	return len(b) > 0 && BaselineFor(runs, taskID, kind) == nil
+	whole := 0
+	for _, r := range baselineRuns(runs, taskID, kind) {
+		if !r.TimedOut {
+			whole++
+		}
+	}
+	return whole > 0 && BaselineFor(runs, taskID, kind) == nil
 }
 
 // BaselineFor returns the task's baseline run of a kind: of the runs taken
@@ -778,6 +914,9 @@ func brokenBaseline(runs []*Run, taskID, kind string) bool {
 func BaselineFor(runs []*Run, taskID, kind string) *Run {
 	var best *Run
 	for _, r := range baselineRuns(runs, taskID, kind) {
+		if r.TimedOut {
+			continue
+		}
 		test := testKind(kind)
 		if test && r.Ran > 1 && r.Failed >= r.Ran {
 			continue

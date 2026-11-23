@@ -550,6 +550,9 @@ func cmdRun(args []string) (int, error) {
 		return 0, fmt.Errorf("no %s command is saved for this project (run /plumbline:setup)", args[0])
 	}
 	fmt.Printf("plumbline: running %s: %s\n", args[0], command)
+	if (kind == core.KindTest || kind == core.KindRelated) && s != nil && s.SuiteSeconds > 0 {
+		fmt.Printf("plumbline: usually about %s; stopped if it runs past %s.\n", core.RoundMinutes(time.Duration(s.SuiteSeconds)*time.Second), core.RoundMinutes(core.RunLimit(kind, s)))
+	}
 	if t != nil && (kind == core.KindTest || kind == core.KindRelated || kind == core.KindE2E) {
 		core.MarkDevDBAllowed(root, t.ID, s) // the hook asked before this ran
 	}
@@ -579,7 +582,10 @@ func cmdRun(args []string) (int, error) {
 	if r.Ran >= 0 && (kind == core.KindTest || kind == core.KindRelated || kind == core.KindE2E) {
 		detail = fmt.Sprintf(" %d ran, %d failed.", r.Ran, r.Failed)
 	}
-	if r.Baseline {
+	switch {
+	case r.Baseline && r.TimedOut:
+		detail += " Recorded as how the checks stood before the task (they hang), not as a starting point to compare with."
+	case r.Baseline && r.Complete():
 		detail += " Recorded as the task's starting point (baseline)."
 	}
 	if t == nil {
@@ -661,9 +667,30 @@ func runChecks(args []string) (int, error) {
 	return exit, nil
 }
 
+func watch(root, taskFlag string) error {
+	id := ""
+	if t, err := core.ActiveTask(root, "", taskFlag); err == nil && t != nil {
+		id = t.ID
+	}
+	w := core.NewWatch(root, id)
+	for {
+		lines, busy := w.Check()
+		for _, l := range lines {
+			fmt.Println(l)
+		}
+		if !busy {
+			return nil
+		}
+		time.Sleep(core.WatchEvery)
+	}
+}
+
 func cmdStatus(args []string) error {
 	f, _, _ := flags(args)
 	root := mustRoot()
+	if f["watch"] != "" {
+		return watch(root, f["task"])
+	}
 	if core.IsPaused(root) {
 		fmt.Println("Plumbline is PAUSED in this project (safety rules stay on).")
 	}
@@ -906,6 +933,8 @@ func cmdBuilder(args []string) error {
 	fmt.Printf("Merged builder %d into the task's code (%d files: %s). Its copy is removed. Run the related tests next.\n", n, len(changed), strings.Join(changed, ", "))
 	if r, _ := t.BuilderRun(n); r != nil && r.Status == "done with concerns" {
 		fmt.Printf("It finished with concerns: read them in its notes (%s) and settle each before the report.\n", r.Findings)
+	} else if r != nil && r.Status == core.BuilderStoppedByPlumbline {
+		fmt.Printf("Plumbline stopped this builder before it finished, so its part may be incomplete: %s Check its changes and notes (%s), and settle what the stop asks before the report.\n", r.Error, r.Findings)
 	}
 	return nil
 }

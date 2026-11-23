@@ -136,7 +136,7 @@ func PostToolUse(in *HookInput) Output {
 			return o
 		}
 	case in.ToolName == "Bash":
-		return c.withTrackerCheck(c.withMainCheck(c.afterBash()))
+		return c.watchNote(c.withTrackerCheck(c.withMainCheck(c.afterBash())))
 	case in.ToolName == "Monitor" && in.Str("command") != "":
 		// Monitor runs its command in Bash's shell: the same check after it.
 		// What it changes later is seen by the next check.
@@ -148,7 +148,9 @@ func PostToolUse(in *HookInput) Output {
 	case (in.ToolName == "Agent" || in.ToolName == "Task") && in.AgentID == "" && c.task != nil && helperKind(in.Str("subagent_type"), true) == HelperBuilder:
 		// BLD2 (step 11c): the lead didn't know the copy holds its work, sent
 		// the builders to copy QA's tests in, and merged by hand.
-		return Context("PostToolUse", "Plumbline: this builder's copy already holds your uncommitted work, blind QA's tests too, so nothing needs copying into it. When it stops, read its notes, then bring it in with plumbline builder merge <n> (plumbline builder list shows the numbers): it checks the builders didn't change the same lines. Don't apply its diff by hand.")
+		return c.watchNote(Context("PostToolUse", "Plumbline: this builder's copy already holds your uncommitted work, blind QA's tests too, so nothing needs copying into it. When it stops, read its notes, then bring it in with plumbline builder merge <n> (plumbline builder list shows the numbers): it checks the builders didn't change the same lines. Don't apply its diff by hand."))
+	case in.ToolName == "Agent" || in.ToolName == "Task":
+		return c.watchNote(nil)
 	case in.ToolName == "Grep":
 		c.noteSearchHits(responseText(in.ToolResponse), []string{in.Cwd, c.root})
 	case strings.HasPrefix(in.ToolName, "mcp__"):
@@ -548,7 +550,9 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 	}
 	if c.task == nil || c.task.Phase != PhaseBuilding {
 		c.log("block", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
-		return StopAll(msg(fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))))
+		reason := fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))
+		c.helperHalted(reason)
+		return StopAll(msg(reason))
 	}
 	// During building the user is often away: record and tell Claude; stop
 	// only when the plan looks wrong.
@@ -574,7 +578,7 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 			held(p, "a terminal command changed it, and another Claude session had changed it while this task was open")
 			continue
 		}
-		if c.task.BackToStart(p) {
+		if foldPath(c.root) == foldPath(c.task.Root) && c.task.BackToStart(p) {
 			delete(c.task.OutsidePlan, p)
 			continue
 		}
@@ -609,6 +613,7 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
 		c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan was likely wrong. The work is stopped: the user decides whether to go back to the plan (plumbline task replan) or undo these.", listFiles(outside), OutsidePlanCap)
+		c.helperHalted(b.String())
 		return StopAll(msg(b.String()))
 	} else if len(outside) > 0 {
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
@@ -944,4 +949,30 @@ func (c *hookCtx) withMainCheck(o Output) Output {
 		return o
 	}
 	return addContext(o, msg(note))
+}
+
+const watchNoteText = "this runs in the background. Unless a watcher already runs, start `plumbline status --watch` with the Monitor tool (timeout_ms 1800000; start it again when it expires while work still runs), and tell the user in one line what you're waiting on and about how long. It prints a line only when a run goes quiet, runs long or ends, or a helper goes quiet, finishes or is stopped: look, then tell the user. A run stopped at its time limit likely hangs: report it, don't re-run it as flaky."
+
+func (c *hookCtx) watchNote(o Output) Output {
+	in := c.in
+	if c.task == nil || in.AgentID != "" || in.Input()["run_in_background"] != true {
+		return o
+	}
+	switch in.ToolName {
+	case "Agent", "Task":
+		if helperKind(in.Str("subagent_type"), true) == "" {
+			return o
+		}
+	case "Bash":
+		run := false
+		for _, s := range ParseShell(in.Str("command"), in.Cwd) {
+			run = run || isPlumblineBin(s.Name()) && s.Arg(1) == "run"
+		}
+		if !run {
+			return o
+		}
+	default:
+		return o
+	}
+	return addContext(o, msg(watchNoteText))
 }

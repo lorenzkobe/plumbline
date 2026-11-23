@@ -123,7 +123,7 @@ func bugRedMissing(t *Task, s *Setup, fp string, runs []*Run) []string {
 		file, name, _ := strings.Cut(ref, "::")
 		red, edited := false, false
 		for _, r := range runs {
-			if r.TaskID != t.ID || !r.Complete() || r.Ran <= 0 || r.Failed <= 0 {
+			if r.TaskID != t.ID || !r.Complete() || r.TimedOut || r.Ran <= 0 || r.Failed <= 0 {
 				continue
 			}
 			if (r.Kind != KindTest && r.Kind != KindRelated) || !commandMatches(r.Kind, savedCommand(s, r.Kind), r.Command) {
