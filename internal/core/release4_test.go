@@ -306,7 +306,7 @@ echo "ok  	example.com/r/src	0.1s"
 			t.Fatalf("the baseline should fail TestOld: %+v %v", r, err)
 		}
 	}
-	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n- src/a_test.go\n## Cases\n- [bug] A returns 2 -> test: "+link+"\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n")
+	h.docs(DocPlan, "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n- src/a_test.go (new)\n## Cases\n- [bug] A returns 2 -> test: "+link+"\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n")
 	o := h.approveOut()
 	if !strings.Contains(fmtOut(o), "see them fail with plumbline run related --files src/a_test.go") {
 		t.Fatalf("the approval should say to see the [bug] test fail first: %s", fmtOut(o))

@@ -44,7 +44,7 @@ Done when: <what the user will see or be able to do, in their words; and what st
 
 ## Files
 - src/orders/service.ts
-- src/orders/service.test.ts
+- src/orders/service.test.ts (new)
 
 ## Cases
 - [bug] refund of an already-refunded order is refused -> test: src/orders/service.test.ts

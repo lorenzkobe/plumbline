@@ -58,7 +58,7 @@ func TestReviewersFor(t *testing.T) {
 // first, which the checkpoint refuses, then normal.
 func riskyTask(t *testing.T, team string) *harness {
 	h := groundedTask(t, "small")
-	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/session.go\n", 1)
+	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/session.go (new)\n", 1)
 	h.docs(DocPlan, plan)
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "isn't small: run plumbline task size normal")
 	tk := h.task()

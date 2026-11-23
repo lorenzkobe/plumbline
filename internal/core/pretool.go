@@ -2068,6 +2068,26 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 	return p
 }
 
+func planFileProblems(root string, pc PlanCheck) []string {
+	if root == "" {
+		return nil
+	}
+	var missing []string
+	for _, f := range pc.Files {
+		if contains(pc.NewFiles, f) || strings.ContainsAny(f, "*?[") {
+			continue
+		}
+		if !gone(root, strings.TrimSuffix(f, "/")) {
+			continue
+		}
+		missing = append(missing, f)
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf("plan.md's ## Files names %s, which isn't in the repo: write one path per line (in backticks if you like, a description after it is fine), and mark a file the plan creates with \"(new)\" after it; move notes that aren't files out of ## Files", listFiles(missing))}
+}
+
 // planRuleProblems: what the plan question would refuse in plan.md itself,
 // apart from the file:line refs and the challenge. The checkpoint uses it,
 // and so does the note after each save of plan.md (CASE1), so Claude fixes
@@ -2079,6 +2099,7 @@ func (c *hookCtx) planRuleProblems(text string) []string {
 	if t.Size == "small" && !docExists(t, DocUnderstanding) && len(Refs(text)) == 0 && !strings.Contains(strings.ToLower(text), "no existing code is involved") {
 		p = append(p, "the plan needs file:line references to the real code it changes (a small task has no understanding.md to hold them)")
 	}
+	p = append(p, planFileProblems(t.Root, pc)...)
 	p = append(p, c.teamProblems(text, pc.Files)...)
 	p = append(p, c.sizeProblems(pc.Files)...)
 	p = append(p, c.upgradeProblems(pc)...)

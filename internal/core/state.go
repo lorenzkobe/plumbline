@@ -765,11 +765,33 @@ func (t *Task) OutsideCount() int {
 	}
 	n := 0
 	for p := range t.OutsidePlan {
-		if inCopies[p] || !gone(t.Root, p) {
+		if inCopies[p] || (!gone(t.Root, p) && !t.BackToStart(p)) {
 			n++
 		}
 	}
 	return n
+}
+
+func (t *Task) BackToStart(rel string) bool {
+	if t.Root == "" {
+		return false
+	}
+	if _, mine := t.Preexisting[rel]; mine {
+		return false
+	}
+	start := t.StartCommit
+	if start == "" {
+		start = "HEAD"
+	}
+	_, inStart := gitOut(t.Root, "cat-file", "-e", start+":"+rel)
+	if _, err := os.Lstat(filepath.Join(t.Root, filepath.FromSlash(rel))); err != nil {
+		return os.IsNotExist(err) && inStart != nil
+	}
+	if inStart != nil {
+		return false
+	}
+	_, err := gitOut(t.Root, "diff", "--quiet", start, "--", rel)
+	return err == nil
 }
 
 func (t *Task) NoteOutside(rel, why string) {

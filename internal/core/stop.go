@@ -72,7 +72,7 @@ func FinishMissing(t *Task, s *Setup) []string {
 	default:
 		var notListed []string
 		for p := range t.OutsidePlan {
-			if !gone(t.Root, p) && !strings.Contains(report, p) { // skip files created and removed again
+			if !gone(t.Root, p) && !t.BackToStart(p) && !strings.Contains(report, p) { // skip files created and removed again
 				notListed = append(notListed, p)
 			}
 		}

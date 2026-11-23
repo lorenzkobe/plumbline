@@ -574,6 +574,10 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 			held(p, "a terminal command changed it, and another Claude session had changed it while this task was open")
 			continue
 		}
+		if c.task.BackToStart(p) {
+			delete(c.task.OutsidePlan, p)
+			continue
+		}
 		if RiskyPath(p, c.setup) {
 			risky = append(risky, p)
 			held(p, "a terminal command changed this risky file outside the plan")
@@ -587,10 +591,10 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		outside = append(outside, p)
 		c.task.NoteOutside(p, "changed by a terminal command")
 	}
+	_ = SaveTask(c.task)
 	if len(outside)+len(theirs)+len(sessions)+len(risky) == 0 {
 		return nil
 	}
-	_ = SaveTask(c.task)
 	c.log("note", "changed-outside-plan", fmt.Sprintf("%d files", len(outside)+len(theirs)+len(sessions)+len(risky)))
 	var b strings.Builder
 	if len(theirs) > 0 {

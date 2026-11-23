@@ -271,6 +271,7 @@ var reTestNotApply = regexp.MustCompile(`(?i)\btest:\s*(does not apply)`)
 // PlanCheck is what the checkpoint needs from plan.md.
 type PlanCheck struct {
 	Files     []string
+	NewFiles  []string
 	Cases     int
 	CaseTests []string // test files the cases link to
 	// BugTests: the [bug] cases' test links ("file" or "file::name"), whose
@@ -289,6 +290,31 @@ type PlanCheck struct {
 
 func CheckPlan(text string) PlanCheck { return CheckPlanSized(text, false) }
 
+var reNewFile = regexp.MustCompile(`(?i)\(\s*new\b|\bnew file\b`)
+
+func planFileEntry(b string) (string, bool) {
+	b = strings.TrimSpace(b)
+	var f, rest string
+	if strings.HasPrefix(b, "`") {
+		end := strings.Index(b[1:], "`")
+		if end < 0 {
+			f, rest = b[1:], ""
+		} else {
+			f, rest = b[1:end+1], b[end+2:]
+		}
+	} else {
+		fields := strings.Fields(b)
+		if len(fields) == 0 {
+			return "", false
+		}
+		f, rest = fields[0], strings.TrimPrefix(b, fields[0])
+	}
+	f = strings.TrimSpace(strings.Trim(strings.TrimSpace(f), "`"))
+	f = strings.TrimRight(f, ":,;.")
+	f = strings.TrimPrefix(f, "./")
+	return filepath.ToSlash(f), reNewFile.MatchString(rest)
+}
+
 // CheckPlanSized: a small plan may leave out "## Real-world proof" and
 // "## Needs your OK" (left out means none); everything it does write is
 // read the same way (UX1).
@@ -305,8 +331,14 @@ func CheckPlanSized(text string, small bool) PlanCheck {
 	}
 	for _, l := range Section(text, "files") {
 		if b, ok := bullet(l); ok {
-			f := strings.Trim(strings.Fields(b)[0], "`")
-			pc.Files = append(pc.Files, filepath.ToSlash(f))
+			f, isNew := planFileEntry(b)
+			if f == "" {
+				continue
+			}
+			pc.Files = append(pc.Files, f)
+			if isNew {
+				pc.NewFiles = append(pc.NewFiles, f)
+			}
 		}
 	}
 	if len(pc.Files) == 0 {

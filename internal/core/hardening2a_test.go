@@ -272,7 +272,7 @@ func TestSmallRefusedForRiskyPlans(t *testing.T) {
 	h0.expect(h0.bash(`plumbline task size normal --why "touches billing"`), "allow", "")
 	// A plain file stays small, and a normal task with a risky file isn't asked to resize.
 	h := groundedTask(t, "small")
-	h.docs(DocPlan, strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- docs/usage.md\n", 1))
+	h.docs(DocPlan, strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- docs/usage.md (new)\n", 1))
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "", "")
 	h = groundedTask(t, "normal")
 	h.docs(DocPlan, strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- package.json\n", 1))

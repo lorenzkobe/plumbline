@@ -150,7 +150,7 @@ func builtTask(t *testing.T, files map[string]string) *harness {
 	h := groundedTask(t, "small")
 	plan := "# Plan\n## Goal\nDone when: A works as planned.\n## Files\n- src/a.go\n"
 	for p := range files {
-		plan += "- " + p + "\n"
+		plan += "- " + p + " (new)\n"
 	}
 	plan += "## Cases\n- [bug] A returns 2 -> test: test.sh\n## Real-world proof\n- does not apply, because no API or UI\n## Needs your OK\n- none\n"
 	h.docs(DocPlan, plan)
@@ -423,7 +423,7 @@ func expand(h *harness, name, args string) Output {
 func TestUserKeepsARiskyChangeSmall(t *testing.T) {
 	h := groundedTask(t, "small")
 	// Specialists the files call for still review a small task.
-	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/login.tsx\n", 1) + "## Team\n- lead, code-reviewer, security-reviewer, ux-reviewer\n"
+	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/a.go\n- src/auth/login.tsx (new)\n", 1) + "## Team\n- lead, code-reviewer, security-reviewer, ux-reviewer\n"
 	h.docs(DocPlan, plan)
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "isn't small")
 	// SV1: the refusal doesn't point Claude at the user's override.
@@ -441,7 +441,7 @@ func TestUserKeepsARiskyChangeSmall(t *testing.T) {
 		t.Fatalf("task after /plumbline:size small: %+v", tk)
 	}
 	// Risky files no longer make it normal, but a gate file still does.
-	h.docs(DocPlan, strings.Replace(plan, "- src/auth/login.tsx\n", "- src/auth/login.tsx\n- .github/workflows/ci.yml\n", 1))
+	h.docs(DocPlan, strings.Replace(plan, "- src/auth/login.tsx (new)\n", "- src/auth/login.tsx (new)\n- .github/workflows/ci.yml (new)\n", 1))
 	h.expect(h.pre("AskUserQuestion", checkpointQ()), "deny", "decide which checks run")
 	h.docs(DocPlan, plan)
 	h.approve()
