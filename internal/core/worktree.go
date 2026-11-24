@@ -495,6 +495,8 @@ func MergeBuilder(t *Task, n int, ignore []string) (changed, conflicts []string,
 		return nil, nil, fmt.Errorf("builder %d has no copy (%s)", n, r.Error)
 	case t.qaRunning():
 		return nil, nil, errors.New("blind QA is running and must not see the new code; merge once it has stopped")
+	case t.reviewRunning() != "":
+		return nil, nil, fmt.Errorf("the %s is reviewing this checkout, and its review counts only if the code doesn't change under it; merge once it hands back", t.reviewRunning())
 	case r.alive():
 		return nil, nil, fmt.Errorf("builder %d is still running; wait for it to stop", n)
 	case r.Status == "blocked" || r.Status == "needs context":

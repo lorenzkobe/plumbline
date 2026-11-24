@@ -72,10 +72,10 @@ func (t *Task) qaRunning() bool {
 	return false
 }
 
-// touchRun records a builder's or QA's tool call, so a long run keeps
-// counting as running and a dead one stops counting after helperAlive.
+// touchRun records a builder's, QA's or checked helper's tool call, so a long
+// run keeps counting as running and a dead one stops counting.
 func (c *hookCtx) touchRun(kind string) {
-	if c.task == nil || (kind != HelperBuilder && kind != HelperQA) {
+	if c.task == nil || (kind != HelperBuilder && kind != HelperQA && !checked(kind)) {
 		return
 	}
 	if r := c.task.runByAgent(c.in.AgentID); r != nil && r.Finished.IsZero() && Now().Sub(r.LastSeen) > time.Minute {

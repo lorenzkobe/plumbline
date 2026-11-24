@@ -11,6 +11,7 @@ import (
 
 const (
 	helperStuck       = 3 * time.Hour
+	checkedStepMax    = 15 * time.Minute
 	interruptSettle   = time.Minute
 	transcriptTailMax = 1 << 20
 )
@@ -133,8 +134,14 @@ func sessionGoneAfter(sessionID string, t time.Time) bool {
 	return false
 }
 
+// stuck: a reviewer, guard or arbiter run that never handed back and shows no
+// sign of life.
+func (r HelperRun) stuck() bool {
+	return r.Stuck || checked(r.Kind) && r.Finished.IsZero() && !r.alive()
+}
+
 func (r HelperRun) alive() bool {
-	if !r.Finished.IsZero() || sessionGoneAfter(r.Session, r.Started) {
+	if !r.Finished.IsZero() || r.Stuck || sessionGoneAfter(r.Session, r.Started) {
 		return false
 	}
 	last := r.Started
@@ -146,6 +153,19 @@ func (r HelperRun) alive() bool {
 		last = wrote
 	}
 	quiet := Now().Sub(last)
+	if checked(r.Kind) {
+		// Reviewers, the guard and the arbiter hold edits, so a dead one
+		// mustn't hold them for hours: stuck after WatchQuietHelper with no
+		// sign of life, or checkedStepMax inside one step (a foreground Bash
+		// call ends within 10 minutes). helperRuns then leaves the run out.
+		switch state {
+		case transcriptInterrupted:
+			return quiet < interruptSettle
+		case transcriptWorking:
+			return quiet < checkedStepMax
+		}
+		return quiet < WatchQuietHelper
+	}
 	switch {
 	case state == transcriptInterrupted && quiet >= interruptSettle:
 		return false

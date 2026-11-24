@@ -1463,6 +1463,16 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 	if c.in.AgentID == "" && c.task.qaRunning() && !c.isTestFile(rel) {
 		return "qa-running", fmt.Sprintf("blind QA is writing tests from the plan right now, and it must not see the new code, so code changes in this checkout (%s) wait until it finishes. Meanwhile, builders (plumbline:builder) can build in their own copies.", rel)
 	}
+	// Builders write in their own copies; everyone else writes here.
+	if helperKind(c.in.AgentType, false) != HelperBuilder {
+		if k := c.task.reviewRunning(); k != "" && !c.writeIgnored(rel) {
+			next := "wait for its findings (you are told when it hands back)"
+			if c.in.AgentID != "" {
+				next = "stop and tell the lead in your notes which change waits"
+			}
+			return "review-running", fmt.Sprintf("the %s is reading the code right now, and its review counts only if the code doesn't change under it, so %s waits: %s. If it shows no sign of life for %d minutes (%d inside one step), Plumbline lets go on its own.", k, rel, next, int(WatchQuietHelper.Minutes()), int(checkedStepMax.Minutes()))
+		}
+	}
 	if !c.task.InPlan(rel) && !c.writeIgnored(rel) && !noteFiles(c.task.Root, []string{rel}) && DocsOnly(c.task, c.setup) {
 		return "docs-only", fmt.Sprintf("this task is docs-only: its plan changes only markdown notes, so it runs without the test suite, and %s isn't one. Replan to change code (plumbline task replan, then the plan question); the suite then runs before the first code edit.", rel)
 	}
@@ -2313,8 +2323,8 @@ func (c *hookCtx) gateQuestion() Output {
 				if len(answers) > 0 {
 					return c.deny("self-approval", "the Review cap question can't come pre-answered. Only the user answers it.")
 				}
-				if !reviewCapPlain(q) || len(qs) != 1 {
-					return c.deny("review-cap-format", "ask the Review cap question on its own, with exactly the options \"Accept as is\" and \"One more round\", so the user's click means only that.")
+				if why := reviewCapProblem(qs, q); why != "" {
+					return c.deny("review-cap-format", why)
 				}
 				if why := c.reviewCapEarly(); why != "" {
 					return c.deny("review-cap-early", why)

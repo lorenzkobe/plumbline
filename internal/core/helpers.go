@@ -95,6 +95,9 @@ type HelperRun struct {
 	// refused, so a second try with nothing changed goes through (SA1).
 	HandbackDenied string `json:"handback_denied,omitempty"`
 	Unchecked      bool   `json:"unchecked,omitempty"`
+	// Stuck: a newer run of its kind started while this one showed no sign
+	// of life, so it stays out of the count even if it comes back.
+	Stuck bool `json:"stuck,omitempty"`
 }
 
 // Counts: a run that finished on unchanged code with a findings file that
@@ -366,10 +369,12 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 	return out
 }
 
+// helperRuns leaves out stuck runs: they don't use one of a reviewer's runs,
+// so a fresh one can start in their place.
 func (t *Task) helperRuns(kind string) []HelperRun {
 	var out []HelperRun
 	for _, r := range t.Helpers {
-		if r.Kind == kind && !r.Unchecked {
+		if r.Kind == kind && !r.Unchecked && !r.stuck() {
 			out = append(out, r)
 		}
 	}
@@ -384,6 +389,17 @@ func (t *Task) HelperRunning() bool {
 		}
 	}
 	return false
+}
+
+// reviewRunning names a reviewer, guard or arbiter running now: a change in
+// the checkout would leave its run on code it didn't read.
+func (t *Task) reviewRunning() string {
+	for _, r := range t.Helpers {
+		if checked(r.Kind) && !r.Unchecked && r.alive() {
+			return r.Kind
+		}
+	}
+	return ""
 }
 
 func (t *Task) runByAgent(agentID string) *HelperRun {
@@ -567,7 +583,7 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 			return c.deny("reviewer-phase", fmt.Sprintf("the %s checks the built change, and task %s is at the %s step. Before the checkpoint, the challenger (plumbline:challenger) is the one to run.", kind, t.ID, t.Phase))
 		}
 		if n := len(t.helperRuns(kind)); n >= t.reviewLimit(kind) {
-			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times, the most it gets. The finish check says what comes next: plumbline:arbiter when the code changed since its last review, else the Review cap question (AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\").", kind, n))
+			return c.deny("reviewer-rounds", fmt.Sprintf("the %s already ran %d times, the most it gets. The finish check says what comes next: plumbline:arbiter when the code changed since its last review, else the Review cap question (%s).", kind, n, reviewCapAsk))
 		}
 		if why := c.disputeProblem(kind); why != "" {
 			return c.deny("dispute-evidence", why)
@@ -962,7 +978,16 @@ func SubagentStart(in *HookInput) Output {
 		run, n = *reopened, t.helperNumber(reopened)
 	} else {
 		n = len(t.helperRuns(kind)) + 1
-		run = HelperRun{Kind: kind, AgentID: in.AgentID, Started: Now(), Findings: findingsName(kind, n),
+		file := 1 // stuck runs too, so a fresh run never takes a stuck one's findings file
+		for i := range t.Helpers {
+			if r := &t.Helpers[i]; r.Kind == kind && !r.Unchecked {
+				file++
+				if checked(kind) && r.stuck() {
+					r.Stuck = true
+				}
+			}
+		}
+		run = HelperRun{Kind: kind, AgentID: in.AgentID, Started: Now(), Findings: findingsName(kind, file),
 			SawDocs: docExists(t, DocUnderstanding) && docExists(t, DocPlan),
 			Session: in.SessionID, Transcript: helperTranscriptPath(in.TranscriptPath, in.AgentID)}
 		run.PrintBefore, _ = Fingerprint(t.Root, c.ignore())
@@ -1450,7 +1475,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		case arbiterRunning:
 			miss = append(miss, "review: the arbiter is still running; wait for its findings")
 		case arbiterOpen:
-			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the arbiter found a must-fix still open (%s). Fix it (the arbiter then checks the new code), or put it under \"For you\" in the report and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(ruled, ", "), arb.Findings))
+			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the arbiter found a must-fix still open (%s). Fix it (the arbiter then checks the new code), or put it under \"For you\" in the report and ask the user: %s", capLimit, strings.Join(ruled, ", "), arb.Findings, reviewCapAsk))
 		default:
 			handled = false
 		}
@@ -1462,7 +1487,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 		}
 	}
 	if len(capped) > 0 {
-		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(capped, ", ")))
+		miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; ask the user: %s", capLimit, strings.Join(capped, ", "), reviewCapAsk))
 	}
 	if cleared && report != "" && !strings.Contains(strings.ToLower(strings.Join(Section(report, "review"), "\n")), "cleared by the arbiter") {
 		miss = append(miss, "report: the arbiter found no must-fix open after the reviewers ran out of rounds; say so under ## Review (\"cleared by the arbiter\"), with what no reviewer saw")
@@ -1477,7 +1502,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 	if len(answerCapped) > 0 && accepted && !strings.Contains(forYou, "disput") {
 		miss = append(miss, "report: you accepted the reviews as they are, and your disputes with "+strings.Join(answerCapped, ", ")+" are still open; put them under \"For you\" in the report (say \"disputed\", with both sides)")
 	} else if len(answerCapped) > 0 && !accepted && !strings.Contains(forYou, "disput") {
-		miss = append(miss, fmt.Sprintf("review: you disputed findings, but all %d runs are used for %s; put the disputes under \"For you\" in the report (say \"disputed\", with both sides) and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\"", capLimit, strings.Join(answerCapped, ", ")))
+		miss = append(miss, fmt.Sprintf("review: you disputed findings, but all %d runs are used for %s; put the disputes under \"For you\" in the report (say \"disputed\", with both sides) and ask the user: %s", capLimit, strings.Join(answerCapped, ", "), reviewCapAsk))
 	}
 	if len(upheld) > 0 && report != "" && !strings.Contains(forYou, "upheld") {
 		miss = append(miss, "report: reviewers upheld findings you disputed, so they're the user's call; list each under \"For you\" (say \"upheld\", with both sides): "+strings.Join(upheld, ", "))

@@ -18,17 +18,47 @@ func isReviewCapQ(q question) bool {
 	return strings.EqualFold(strings.TrimSpace(q.Header), "review cap")
 }
 
-func reviewCapPlain(q question) bool {
+// reviewCapAsk says how to ask the Review cap question. AskUserQuestion wants
+// a description on each option, and Claude fills it unless told to leave it
+// empty; a filled one is refused (it could say more than the click records).
+const reviewCapAsk = `AskUserQuestion on its own, header "Review cap", options "Accept as is" and "One more round", each with "description": ""`
+
+func reviewCapLabels(q question) bool {
 	if len(q.Options) != 2 {
 		return false
 	}
 	want := []string{"accept as is", "one more round"}
 	for i, o := range q.Options {
-		if !strings.EqualFold(strings.TrimSpace(o.Label), want[i]) || strings.TrimSpace(o.Description) != "" {
+		if !strings.EqualFold(strings.TrimSpace(o.Label), want[i]) {
 			return false
 		}
 	}
 	return true
+}
+
+func reviewCapPlain(q question) bool {
+	if !reviewCapLabels(q) {
+		return false
+	}
+	for _, o := range q.Options {
+		if strings.TrimSpace(o.Description) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// reviewCapProblem names what keeps a Review cap question from being plain.
+func reviewCapProblem(qs []question, q question) string {
+	switch {
+	case len(qs) != 1:
+		return "make the Review cap question the only question in its AskUserQuestion call, so the user's click means only that: " + reviewCapAsk + "."
+	case !reviewCapLabels(q):
+		return `the Review cap question's options must be exactly "Accept as is" and "One more round", in that order: ` + reviewCapAsk + "."
+	case !reviewCapPlain(q):
+		return `leave each Review cap option's description empty ("description": ""): the labels say it all, and the user's click means only that.`
+	}
+	return ""
 }
 
 func reviewCapAnswer(answer string, q question) string {
@@ -229,9 +259,9 @@ func (c *hookCtx) arbiterStartProblem(fp string, err error) string {
 	case arbiterCleared, arbiterOpen:
 		return "the arbiter already ruled on the code as it is now; the finish check says what comes next."
 	case arbiterUsed:
-		return fmt.Sprintf("the arbiter already ran %d times, the most a task gets. Ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\".", MaxArbiterRuns)
+		return fmt.Sprintf("the arbiter already ran %d times, the most a task gets. Ask the user: %s.", MaxArbiterRuns, reviewCapAsk)
 	case arbiterBlocked:
-		return fixesUnreadable(t, c.setup, fp) + ", so the arbiter can't be shown the fixes. Ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" and \"One more round\"."
+		return fixesUnreadable(t, c.setup, fp) + ", so the arbiter can't be shown the fixes. Ask the user: " + reviewCapAsk + "."
 	}
 	return ""
 }

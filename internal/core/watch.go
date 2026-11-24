@@ -10,9 +10,12 @@ import (
 var (
 	WatchQuietRun    = 5 * time.Minute
 	WatchQuietHelper = 10 * time.Minute
-	WatchEvery       = 15 * time.Second
-	WatchGrace       = time.Minute
-	watchRunsTail    = int64(512 << 10)
+	// WatchHelperUpdate: how often a running reviewer, guard or arbiter gets a
+	// progress line for the user (the user's call, 2026-11-24).
+	WatchHelperUpdate = 5 * time.Minute
+	WatchEvery        = 15 * time.Second
+	WatchGrace        = time.Minute
+	watchRunsTail     = int64(512 << 10)
 )
 
 type Watch struct {
@@ -26,11 +29,12 @@ type Watch struct {
 	runLong      map[string]bool
 	helpers      map[string]bool
 	helperQuiet  map[string]time.Time
+	helperUpdate map[string]time.Time
 }
 
 func NewWatch(root, taskID string) *Watch {
 	return &Watch{root: root, taskID: taskID, started: Now(), runs: map[string]bool{}, runsGone: map[string]time.Time{},
-		runQuiet: map[string]time.Time{}, runLong: map[string]bool{}, helpers: map[string]bool{}, helperQuiet: map[string]time.Time{}}
+		runQuiet: map[string]time.Time{}, runLong: map[string]bool{}, helpers: map[string]bool{}, helperQuiet: map[string]time.Time{}, helperUpdate: map[string]time.Time{}}
 }
 
 func processAlive(pid int) bool {
@@ -134,6 +138,10 @@ func (w *Watch) Check() (lines []string, busy bool) {
 						switch {
 						case r.Status == BuilderStoppedByPlumbline:
 							say("%s was stopped by Plumbline, so it is finished: read its notes, then merge, drop or ask the user. Why: %s", name, shorten(r.Error, 240))
+						case r.Stuck:
+							say("%s was set aside as stuck: a fresh run took its place", name)
+						case r.stuck():
+							say("%s has shown no sign of life for %d min, so Plumbline counts it as stuck: it doesn't use one of its runs. Start a fresh one now (Agent tool, the same subagent_type) and tell the user in one line", name, int(now.Sub(latest(r.Started, r.LastSeen, modTime(r.Transcript))).Minutes()))
 						case r.Finished.IsZero():
 							say("%s stopped without handing back (no stop was recorded)", name)
 						case r.Status != "":
@@ -147,6 +155,10 @@ func (w *Watch) Check() (lines []string, busy bool) {
 				busy = true
 				w.helpers[key] = true
 				quiet := now.Sub(latest(r.Started, r.LastSeen, modTime(r.Transcript)))
+				if ran := now.Sub(r.Started); checked(r.Kind) && ran >= WatchHelperUpdate && now.Sub(w.helperUpdate[key]) >= WatchHelperUpdate {
+					w.helperUpdate[key] = now
+					say("%s is still working: %d min so far, last sign of life %d min ago; tell the user in one line", name, int(ran.Minutes()), int(quiet.Minutes()))
+				}
 				if said, ok := w.helperQuiet[key]; quiet >= WatchQuietHelper && (!ok || now.Sub(said) >= WatchQuietHelper) {
 					w.helperQuiet[key] = now
 					say("%s has been quiet for %d min: no tool call and nothing written", name, int(quiet/time.Minute))

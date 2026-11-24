@@ -394,7 +394,8 @@ func TestDeadHelperDoesNotHoldTheStop(t *testing.T) {
 	if o := Stop(&HookInput{SessionID: h.sid, Cwd: h.repo}); o == nil {
 		t.Fatal("a helper with no stop for 30 minutes shouldn't keep letting the lead stop")
 	}
-	if m := h.finishMissing(); !strings.Contains(m, "never finished") {
+	// A dead reviewer is stuck: it doesn't count, so the finish check asks for a fresh run.
+	if m := h.finishMissing(); !strings.Contains(m, "run these reviewers") || !strings.Contains(m, "plumbline:code-reviewer") {
 		t.Fatalf("dead run: %s", m)
 	}
 }
