@@ -431,3 +431,13 @@ func listSome(items []string, n int) string {
 	}
 	return strings.Join(items[:n], "; ") + fmt.Sprintf("; and %d more", len(items)-n)
 }
+
+// changesBetween: the line changes from tree (or commit) a to b. A git
+// error is returned, never read as "nothing changed".
+func changesBetween(root, a, b string) ([]fileDiff, error) {
+	diff, err := gitOut(root, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", "-M", "--src-prefix=a/", "--dst-prefix=b/", a, b, "--")
+	if err != nil {
+		return nil, fmt.Errorf("couldn't read the changes from %s to %s: %v", short(a), short(b), err)
+	}
+	return parseDiff(diff), nil
+}

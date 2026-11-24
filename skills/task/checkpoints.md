@@ -75,14 +75,14 @@ Done when: <what the user will see or be able to do, in their words; and what st
 (Leave the section out when there's nothing worth saying. Suggestions aren't part of the plan: Approve doesn't do them. The plan card shows them; the user picks "Change something" to add one, and then it goes in the plan.)
 
 ## Checks
-Related tests while building, then the full suite, lint and build. Suite takes about <N> min.
+Related tests while building and fixing, then the full suite once after the last review, with lint and build. Suite takes about <N> min.
 
 ## Branch
 fix/TICKET-123 from develop (or: main, as the user chose)
 
 ## Team
-<small task: lead, code-reviewer; otherwise lead, challenger, plan-reviewer, code-reviewer>
-<plus security-reviewer (auth, permissions, payments, user data, secrets), data-reviewer (migrations, queries, models, money math), ux-reviewer (frontend), when the files call for them; the checkpoint is refused without them>
+<small task: lead, code-reviewer; otherwise lead, challenger, code-reviewer; plus plan-reviewer when a file that decides which checks run changes>
+<plus security-reviewer (auth, permissions, payments, user data, secrets), data-reviewer (migrations, queries, models, money math), ux-reviewer (frontend), when non-test files call for them; the checkpoint is refused without them>
 <workers, if used: tracers before the checkpoint; builders with the part each builds and its model (session model for tricky or risky parts, sonnet for simple ones); qa (required for big tasks, runs first); tester>
 
 ## Challenge note
@@ -141,7 +141,7 @@ The plan for the user, as a chat message right before the plan question (not a f
 <the tests and checks in plain words, and who reviews it>
 
 ## What I Need From You
-<decisions or access, or "Nothing. Just Approve, Change Something or Drop It.">
+<decisions or access, or "Nothing. Just Approve (or Approve and commit when green), Change Something or Drop It.">
 
 ## Also Worth Doing
 <plan.md's suggestions, "Related, want it in?" and "Not related, just noticed" apart; leave the section out when there are none>

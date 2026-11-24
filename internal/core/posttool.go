@@ -632,14 +632,14 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 	if len(risky) > 0 {
 		fmt.Fprintf(&b, "that command changed risky files (or files that decide which checks run) outside the approved plan: %s. Undo those changes unless the plan is changed, and list them under \"For you\" in the report. ", listFiles(risky))
 	}
-	if len(outside) > 0 && c.task.OutsideCount() > OutsidePlanCap {
+	if len(outside) > 0 && c.task.OutsideCapCount(c.setup) > OutsidePlanCap {
 		if c.in.AgentID != "" {
-			c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
+			c.log("block", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCapCount(c.setup)))
 			fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so this builder is stopped. The lead decides without the user: add the files that belong to this change to plan.md's ## Files and merge the copy, or resume this builder to undo the others in its copy, then merge.", listFiles(outside), OutsidePlanCap)
 			c.helperHalted(b.String())
 			return StopAll(msg(b.String()))
 		}
-		c.log("note", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCount()))
+		c.log("note", "outside-plan-cap", fmt.Sprintf("%d files", c.task.OutsideCapCount(c.setup)))
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. That's more than %d files outside the plan, so the plan missed them. Don't stop or ask the user: add the ones that belong to this change to plan.md's ## Files (Write or Edit tool) with a line on why, undo the ones that don't, and keep going. They stay on the report's \"Outside the plan\" list.", listFiles(outside), OutsidePlanCap)
 	} else if len(outside) > 0 {
 		fmt.Fprintf(&b, "that command changed files outside the approved plan: %s. If they belong to this change, keep going and list them under \"Outside the plan\" in the report; if not, undo them. Generated files (coverage, caches) belong in ignore_changes in the project setup.", listFiles(outside))
@@ -753,6 +753,10 @@ func answerString(v any) string {
 	return ""
 }
 
+// ApproveCommitLabel: the plan question's option that also lets the final
+// commit run without the commit question once the finish check is empty.
+const ApproveCommitLabel = "Approve and commit when green"
+
 // isApproval: the answer must be exactly one of the question's own options
 // whose label starts with "Approve". Free text never counts as approval.
 func isApproval(answer string, q question) bool {
@@ -813,7 +817,7 @@ func (c *hookCtx) afterPlan(abs string) Output {
 		if t.Size == "small" {
 			shape = "then two or three full sentences in plain words, no file or code names"
 		}
-		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`))
+		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Approve and commit when green" (the last commit then needs no commit question), "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`))
 	}
 	return Context("PostToolUse", msg("before the plan question, still needed: "+strings.Join(uniq(p), "; ")+". Do these now, so the question isn't refused."))
 }
@@ -927,6 +931,9 @@ func (c *hookCtx) afterReport(abs string) Output {
 	}
 	if miss := c.commitNotReady(); len(miss) > 0 {
 		return Context("PostToolUse", msg("before the commit question, the finish check still needs: "+strings.Join(miss, "; ")+". Do these first (update the report if they change anything), then ask."))
+	}
+	if c.task.CommitWhenGreen {
+		return Context("PostToolUse", msg(`the finish check has nothing left but the commit, and the user approved the plan with "`+ApproveCommitLabel+`": if the task's changes aren't committed, commit them now (one git commit -m "..." on its own line; no commit question), then say in one line "Checks: all pass. Review: clean. Goal: met. Committed." (or what isn't).`))
 	}
 	return Context("PostToolUse", msg(`the finish check has nothing left but the commit. If the task's changes aren't committed, say in one line "Checks: all pass. Review: clean. Goal: met." (or what isn't), then ask the commit question: AskUserQuestion, header "Commit", options "Commit it" and "Leave uncommitted".`))
 }
@@ -1127,10 +1134,15 @@ func (c *hookCtx) afterQuestion() Output {
 			t.Upgrade = upgradePlan(pc, c.root)
 			t.Reviewers = TeamReviewers(text)
 			t.PlanHash = sha256Hex([]byte(text))
+			t.CommitWhenGreen = strings.EqualFold(strings.TrimSpace(ans), ApproveCommitLabel)
 			if t.ApprovalPrint == "" {
 				// The code at the first approval: blind QA may start only while
 				// nothing but tests has changed since (a replan keeps the first).
 				t.ApprovalPrint, _ = Fingerprint(t.Root, c.ignore())
+				t.Rules083 = true
+				if !t.Hotfix() && t.LastCodeChange.IsZero() {
+					t.BaseTree = t.ApprovalPrint
+				}
 			}
 		default:
 			continue

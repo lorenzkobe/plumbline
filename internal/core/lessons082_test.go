@@ -742,17 +742,17 @@ func TestL82ArbiterRefusedWhenGitCantDiff(t *testing.T) {
 }
 
 // C24, C27
-func TestL82DisputesCappedNoChangeSkipsArbiter(t *testing.T) {
+func TestL82DisputesCappedNoChangeGoToTheArbiter(t *testing.T) {
 	h := reviewedTask(t)
 	h.runHelper(HelperCodeReviewer, "# Code review 2\nnothing new\n")
 	h.runHelper(HelperCodeReviewer, "# Code review 3\nnothing new\n")
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	time.Sleep(10 * time.Millisecond)
 	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2 (src/a.go:3)\n")
-	if m := h.finishMissing(); strings.Contains(m, "plumbline:arbiter") {
-		t.Fatalf("open disputes on unchanged code need no arbiter: %s", m)
+	if m := h.finishMissing(); !strings.Contains(m, "plumbline:arbiter") {
+		t.Fatalf("open disputes on unchanged code go to the arbiter first (0.8.3): %s", m)
 	}
-	h.expect(h.pre("AskUserQuestion", reviewCapQ()), "", "")
+	h.expect(h.pre("AskUserQuestion", reviewCapQ()), "deny", "plumbline:arbiter")
 }
 
 // dirty-tree command shapes (0.8.1 review fixes)

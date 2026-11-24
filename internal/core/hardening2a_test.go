@@ -372,7 +372,10 @@ func TestUpheldDisputeGoesToTheUser(t *testing.T) {
 	if m := h.finishMissing(); !strings.Contains(m, "all 3 runs are used") {
 		t.Fatalf("a dispute with no runs left goes to the user: %s", m)
 	}
-	h.docs(DocReport, "# Report\n"+limitedEnd+"## Review\n- disputed\n## For you\n- Upheld by the code reviewer: A should return 3.\n- Disputed again, no review runs left: the ticket says 2. Your call.\n")
+	// The arbiter rules on it first (0.8.3); it upholds the finding, so it's the user's call.
+	h.l82Arbiter("# Arbiter 1\n" + l82OpenMustFix)
+	h.answerReviewCap("Accept as is")
+	h.docs(DocReport, "# Report\n"+limitedEnd+"## Review\n- disputed; accepted as is by you\n## For you\n- Upheld by the code reviewer: A should return 3.\n- Disputed again, no review runs left: the ticket says 2. Your call.\n")
 	if m := h.finishMissing(); m != "" {
 		t.Fatalf("a capped dispute listed under For you is the user's now: %s", m)
 	}

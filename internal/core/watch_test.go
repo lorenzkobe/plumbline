@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -285,7 +284,7 @@ func TestLiveOutputIsCheap(t *testing.T) {
 	r, err := Execute(h.repo, nil, KindLint, "", "i=0; while [ $i -lt 3000 ]; do echo line $i; i=$((i+1)); done", nil, io.Discard)
 	must(t, err)
 	if _, err := os.Stat(liveOutputPath(h.repo, r.ID)); !os.IsNotExist(err) {
-		t.Fatal(fmt.Sprintf("the live output file is removed when the run ends: %v", err))
+		t.Fatalf("the live output file is removed when the run ends: %v", err)
 	}
 	if r.PID == 0 {
 		t.Fatal("the run records its process")

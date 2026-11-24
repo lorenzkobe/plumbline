@@ -198,6 +198,15 @@ The 0.8.1 task needed four review rounds, and two of its misses were Plumbline's
 - [x] L5 (0.8.2), test what Claude Code really sends. The Review cap recorder (0.8.0) was tested with hand-made hook input, and live it dropped the user's answer: Claude Code puts the user's answers in AskUserQuestion's tool input, which the recorder read as pre-answered (fixed in 0.8.1). Every recorder of a user answer needs a test built from a real captured hook payload, and a live check in the next session.
 - Built in 0.8.2 with them: the review of 0.8.1's last fixes (unreviewed when it shipped) found a new-branch checkout or switch that also forces (`-fq`, `--disc`) skipping the dirty check, and `GIT_DIR`/`GIT_WORK_TREE`/`GIT_INDEX_FILE`/`GIT_COMMON_DIR` or `-c core.worktree` pointing git at another checkout unseen. Both fixed with allow lists, plus the should-fix and must-fix readers (subheadings, numbered items, `[confidence N]`), `git restore -S`, `git switch -q` and globs in a plain switch. Still to do by hand: one live AskUserQuestion with `PLUMBLINE_DEBUG=1` to capture the full PostToolUse input (L5's live check).
 
+## Speed brief (2026-11-24), shipped as one release
+The user asked for every item in 0.8.3 rather than one release each. Numbers before and after: [speed-083.md](speed-083.md).
+- [x] S1 (0.8.3), one full suite per task: no suite before the first edit (the other checks still run then), a failing test run compared once on the approved code in a temporary worktree, related tests while building, the full suite once with `--final`, the typecheck skipped after notes. Narrower than the brief's "skip lint and build when only tests or notes changed": lint and format read tests and markdown, builds type-check tests (courtly's `next build`), docs sites build from markdown, and secret scanners read every file.
+- [x] S2 (0.8.3), fewer stops: "Approve and commit when green"; test files don't count toward the outside-the-plan cap (other files already join the plan without a question since 0.7.7). Letting work run while the plan question waits isn't possible: Claude can't act while a question is open.
+- [x] S3 (0.8.3), fewer reviewer runs: the plan reviewer only for files that decide which checks run, no specialists from test paths, a clean specialist keeps its review after a cited fix.
+- [x] S4, the stale "running" builder: fixed in 0.7.6 (a resume reopens the run); 0.8.3 adds a regression test.
+- [x] S5 (0.8.3), a shorter task skill with the same rules.
+- [ ] The live check: one real courtly or kwenta task on 0.8.3, numbers into speed-083.md.
+
 ## The open items (0.6.11), shipped before release 5
 - [x] M16: the baseline is retaken on the code a followed branch switch or pull lands on, while nothing changed since approval.
 - [x] T1: staticcheck is clean. Run it with `GOTOOLCHAIN=go1.27.4 go run honnef.co/go/tools/cmd/staticcheck@latest ./...` (the `go` on the PATH is 1.23, and its automatic switch picks a toolchain too old for Go 1.27's standard library).

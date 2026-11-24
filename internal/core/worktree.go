@@ -94,15 +94,29 @@ func snapshotCommit(root string, ignore []string, parent string) (commit, tree s
 	if err != nil {
 		return "", "", err
 	}
-	args := []string{"commit-tree", tree, "-m", "plumbline: snapshot"}
+	commit, err = commitTree(root, tree, parent, "plumbline: snapshot")
+	return commit, tree, err
+}
+
+// commitTree makes a commit object of tree (no branch moves).
+func commitTree(root, tree, parent, message string) (string, error) {
+	args := []string{"commit-tree", tree, "-m", message}
 	if parent != "" {
 		args = append(args, "-p", parent)
 	}
 	out, err := gitIn(root, nil, args...)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return strings.TrimSpace(out), tree, nil
+	return strings.TrimSpace(out), nil
+}
+
+// addDetached checks commit out at path as a detached worktree. The repo's
+// own checkout hooks don't run there: they're for the user's checkouts, and
+// some install things or take long.
+func addDetached(root, path, commit string, env []string) error {
+	_, err := gitIn(root, env, "-c", "core.hooksPath="+os.DevNull, "worktree", "add", "--detach", "--quiet", path, commit)
+	return err
 }
 
 // excludeWorktrees adds the copies' folder to the repo's local exclude file
@@ -185,9 +199,7 @@ func MakeWorktree(root string, ignore []string, path string) (base, baseTree str
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", "", err
 	}
-	// The repo's own checkout hooks don't run for a builder's copy: they're
-	// for the user's checkouts, and some install things or take long.
-	if _, err := gitIn(root, nil, "-c", "core.hooksPath="+os.DevNull, "worktree", "add", "--detach", "--quiet", path, base); err != nil {
+	if err := addDetached(root, path, base, nil); err != nil {
 		return "", "", err
 	}
 	return base, baseTree, nil

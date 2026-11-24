@@ -2,8 +2,12 @@ package core
 
 import (
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 )
 
 func (t *Task) reviewLimit(kind string) int {
@@ -118,7 +122,7 @@ func reviewOutOfDate(t *Task, s *Setup, kind, fp string, last *HelperRun) bool {
 	if last == nil || !t.counts(*last) {
 		return true
 	}
-	return last.PrintAfter != fp && !((kind != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp))
+	return last.PrintAfter != fp && !((kind != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)) && !cleanCarries(t, s, kind, last, fp)
 }
 
 func cappedKinds(t *Task, s *Setup, fp string) []string {
@@ -128,11 +132,19 @@ func cappedKinds(t *Task, s *Setup, fp string) []string {
 		if len(runs) == 0 || runs[len(runs)-1].alive() || len(runs) < t.reviewLimit(k) {
 			continue
 		}
-		if reviewOutOfDate(t, s, k, fp, t.lastFinished(k)) {
-			out = append(out, k)
+		last := t.lastFinished(k)
+		if reviewOutOfDate(t, s, k, fp, last) || t.disputeOpen(k, *last) {
+			out = append(out, k) // the code changed after its last review, or the lead disputes it
 		}
 	}
 	return out
+}
+
+// disputedSince: a capped reviewer's disputes file changed after at, so a
+// ruling made then doesn't answer it.
+func disputedSince(t *Task, kind string, at time.Time) bool {
+	fi, err := os.Stat(filepath.Join(TaskDocsDir(t.Root, t.ID), DisputesName(kind)))
+	return err == nil && fi.Size() > 0 && !fi.ModTime().Before(at)
 }
 
 func openMustFix(text string) []string {
@@ -153,7 +165,7 @@ func arbiterState(t *Task, s *Setup, fp string) (string, *HelperRun) {
 	if len(runs) > 0 && runs[len(runs)-1].alive() {
 		return arbiterRunning, nil
 	}
-	if last := t.lastFinished(HelperArbiter); last != nil && fp != "" && last.PrintAfter == fp && t.counts(*last) && covers(last.Shown, cappedKinds(t, s, fp)) {
+	if last := t.lastFinished(HelperArbiter); last != nil && fp != "" && last.PrintAfter == fp && t.counts(*last) && covers(last.Shown, cappedKinds(t, s, fp)) && !anyDisputedSince(t, s, fp, last.Started) {
 		if len(openMustFix(t.findingsText(*last))) == 0 {
 			return arbiterCleared, last
 		}
@@ -166,6 +178,15 @@ func arbiterState(t *Task, s *Setup, fp string) (string, *HelperRun) {
 		return arbiterBlocked, nil
 	}
 	return arbiterDue, nil
+}
+
+func anyDisputedSince(t *Task, s *Setup, fp string, at time.Time) bool {
+	for _, k := range cappedKinds(t, s, fp) {
+		if disputedSince(t, k, at) {
+			return true
+		}
+	}
+	return false
 }
 
 func covers(shown, capped []string) bool {
@@ -200,7 +221,7 @@ func (c *hookCtx) arbiterStartProblem(fp string, err error) string {
 	}
 	capped := cappedKinds(t, c.setup, fp)
 	if len(capped) == 0 {
-		return "no reviewer is out of rounds with a review older than the code, so there is nothing for the arbiter to rule on. Run the reviewers the finish check names."
+		return "no reviewer is out of rounds with a review older than the code or findings the lead disputes, so there is nothing for the arbiter to rule on. Run the reviewers the finish check names."
 	}
 	switch st, _ := arbiterState(t, c.setup, fp); st {
 	case arbiterRunning:
@@ -219,19 +240,23 @@ func (c *hookCtx) arbiterStartNote(fp string) string {
 	t := c.task
 	docs := TaskDocsDir(t.Root, t.ID)
 	var b strings.Builder
-	b.WriteString(" These reviewers used all their runs, and the code changed after their last review. Decide only whether a must-fix is still open on the code as it is now:")
+	b.WriteString(" These reviewers used all their runs, and the code changed after their last review or the lead disputes their findings. Decide only whether a must-fix is still open on the code as it is now:")
 	for _, k := range cappedKinds(t, c.setup, fp) {
 		last := t.lastCounted(k)
 		if last == nil {
 			continue
 		}
 		changed, _ := treeChanges(t.Root, last.PrintAfter, fp)
-		fmt.Fprintf(&b, " the %s's last counted findings are %s; the fixes since are `git diff %s %s` (%s).", k, filepath.Join(docs, last.Findings), last.PrintAfter, fp, listSome(changed, 20))
+		if len(changed) == 0 {
+			fmt.Fprintf(&b, " the %s's last counted findings are %s; the code hasn't changed since.", k, filepath.Join(docs, last.Findings))
+		} else {
+			fmt.Fprintf(&b, " the %s's last counted findings are %s; the fixes since are `git diff %s %s` (%s).", k, filepath.Join(docs, last.Findings), last.PrintAfter, fp, listSome(changed, 20))
+		}
 		if newer := t.lastFinished(k); newer != nil && newer.Findings != last.Findings && t.findingsExist(*newer) {
 			fmt.Fprintf(&b, " Its newer run didn't count, but read its must-fix findings too: %s.", filepath.Join(docs, newer.Findings))
 		}
 		if docExists(t, DisputesName(k)) {
-			fmt.Fprintf(&b, " The lead's disputes of them: %s.", filepath.Join(docs, DisputesName(k)))
+			fmt.Fprintf(&b, " The lead's disputes of them: %s; rule on each disputed must-fix (upheld: it stays open under Findings; withdrawn: under Checked and fine).", filepath.Join(docs, DisputesName(k)))
 		}
 	}
 	fmt.Fprintf(&b, " In the notes folder read only %s, those findings and disputes files, and your own findings, never report.md or self-review.md. Under \"## Findings\" list each must-fix still open, or \"- none\".", DocPlan)
@@ -253,21 +278,68 @@ func (c *hookCtx) reviewCapEarly() string {
 	case arbiterRunning:
 		return "the arbiter is still running; wait for its findings. The user is asked only if it finds a must-fix still open."
 	case arbiterCleared:
-		if len(c.disputedCapped(fp)) == 0 {
-			return fmt.Sprintf("the arbiter found no must-fix open on this code (%s), so the capped reviews count and there is nothing to ask. Say so under ## Review in the report (\"cleared by the arbiter\").", run.Findings)
-		}
+		return fmt.Sprintf("the arbiter found no must-fix open on this code (%s), so the capped reviews count and there is nothing to ask. Say so under ## Review in the report (\"cleared by the arbiter\").", run.Findings)
 	}
 	return ""
 }
 
-func (c *hookCtx) disputedCapped(fp string) []string {
-	t := c.task
-	var out []string
-	for _, k := range RequiredReviewers(t, c.setup) {
-		last := t.lastFinished(k)
-		if len(t.helperRuns(k)) >= t.reviewLimit(k) && last != nil && !reviewOutOfDate(t, c.setup, k, fp, last) && t.disputeOpen(k, *last) {
-			out = append(out, k)
+var specialistSignal = map[string]*regexp.Regexp{
+	HelperSecurity: reSecuritySignal,
+	HelperData:     reDataSignal,
+	HelperUX:       reUXSignal,
+}
+
+// cleanCarries: a specialist whose last counted review found nothing keeps
+// it after a fix that stayed in what the other reviewers cited (B3, 0.8.3).
+// Every file changed since its tree is a test file or one another
+// reviewer's last counted findings cite (any reviewer kind, required or not), none decides which checks run or
+// matches this specialist's own path signal, and nothing the fix adds calls
+// for it by content. Any git error means it doesn't carry.
+func cleanCarries(t *Task, s *Setup, kind string, last *HelperRun, fp string) bool {
+	signal, specialist := specialistSignal[kind]
+	if !t.newReviewRules() || !specialist || last == nil || !t.counts(*last) || t.disputeOpen(kind, *last) || last.PrintAfter == "" || fp == "" || last.PrintAfter == fp {
+		return false
+	}
+	items := findingItems(t.findingsText(*last), "findings")
+	if len(items) == 0 {
+		return false
+	}
+	for _, it := range items {
+		if !strictNone(it) {
+			return false // "None of the handlers check..." is a finding
 		}
 	}
-	return out
+	changed, err := treeChanges(t.Root, last.PrintAfter, fp)
+	if err != nil || len(changed) == 0 {
+		return false
+	}
+	cited := map[string]bool{}
+	for _, k := range ReviewerKinds { // every reviewer's findings, without recomputing which are required (its git diffs)
+		if k == kind {
+			continue
+		}
+		if other := t.lastCounted(k); other != nil {
+			for _, r := range Refs(strings.Join(Section(t.findingsText(*other), "findings"), "\n")) {
+				if !isNotesDoc(r.Path) {
+					cited[foldPath(path.Clean(filepath.ToSlash(r.Path)))] = true
+				}
+			}
+		}
+	}
+	for _, p := range changed {
+		if GateFile(p) {
+			return false
+		}
+		if TestFile(p, s) {
+			continue
+		}
+		if !cited[foldPath(p)] || signal.MatchString(reCamel.ReplaceAllString(filepath.ToSlash(p), "${1}_${2}")) {
+			return false
+		}
+	}
+	diffs, err := changesBetween(t.Root, last.PrintAfter, fp)
+	if err != nil {
+		return false
+	}
+	return !contains(ContentReviewers(diffs, s), kind)
 }

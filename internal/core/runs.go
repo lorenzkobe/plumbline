@@ -77,6 +77,9 @@ type Run struct {
 	EnvKey    string `json:"env_key,omitempty"`
 	Rescued   bool   `json:"rescued,omitempty"`
 	Reused    string `json:"reused,omitempty"`
+	// OnBase: run on the task's approved code in a temporary worktree,
+	// after a check failed with no run from before the first edit (0.8.3).
+	OnBase bool `json:"on_base,omitempty"`
 }
 
 var (
@@ -282,6 +285,21 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	if err := appendRun(root, r); err != nil {
 		return nil, err
 	}
+	text := runIn(root, root, r, kind, command, setup, out)
+	r.PrintAfter, _ = Fingerprint(root, ignore)
+	readRun(root, t, r, kind, text, setup)
+	if err := appendRun(root, r); err != nil {
+		return r, err
+	}
+	if t != nil {
+		baseRunAfter(root, t, r, setup, out)
+	}
+	return r, nil
+}
+
+// runIn runs command in dir for the run r recorded in root's runs, within
+// its time limit, and returns its output; r gets its exit and finish time.
+func runIn(root, dir string, r *Run, kind, command string, setup *Setup, out io.Writer) string {
 	var buf bytes.Buffer
 	live := &liveWriter{path: liveOutputPath(root, r.ID)}
 	if os.MkdirAll(filepath.Dir(live.path), 0o700) == nil && os.WriteFile(live.path, nil, 0o600) == nil {
@@ -289,10 +307,10 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	}
 	shell := command
 	if kind == KindTest || kind == KindRelated {
-		shell, _ = goShardWrap(root, command)
+		shell, _ = goShardWrap(dir, command)
 	}
 	cmd := exec.Command("/bin/sh", "-c", shell)
-	cmd.Dir = root
+	cmd.Dir = dir
 	both := io.MultiWriter(out, &buf, live)
 	cmd.Stdout, cmd.Stderr = both, both
 	cmd.Env = os.Environ()
@@ -321,8 +339,11 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 		fmt.Fprintf(out, "\nplumbline: stopped after %s without finishing: something likely hangs. Last output: %s\n", RoundMinutes(limit), lastLines(buf.String(), 3))
 	}
 	r.Finished = Now()
-	r.PrintAfter, _ = Fingerprint(root, ignore)
-	text := buf.String()
+	return buf.String()
+}
+
+// readRun fills in what a finished run's output says.
+func readRun(root string, t *Task, r *Run, kind, text string, setup *Setup) {
 	switch kind {
 	case KindTest, KindRelated, KindE2E:
 		pat := ""
@@ -344,7 +365,6 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	default:
 		r.Ran = 1
 	}
-	return r, appendRun(root, r)
 }
 
 var (
@@ -834,8 +854,8 @@ func FetchProof(command string) bool {
 func LatestFor(runs []*Run, taskID, kind, sub, command, print string) *Run {
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
-		if r.TaskID != taskID || r.Kind != kind || (sub != "" && r.Sub != sub) || r.PrintBefore != print {
-			continue
+		if r.OnBase || r.TaskID != taskID || r.Kind != kind || (sub != "" && r.Sub != sub) || r.PrintBefore != print {
+			continue // a base run describes the approved code, never the task's proof
 		}
 		if command != "" && !commandMatches(kind, command, r.Command) {
 			continue

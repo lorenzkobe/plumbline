@@ -174,6 +174,18 @@ type Task struct {
 	// The code's fingerprint at the first approval: blind QA starts only
 	// while nothing but tests changed since.
 	ApprovalPrint string `json:"approval_print,omitempty"`
+	// BaseTree: the approved code's tree, for running a failed check once
+	// more on it (baserun.go). Empty: the checks are recorded before the
+	// first edit instead (hotfixes, tasks approved before 0.8.3, a branch
+	// switch after the task's own edits).
+	BaseTree string `json:"base_tree,omitempty"`
+	// Rules083: the task started on 0.8.3 or later, so the plan reviewer
+	// joins only for gate files, test paths bring no specialist, and a clean
+	// specialist's review can carry over a cited fix.
+	Rules083 bool `json:"rules_083,omitempty"`
+	// CommitWhenGreen: the last plan approval was "Approve and commit when
+	// green", so the final commit asks no question once nothing is left.
+	CommitWhenGreen bool `json:"commit_when_green,omitempty"`
 	// BugTests: the approved plan's [bug] cases' test links, kept at
 	// approval (BugStored); tasks approved before 0.6.10 read plan.md.
 	BugTests  []string `json:"bug_tests,omitempty"`
@@ -755,7 +767,13 @@ const OutsidePlanCap = 3
 
 // OutsideCount counts files changed outside the plan that still exist, in
 // the main checkout or as a change in a builder's copy not merged yet (B3).
-func (t *Task) OutsideCount() int {
+func (t *Task) OutsideCount() int { return t.outsideCount(nil, false) }
+
+// OutsideCapCount is OutsideCount without test files: more tests than the
+// plan named don't mean the plan missed code.
+func (t *Task) OutsideCapCount(s *Setup) int { return t.outsideCount(s, true) }
+
+func (t *Task) outsideCount(s *Setup, skipTests bool) int {
 	inCopies := map[string]bool{}
 	for _, r := range t.helperRuns(HelperBuilder) {
 		if r.Worktree == "" || r.Merged || r.Dropped {
@@ -769,7 +787,7 @@ func (t *Task) OutsideCount() int {
 	}
 	n := 0
 	for p := range t.OutsidePlan {
-		if t.InPlan(p) {
+		if t.InPlan(p) || skipTests && TestFile(p, s) {
 			continue
 		}
 		if inCopies[p] || (!gone(t.Root, p) && !t.BackToStart(p)) {

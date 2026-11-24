@@ -406,6 +406,7 @@ func cmdTask(args []string) error {
 		}
 		t.Phase = core.PhasePlanning
 		t.Checkpoint2At = time.Time{}
+		t.CommitWhenGreen = false
 		core.LogEvent(core.Event{Type: "phase", Task: t.ID, Rule: "replan", Size: t.Size, Project: core.ProjectKey(root)})
 		fmt.Println("Back to planning. Update plan.md with what changes and why, then ask the checkpoint again. Edits are blocked until the user approves.")
 		return core.SaveTask(t)
@@ -658,6 +659,9 @@ func cmdRun(args []string) (int, error) {
 		}
 	}
 	fmt.Printf("\nplumbline: %s recorded: %s.%s\n", args[0], status, detail)
+	if v.OK && base != nil && r.Exit != 0 {
+		return 0, nil // every failure was there before the task, so run checks reads it as a pass too
+	}
 	return r.Exit, nil
 }
 
@@ -672,8 +676,8 @@ const noSizeNote = `No size was given, so this task is normal. Size is impact, n
 // startChecklist: what the plan question will need, said up front so
 // Claude meets it instead of being refused (UX2).
 func startChecklist(size string) string {
-	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Change something", "Drop it" (Drop it closes the task). First show the plan in the chat, as a message (not a file), the way checkpoints.md's "The plan in chat" shows: the goal line ("Done when: ..."), then short plain sections, and any suggestions from plan.md's ## Suggestions ("Related, want it in?" and "Not related, just noticed", apart). No task ids, notes paths or plumbline commands. Keep it short.`
-	after := "After Approve: plumbline run checks before the first edit, build, run it again at the end, then the review and a short report."
+	ask := `Then the plan question: AskUserQuestion with header "Checkpoint" and options "Approve", "Approve and commit when green" (the last commit then needs no commit question), "Change something", "Drop it" (Drop it closes the task). First show the plan in the chat, as a message (not a file), the way checkpoints.md's "The plan in chat" shows: the goal line ("Done when: ..."), then short plain sections, and any suggestions from plan.md's ## Suggestions ("Related, want it in?" and "Not related, just noticed", apart). No task ids, notes paths or plumbline commands. Keep it short.`
+	after := "After Approve: build (no checks first), plumbline run checks while building, the review, then plumbline run checks --final once after the last review round, and a short report."
 	if size == "small" {
 		return "Next (small): look at the code (SocratiCode and MemPalace; Serena for callers), and open every file you'll cite. Write plan.md in the notes folder with the Write tool: ## Goal first (one line, \"Done when: ...\", in the user's words); what changes, with file:line; ## Files (each file by name); ## Cases, each linked to a test (\"test: <file>\" or \"does not apply, because ...\"); ## Guards loosened (each check the plan loosens, with its file:line, or \"- none\"; a guard listed means plumbline:guard-reviewer before the checkpoint). No separate understanding note, no challenger; the code review, plus the UX review when a screen changes. " + ask + " " + after
 	}
@@ -695,10 +699,26 @@ func runChecks(args []string) (int, error) {
 		{"format", s.Commands.Format}, {"typecheck", s.Commands.Typecheck}, {"security", s.Commands.Security},
 	}
 	f, _, _ := flags(args)
+	final := f["final"] != ""
+	var pass []string // the flags handed on to each run
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--final" || strings.HasPrefix(args[i], "--final=") {
+			continue
+		}
+		pass = append(pass, args[i])
+	}
 	docs, cmds := false, false
+	var building *core.Task
 	if t, terr := core.ActiveTask(root, "", f["task"]); terr == nil && t != nil && t.Phase == core.PhaseBuilding {
 		docs = core.DocsOnly(t, s)
 		cmds = core.CommandsOnly(t, s)
+		building = t
+	}
+	var runs []*core.Run
+	fp := ""
+	if building != nil {
+		runs = core.LoadRuns(root)
+		fp, _ = core.Fingerprint(root, s.IgnoreChanges)
 	}
 	exit := 0
 	var summary []string
@@ -714,7 +734,25 @@ func runChecks(args []string) (int, error) {
 			summary = append(summary, "test: not needed (docs-only task)")
 			continue
 		}
-		code, err := cmdRun(append([]string{c.name}, args...))
+		if c.name == "test" && building != nil && !final && building.BaseTree != "" && !building.Hotfix() && building.LastCodeChange.IsZero() {
+			summary = append(summary, "test: not run before the first change (a failing test run later is compared on the approved code)")
+			continue
+		}
+		run := append([]string{c.name}, pass...)
+		label := c.name
+		if c.name == "test" && building != nil && !final {
+			// While building and fixing, related tests; the full suite runs
+			// once, with --final, after the last review round.
+			if files := relatedFiles(root, building); len(files) > 0 && core.RelatedTemplate(s) != "" {
+				run = append([]string{"related", "--files", strings.Join(files, ",")}, pass...)
+				label = "test (related)"
+			}
+		}
+		if c.name != "test" && building != nil && core.CheckCarries(building, s, runs, c.name, fp) {
+			summary = append(summary, c.name+": PASS (it passed in this task, and only files it doesn't read changed since)")
+			continue
+		}
+		code, err := cmdRun(run)
 		if err != nil {
 			return 1, err
 		}
@@ -728,13 +766,30 @@ func runChecks(args []string) (int, error) {
 				status += " (" + names + ")"
 			}
 		}
-		summary = append(summary, c.name+": "+status)
+		summary = append(summary, label+": "+status)
 	}
 	if len(summary) == 0 {
 		return 0, errors.New("no checks are saved for this project (run /plumbline:setup)")
 	}
 	fmt.Printf("\nplumbline: checks: %s\n", strings.Join(summary, ", "))
 	return exit, nil
+}
+
+// relatedFiles: the files the task changed since its start, for its related
+// tests. None, or a name with a comma (--files splits on commas), means the
+// full suite.
+func relatedFiles(root string, t *core.Task) []string {
+	others := t.OthersWork()
+	var out []string
+	for _, p := range core.ChangedSince(root, t.StartCommit) {
+		if strings.Contains(p, ",") || strings.HasPrefix(p, "-") {
+			return nil
+		}
+		if !others[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func watch(root, taskFlag string) error {

@@ -81,6 +81,7 @@ func docsTaskIn(h *harness, size string, files ...string) *harness {
 		h.runHelper(HelperChallenger, "# Challenge 1\nnothing at 80 or more\n")
 	}
 	h.approveOnly()
+	h.before083()
 	return h
 }
 
@@ -483,6 +484,7 @@ func TestDocsOnlyReplanBaseline(t *testing.T) {
 	must(t, SaveTask(tk))
 	h.docs(DocPlan, docsPlan("docs/guide.md", "src/a.go"))
 	h.approveOnly()
+	h.before083()
 
 	a := filepath.Join(h.repo, "src", "a.go")
 	h.expect(h.pre("Edit", map[string]any{"file_path": a}), "deny", "plumbline run test")

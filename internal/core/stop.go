@@ -114,7 +114,6 @@ var (
 	reCouldntRun     = regexp.MustCompile(`(?i)\bcould(?:n['’]t| not) run\b`)
 	reSkipped        = regexp.MustCompile(`(?i)\bskip(?:ped|s)?\b`)
 	reSkippedCount   = regexp.MustCompile(`(?i)\b\d+\s+(?:tests?\s+)?skipped\b`) // a suite's count, not a check
-	reShouldFix      = regexp.MustCompile(`(?i)\bshould-fix\b`)
 	reSetAside       = regexp.MustCompile(`(?i)^set aside\b`)
 	reShouldNotFixed = regexp.MustCompile(`(?i)\bshould[- ]fix(?:es)?\b[^\n]*\bnot fixed\b|\bnot fixed\b[^\n]*\bshould[- ]fix`)
 	reLeadingMarkup  = regexp.MustCompile(`^[\s>*_#+-]+`)

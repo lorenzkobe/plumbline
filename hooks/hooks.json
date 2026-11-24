@@ -93,7 +93,7 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer|tracer|builder|qa|tester)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux|guard)-reviewer|tracer|builder|qa|tester|arbiter)$",
         "hooks": [
           {
             "type": "command",
@@ -105,7 +105,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux)-reviewer|tracer|builder|qa|tester)$",
+        "matcher": "^plumbline:(challenger|(plan|code|security|data|ux|guard)-reviewer|tracer|builder|qa|tester|arbiter)$",
         "hooks": [
           {
             "type": "command",

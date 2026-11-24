@@ -271,7 +271,7 @@ func TestReviewerRunWithoutCheckedStartDoesntCount(t *testing.T) {
 	if strings.Contains(contextOf(o), "won't count") || h.task().runByAgent("checked").Unchecked {
 		t.Fatal("a checked start should count")
 	}
-	o = SubagentStart(&HookInput{SessionID: h.sid, Cwd: h.repo, AgentID: "second", AgentType: "plumbline:" + HelperCodeReviewer})
+	SubagentStart(&HookInput{SessionID: h.sid, Cwd: h.repo, AgentID: "second", AgentType: "plumbline:" + HelperCodeReviewer})
 	if !h.task().runByAgent("second").Unchecked {
 		t.Fatal("one checked start lets one run begin, not two")
 	}

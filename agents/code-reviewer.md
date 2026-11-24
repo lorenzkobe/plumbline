@@ -24,3 +24,10 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 - Backward compatibility and hidden failures: callers, stored data and config that relied on the old behaviour; errors swallowed or turned into a quiet partial success.
 - Test quality: over-mocking, mocks of the thing under test, guessed sleeps, real outside services, expected values computed the way the code computes them.
 - Weakened tests: skipped or removed tests, loosened assertions, deleted cases, broader mocks. List every one under "Weakened tests", even if it looks intended.
+
+## Also: does it match the approved plan?
+The plan reviewer joins only when a file that decides which checks run changed, so on other tasks this is yours.
+- Every file in `## Files` changed as the approach says; any other changed file is one the lead must list in the report.
+- Every case in `## Cases` has its test, and the test checks that case (not a nearby one).
+- Nothing the plan left out was changed (behaviour, APIs, data, permissions). A change the user didn't approve is must-fix (Fails when: the change ships -> the user gets behaviour they didn't approve).
+- The cause the understanding names is the one the change fixes.

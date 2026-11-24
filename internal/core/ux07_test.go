@@ -140,6 +140,7 @@ func TestRefusalsNameTheWay(t *testing.T) {
 	h := smallTask(t, nil, "src/lib/names.go")
 	h.docs(DocPlan, smallPlan("src/lib/names.go"))
 	h.approveOnly()
+	h.before083()
 	_, r := decision(h.pre("Edit", map[string]any{"file_path": filepath.Join(h.repo, "src/lib/names.go")}))
 	if !strings.Contains(r, "plumbline run checks") {
 		t.Fatalf("baseline refusal doesn't name run checks: %s", r)

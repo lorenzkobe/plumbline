@@ -1449,6 +1449,9 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		return "commands-only", fmt.Sprintf("this task is commands only: its plan changes no files, so it runs without the saved checks, blind QA or a review, and %s would be a changed file. To change files, replan to change files (plumbline task replan, list them in plan.md's ## Files, then the plan question).", rel)
 	}
 	if need := c.baselineMissing(); len(need) > 0 {
+		if c.task.BaseTree != "" && !c.task.Hotfix() && c.in.AgentID == "" {
+			return "baseline-first", fmt.Sprintf("before the first change, record how the saved checks other than the tests stand on the approved code: run %s now (or plumbline run checks, which skips the suite before the first change). A problem they show was there before the task, so it won't block the finish. Tests need no run first: a failing test run is compared on the approved code later. Then make the change.", strings.Join(need, ", "))
+		}
 		if c.in.AgentID != "" {
 			return "baseline-first", fmt.Sprintf("the lead hasn't recorded how the saved checks stand before any change (%s), so %s waits. Stop and tell the lead in your notes.", strings.Join(need, ", "), rel)
 		}
@@ -1482,11 +1485,11 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		c.hold(rel, "a file that decides which checks run, outside the plan")
 		return "gate-outside-plan", fmt.Sprintf("%s isn't in the approved plan and decides which checks run (CI, git hooks, test or lint config, AI instructions, plugin parts): one line there can switch a check off. Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why; to change it, the plan must list it (plumbline task replan).", rel)
 	}
-	if _, seen := c.task.OutsidePlan[rel]; !seen && c.task.OutsideCount()+pending >= OutsidePlanCap {
+	if _, seen := c.task.OutsidePlan[rel]; !seen && !TestFile(rel, c.setup) && c.task.OutsideCapCount(c.setup)+pending >= OutsidePlanCap {
 		if c.in.AgentID != "" {
-			return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan, so the plan missed files. Don't change it. Name it in your notes with why it's needed; the lead adds it to the plan.", rel, c.task.OutsideCount()+pending+1)
+			return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan, so the plan missed files. Don't change it. Name it in your notes with why it's needed; the lead adds it to the plan.", rel, c.task.OutsideCapCount(c.setup)+pending+1)
 		}
-		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan missed files. Don't stop or ask the user: if it belongs to this change, add it to plan.md's ## Files (Write or Edit tool) with a line on why, then make the edit; if it doesn't, leave it alone.", rel, c.task.OutsideCount()+pending+1)
+		return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan. That many means the plan missed files. Don't stop or ask the user: if it belongs to this change, add it to plan.md's ## Files (Write or Edit tool) with a line on why, then make the edit; if it doesn't, leave it alone.", rel, c.task.OutsideCapCount(c.setup)+pending+1)
 	}
 	return "", ""
 }
@@ -1495,6 +1498,22 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 // that have no run on the untouched code yet. Those runs tell a problem
 // that was already there from a new one; without one, a check that already
 // failed blocks the finish. A waived check needs none.
+// movedBaselines: after a branch switch or pull with nothing changed since
+// approval (Task.BaselinePrint), only runs on the code it landed on describe
+// this code; ones from the branch before don't (M16).
+func movedBaselines(t *Task, runs []*Run) []*Run {
+	if t.BaselinePrint == "" {
+		return runs
+	}
+	var out []*Run
+	for _, r := range runs {
+		if r.PrintBefore == t.BaselinePrint {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func (c *hookCtx) baselineMissing() []string {
 	t := c.task
 	// A task approved before 0.5.0 has no approval fingerprint, so no run
@@ -1502,13 +1521,23 @@ func (c *hookCtx) baselineMissing() []string {
 	if t == nil || c.setup == nil || !c.setupOK || t.Phase == PhaseBuilding && t.ApprovalPrint == "" || CommandsOnly(t, c.setup) {
 		return nil
 	}
+	// With an approved tree, a failing test run is compared on it instead
+	// (baserun.go), so only the other saved checks run before the first
+	// edit: the copy lacks generated and ignored files they may read.
+	baseTests := t.Phase == PhaseBuilding && t.BaseTree != "" && !t.Hotfix()
 	edited := !t.LastCodeChange.IsZero()
+	if baseTests && edited {
+		return nil
+	}
 	if edited && (savedCommand(c.setup, KindTest) == "" || t.waived(KindTest) || len(baselineRuns(loadRunsTail(t.Root, watchRunsTail), t.ID, KindTest)) > 0 || !NotesOnlySoFar(t, c.setup)) {
 		return nil
 	}
 	docs := DocsOnly(t, c.setup)
 	kinds := append([]string{KindTest}, CheckKinds...)
-	if edited {
+	switch {
+	case baseTests:
+		kinds = CheckKinds
+	case edited:
 		kinds = []string{KindTest}
 	}
 	var runs []*Run
@@ -1520,7 +1549,7 @@ func (c *hookCtx) baselineMissing() []string {
 		if runs == nil {
 			runs = LoadRuns(t.Root)
 		}
-		if len(baselineRuns(runs, t.ID, k)) == 0 {
+		if len(movedBaselines(t, baselineRuns(runs, t.ID, k))) == 0 {
 			need = append(need, "plumbline run "+k)
 		}
 	}
@@ -1830,7 +1859,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				rel := c.rel(abs)
 				if rule, reason := c.buildFile(rel, len(pending)); rule != "" {
 					v.d(rule, reason)
-				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) {
+				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) && !TestFile(rel, c.setup) {
 					pending[rel] = true
 				}
 			}
@@ -1997,6 +2026,13 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string, single boo
 		// The user just answered "Commit it" on this code: one stop, not two.
 		return "", "", ""
 	}
+	if single && final && !hotfix && !ci.Amend && ctx.task.CommitWhenGreen && ctx.task.ReviewCapOK == "" && reportPlainReady(ctx.task) && len(ctx.commitNotReady()) == 0 {
+		// The user approved the plan with "commit when green", the report's
+		// verdict is plain Ready (nothing upheld, waived or accepted as is is
+		// left for them), and the proof and the finish check have nothing
+		// left. An amend rewrites a commit they made, so it still asks.
+		return "", "", ""
+	}
 	return "ask", "commit", fmt.Sprintf("commit \"%s\" (%s).", subject, kind)
 }
 
@@ -2105,7 +2141,7 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 		if cmd == "" {
 			continue
 		}
-		if v := Judge(LatestFor(runs, t.ID, k, "", cmd, fp), BaselineFor(runs, t.ID, k)); !v.OK {
+		if v := Judge(LatestFor(runs, t.ID, k, "", cmd, fp), BaselineFor(runs, t.ID, k)); !v.OK && !CheckCarries(t, s, runs, k, fp) {
 			why := v.Reason
 			if k == KindFormat && formatRewrote(runs, t.ID, cmd, fp) {
 				why += "; the saved format command rewrote files, and it must only check (prettier --check, ruff format --check): ask the user to change it with /plumbline:setup"
@@ -2114,6 +2150,78 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 		}
 	}
 	return miss
+}
+
+// reportPlainReady: report.md's verdict is plain Ready. Ready with noted
+// limitations or Not ready holds something that is the user's call.
+func reportPlainReady(t *Task) bool {
+	text, _, err := ReadDoc(t, DocReport)
+	if err != nil {
+		return false
+	}
+	lines := Section(text, "verdict")
+	if len(lines) == 0 {
+		return false
+	}
+	first := plainLine(lines[0])
+	// "Ready for production with noted limitations" and "Ready, but ..."
+	// start with Ready too: only Ready then ":", "." or the line's end counts.
+	return rePlainReady.MatchString(first) && !strings.Contains(strings.ToLower(first), "limitation")
+}
+
+var rePlainReady = regexp.MustCompile(`(?i)^(?:verdict\s*:\s*)?ready\s*(?:[:.]|$)`)
+
+// CheckCarries: the saved typecheck passed in this task on code that differs
+// from fp only in markdown notes, and no run of it on fp exists, so it
+// needn't run again. The other checks read more than code: lint and format
+// read tests and markdown (markdownlint, prettier), builds type-check tests
+// (next build, tsc -b), and secret scanners read every file, so they never
+// skip. A file that decides which checks run, a hotfix, or any git error
+// means no skip.
+func CheckCarries(t *Task, s *Setup, runs []*Run, kind, fp string) bool {
+	cmd := savedCommand(s, kind)
+	if cmd == "" || fp == "" || t.Hotfix() || kind != KindTypecheck {
+		return false
+	}
+	if LatestFor(runs, t.ID, kind, "", cmd, fp) != nil {
+		return false // a run on this code decides, pass or fail
+	}
+	var src *Run
+	base := BaselineFor(runs, t.ID, kind)
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if r.TaskID == t.ID && r.Kind == kind && r.Command == cmd && !r.OnBase && r.Complete() && Judge(r, base).OK {
+			src = r
+			break
+		}
+	}
+	if src == nil || src.PrintAfter == fp {
+		return false
+	}
+	changed, err := treeChanges(t.Root, src.PrintAfter, fp)
+	if err != nil || len(changed) == 0 {
+		return false
+	}
+	for _, p := range changed {
+		switch {
+		case GateFile(p):
+			return false
+		case markdownNote(p):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// markdownNote: a .md or .markdown file (not .txt: requirements.txt is
+// code, nor .mdx: MDX pages are code).
+func markdownNote(p string) bool {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".md", ".markdown":
+		return true
+	}
+	return false
 }
 
 // formatRewrote: the task's newest run of the saved format command left the

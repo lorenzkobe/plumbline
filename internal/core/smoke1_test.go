@@ -240,6 +240,7 @@ func TestFirstChangeWaitsForTheChecksRuns(t *testing.T) {
 	}
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	h.approveOnly()
+	h.before083() // the checks before the first edit are the rule for tasks without an approved tree
 	a := filepath.Join(h.repo, "src", "a.go")
 	edit := map[string]any{"file_path": a}
 	_, r := decision(h.pre("Edit", edit))

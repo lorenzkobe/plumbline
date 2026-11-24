@@ -43,6 +43,7 @@ func NewTask(root string, t *Task) error {
 	t.ID, t.Root, t.Branch, t.Phase = newID(), root, CurrentBranch(root), PhaseUnderstanding
 	t.Created, t.Preexisting, t.StartCommit = Now(), pre, HeadCommit(root)
 	t.StartTips = BranchTips(root)
+	t.Rules083 = true
 	if err := os.MkdirAll(TaskDocsDir(root, t.ID), 0o700); err != nil {
 		return err
 	}
@@ -259,7 +260,11 @@ func (c *hookCtx) followHead(segs []Segment, failed bool) string {
 		c.log("task", "start-commit-moved", abbrev(t.StartCommit)+" -> "+abbrev(now))
 		t.StartCommit = now
 		if c.followApproval(segs, printBefore) {
-			note = msg("the task's starting point moved with this command to " + abbrev(now) + ", and nothing changed since the plan was approved, so runs on this code now are the task's baseline. Run plumbline run test and the other saved checks now, before any edit, so failures already on this branch aren't counted as the task's (the tester can run the suite in the background).")
+			if t.BaseTree != "" && !t.Hotfix() {
+				note = msg("the task's starting point moved with this command to " + abbrev(now) + ", and nothing changed since the plan was approved, so runs on this code now are the task's baseline. Run the saved checks other than the tests now (plumbline run checks skips the suite before the first change), before any edit, so problems already on this branch aren't counted as the task's; a failing test run is compared on this code later.")
+			} else {
+				note = msg("the task's starting point moved with this command to " + abbrev(now) + ", and nothing changed since the plan was approved, so runs on this code now are the task's baseline. Run plumbline run test and the other saved checks now, before any edit, so failures already on this branch aren't counted as the task's (the tester can run the suite in the background).")
+			}
 		}
 	}
 	_ = SaveTask(t)
@@ -302,7 +307,11 @@ func (c *hookCtx) followApproval(segs []Segment, printBefore string) bool {
 	}
 	t.ApprovalPrint = now
 	if len(changed) > 0 {
-		return false // tests written before the move would count as old failures
+		t.BaseTree = "" // its tests would count as old failures there, so the checks run before the first edit
+		return false    // tests written before the move would count as old failures
+	}
+	if t.BaseTree != "" {
+		t.BaseTree = now
 	}
 	t.BaselinePrint = now
 	return true

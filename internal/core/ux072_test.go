@@ -392,8 +392,9 @@ func TestUserChangeBeforeAReadIsntBlamed(t *testing.T) {
 func TestTestOnlyFixNeedsOnlyTheCodeReviewer(t *testing.T) {
 	h := provenTask(t)
 	tk := h.task()
-	tk.Size = "normal" // the plan reviewer is required too
+	tk.Size = "normal" // the plan reviewer is required too (tasks before 0.8.3)
 	must(t, SaveTask(tk))
+	h.before083()
 	for _, k := range []string{HelperCodeReviewer, HelperPlanReviewer} {
 		id, _ := h.startHelper(k)
 		write(t, h.findingsPath(id), h.complete(k, "# Review 1\nnothing at 80 or more\n"))

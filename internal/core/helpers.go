@@ -250,6 +250,48 @@ func ReviewersFor(size, root string, files []string) []string {
 	return out
 }
 
+// newReviewRules: the task started on 0.8.3 or later, or was never approved
+// (its first approval will be a 0.8.3 one). A replanned older task keeps the
+// old rules on both sides of its next approval.
+func (t *Task) newReviewRules() bool {
+	return t.Rules083 || t.Phase != PhaseBuilding && t.ApprovalPrint == ""
+}
+
+// ReviewersForChange: the reviewers a task needs for the files it changes.
+// A task started on 0.8.3 or later (Rules083) gets the plan reviewer only
+// for a file that decides which checks run (the code reviewer checks plan
+// fit otherwise), and test files bring no specialist. Older tasks keep
+// ReviewersFor, which also stays the small-size floor.
+func ReviewersForChange(t *Task, s *Setup, size string, files []string) []string {
+	if !t.newReviewRules() {
+		return ReviewersFor(size, t.Root, files)
+	}
+	var code []string
+	gate := false
+	for _, f := range files {
+		rel := f
+		if filepath.IsAbs(f) && t.Root != "" {
+			if r, err := filepath.Rel(t.Root, f); err == nil && !climbsOut(r) {
+				rel = r
+			}
+		}
+		gate = gate || GateFile(rel)
+		if !TestFile(rel, s) {
+			code = append(code, rel)
+		}
+	}
+	var out []string
+	for _, k := range ReviewersFor(size, t.Root, code) {
+		if k != HelperPlanReviewer || gate {
+			out = append(out, k)
+		}
+	}
+	if gate && !contains(out, HelperPlanReviewer) {
+		out = append(out, HelperPlanReviewer)
+	}
+	return out
+}
+
 // TeamReviewers: the reviewers a plan's "## Team" section names.
 func TeamReviewers(plan string) []string {
 	team := strings.ToLower(strings.Join(Section(plan, "team"), "\n"))
@@ -291,7 +333,7 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 		}
 		return out
 	}
-	need := ReviewersFor(t.Size, t.Root, files)
+	need := ReviewersForChange(t, s, t.Size, files)
 	if t.Size == "small" && len(t.OutsidePlan) > 0 {
 		// The change grew past its small plan: the files outside it get the
 		// specialists a normal task would (UX1 keeps one review only for
@@ -300,7 +342,7 @@ func RequiredReviewers(t *Task, s *Setup) []string {
 		for p := range t.OutsidePlan {
 			outside = append(outside, p)
 		}
-		for _, k := range ReviewersFor("normal", t.Root, outside) {
+		for _, k := range ReviewersForChange(t, s, "normal", outside) {
 			if k != HelperPlanReviewer {
 				need = append(need, k)
 			}
@@ -512,6 +554,9 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 			return c.deny("guard-start", why)
 		}
 		fp, fpErr = Fingerprint(t.Root, c.ignore())
+		if fpErr != nil || fp == "" {
+			return c.deny("guard-start", fmt.Sprintf("git couldn't read the code's state (%v), so the guard review couldn't be tied to this code and wouldn't count. Try again.", fpErr))
+		}
 	case kind == HelperArbiter:
 		fp, fpErr = Fingerprint(t.Root, c.ignore())
 		if why := c.arbiterStartProblem(fp, fpErr); why != "" {
@@ -580,6 +625,9 @@ func (c *hookCtx) reviewStillHolds(kind, fp string, err error) string {
 	}
 	if kind != HelperCodeReviewer && last.PrintAfter != fp && onlyTestsOrDocs(t.Root, c.setup, last.PrintAfter, fp) {
 		return fmt.Sprintf("the %s's last review (%s) still counts: only tests or docs changed since. After such a fix only the code reviewer looks again (it watches for weakened tests); plumbline status lists the reviews still needed.", kind, last.Findings)
+	}
+	if cleanCarries(t, c.setup, kind, last, fp) {
+		return fmt.Sprintf("the %s's last review (%s) found nothing and still counts: since then only files the other reviewers cited (and tests) changed, none of them its kind of file or code; plumbline status lists the reviews still needed.", kind, last.Findings)
 	}
 	return ""
 }
@@ -1350,7 +1398,7 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 			notRun = append(notRun, name)
 		case runs[len(runs)-1].alive():
 			running = append(running, name)
-		case last == nil || !t.counts(*last) || last.PrintAfter != fp && !((k != HelperCodeReviewer || DocsOnly(t, s)) && onlyTestsOrDocs(t.Root, s, last.PrintAfter, fp)):
+		case reviewOutOfDate(t, s, k, fp, last):
 			if len(runs) >= t.reviewLimit(k) {
 				capLimit = max(capLimit, t.reviewLimit(k))
 				capped = append(capped, name)
@@ -1385,20 +1433,32 @@ func reviewMissing(t *Task, s *Setup, fp, report string, reportTime time.Time) [
 	if accepted {
 		capped = nil
 	}
-	if len(capped) > 0 {
+	// A capped reviewer's open disputes go to the arbiter too (0.8.3); the
+	// user is asked only when it leaves a must-fix open.
+	disputed := []string(nil)
+	if !accepted && s.PartOn(HelperArbiter) {
+		disputed = answerCapped
+	}
+	if ruled := append(append([]string{}, capped...), disputed...); len(ruled) > 0 {
 		st, arb := arbiterState(t, s, fp)
+		handled := true
 		switch st {
 		case arbiterCleared:
-			cleared, capped = true, nil
+			cleared = true
 		case arbiterDue:
-			miss = append(miss, fmt.Sprintf("review: the code changed after the last review and all %d runs are used for %s; start plumbline:arbiter (Agent tool): it checks only their open must-fix findings and the fixes since, and the user is asked only if one is still open", capLimit, strings.Join(capped, ", ")))
-			capped = nil
+			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the code changed after the last review or you disputed findings; start plumbline:arbiter (Agent tool): it checks only their open must-fix findings, the fixes since and your disputes, and the user is asked only if one is still open", capLimit, strings.Join(ruled, ", ")))
 		case arbiterRunning:
 			miss = append(miss, "review: the arbiter is still running; wait for its findings")
-			capped = nil
 		case arbiterOpen:
-			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the arbiter found a must-fix still open (%s). Fix it (the arbiter then checks the new code), or put it under \"For you\" in the report and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(capped, ", "), arb.Findings))
+			miss = append(miss, fmt.Sprintf("review: all %d runs are used for %s, and the arbiter found a must-fix still open (%s). Fix it (the arbiter then checks the new code), or put it under \"For you\" in the report and ask the user: AskUserQuestion on its own, header \"Review cap\", options \"Accept as is\" (the reviews stay as they are for this code) and \"One more round\" (each of these reviewers runs once more)", capLimit, strings.Join(ruled, ", "), arb.Findings))
+		default:
+			handled = false
+		}
+		if handled {
 			capped = nil
+			if len(disputed) > 0 {
+				answerCapped = nil
+			}
 		}
 	}
 	if len(capped) > 0 {
@@ -1443,7 +1503,7 @@ func (c *hookCtx) teamProblems(plan string, files []string) []string {
 		return nil
 	}
 	var p []string
-	for _, k := range ReviewersFor(c.task.Size, c.task.Root, files) {
+	for _, k := range ReviewersForChange(c.task, c.setup, c.task.Size, files) {
 		if why, specialist := signalWhy[k]; specialist && c.setup.PartOn(k) && !contains(team, k) {
 			p = append(p, fmt.Sprintf(`plan.md's "## Team" must name the %s: the planned files touch %s`, k, why))
 		}

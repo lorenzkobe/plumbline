@@ -117,6 +117,7 @@ func TestOneMoreRoundCoversAReviewerCappedWithOpenDisputes(t *testing.T) {
 		t.Fatalf("a dispute with no runs left should be capped: %s", m)
 	}
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"}), "deny", "")
+	h.l82Arbiter("# Arbiter 1\n" + l82OpenMustFix) // it upholds the disputed finding, so the user decides
 	h.answerReviewCap("One more round")
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:code-reviewer", "prompt": "go"}), "", "")
 }
@@ -197,6 +198,7 @@ func TestAcceptAsIsStillListsOpenDisputes(t *testing.T) {
 	h.post("Read", map[string]any{"file_path": filepath.Join(h.repo, "src", "a.go")}, nil)
 	time.Sleep(10 * time.Millisecond)
 	h.docs(DisputesName(HelperCodeReviewer), "- [90] A should return 3: the ticket says 2 (src/a.go:3)\n")
+	h.l82Arbiter("# Arbiter 1\n" + l82OpenMustFix) // it upholds the disputed finding, so the user decides
 	h.answerReviewCap("Accept as is")
 	h.docs(DocReport, acceptedReport)
 	if m := h.finishMissing(); !strings.Contains(m, "disputed") {
