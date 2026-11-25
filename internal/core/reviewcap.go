@@ -113,7 +113,7 @@ func (c *hookCtx) recordReviewCap(q question) Output {
 			return Context("PostToolUse", msg("the user's \"One more round\" couldn't be saved ("+err.Error()+"). Ask again."))
 		}
 		c.log("review-cap", "one-more-round", strings.Join(more, ","))
-		return Context("PostToolUse", msg("the user wants one more review round: each of these can run once more: "+strings.Join(more, ", ")+". Write your self-review for the current code first."))
+		return Context("PostToolUse", msg("the user wants one more review round: each of these can run once more: "+strings.Join(more, ", ")+". First run `plumbline run checks` until the tests pass, then write your self-review for the current code, with ## Reach for what changed since the last review."))
 	}
 	return nil
 }

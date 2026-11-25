@@ -22,6 +22,7 @@ func (h *harness) helperIn(id, kind, tool string, input any) *HookInput {
 func (h *harness) startHelper(kind string) (string, Output) {
 	h.t.Helper()
 	if isReviewer(kind) && h.task().Phase == PhaseBuilding {
+		h.testsForReview()
 		h.selfReview()
 	}
 	h.expect(h.pre("Agent", map[string]any{"subagent_type": "plumbline:" + kind, "prompt": "go"}), "", "")
@@ -43,10 +44,35 @@ func (h *harness) selfReview() string {
 		text += "- " + f + ": went through the checklist\n"
 	}
 	text += "- the shared checklist\n## Fixed\n- none\n"
+	if fp, err := Fingerprint(h.repo, ignore); err == nil {
+		if reach, _ := reachFiles(tk, s, fp); len(reach) > 0 {
+			text += "## Reach\n"
+			for _, f := range reach {
+				text += "- " + f + ": its callers, checked\n"
+			}
+		}
+	}
 	p := filepath.Join(TaskDocsDir(h.repo, tk.ID), DocSelfReview)
 	write(h.t, p, text)
 	h.post("Write", map[string]any{"file_path": p, "content": text}, nil)
 	return p
+}
+
+// testsForReview: a reviewer start needs the tests run on the current code;
+// record a full-suite run when none counts yet. A failing suite stays failing,
+// so a test that starts a reviewer on red code sees the refusal.
+func (h *harness) testsForReview() {
+	h.t.Helper()
+	s, _, _ := LoadSetup(h.repo)
+	fp, err := Fingerprint(h.repo, nil)
+	if s != nil {
+		fp, err = Fingerprint(h.repo, s.IgnoreChanges)
+	}
+	if err != nil || testsReadyProblem(h.task(), s, fp) == "" {
+		return
+	}
+	_, err = Execute(h.repo, h.task(), KindTest, "", s.Commands.Test, s, io.Discard)
+	must(h.t, err)
 }
 
 func (h *harness) findingsPath(id string) string {

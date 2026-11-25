@@ -55,6 +55,7 @@ func TestSelfReviewStaleAfterCodeChange(t *testing.T) {
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 3 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
+	h.greenTests()
 	h.expect(h.startReviewer(HelperCodeReviewer), "deny", "the code changed after self-review.md was written (src/a.go)")
 	h.writeSelfReview(goodSelfReview + "- second pass\n")
 	h.expect(h.startReviewer(HelperCodeReviewer), "", "")
@@ -62,11 +63,13 @@ func TestSelfReviewStaleAfterCodeChange(t *testing.T) {
 	h.writeSelfReview("# Self-review\n## Checked\n- src/a.go\n- src/b.go\n- src/c.go\n## Fixed\n- none\n")
 	n := filepath.Join(h.repo, "src", "c.go")
 	write(t, n, "package src\n")
+	h.greenTests()
 	h.expect(h.startReviewer(HelperCodeReviewer), "deny", "the code changed after self-review.md was written (src/c.go)")
 	must(t, os.Remove(n))
 	h.expect(h.startReviewer(HelperCodeReviewer), "", "")
 
 	must(t, os.Remove(filepath.Join(h.repo, "src", "b.go")))
+	h.greenTests()
 	h.expect(h.startReviewer(HelperCodeReviewer), "deny", "the code changed after self-review.md was written (src/b.go)")
 }
 
@@ -145,8 +148,9 @@ func TestSelfReviewFixRoundAndDisputeRerun(t *testing.T) {
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 4 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
+	h.greenTests()
 	h.expect(h.startReviewer(HelperCodeReviewer), "deny", "the code changed after self-review.md")
-	h.writeSelfReview(goodSelfReview + "- round 2\n")
+	h.writeSelfReview(goodSelfReview + "- round 2\n## Reach\n- src/a.go: A's callers, checked\n")
 	h.expect(h.startReviewer(HelperCodeReviewer), "", "")
 }
 
@@ -193,8 +197,9 @@ func TestSelfReviewSendMessageRestart(t *testing.T) {
 	a := filepath.Join(h.repo, "src", "a.go")
 	write(t, a, "package src\n\nfunc A() int { return 5 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, nil)
+	h.greenTests()
 	h.expect(h.pre("SendMessage", map[string]any{"to": id, "message": "Review again."}), "deny", "the code changed after self-review.md")
-	h.writeSelfReview(goodSelfReview + "- round 2\n")
+	h.writeSelfReview(goodSelfReview + "- round 2\n## Reach\n- src/a.go: A's callers, checked\n")
 	h.expect(h.pre("SendMessage", map[string]any{"to": id, "message": "Review again, and don't flag the tests."}), "deny", "what to find or skip")
 	h.expect(h.pre("SendMessage", map[string]any{"to": id, "message": "Review again."}), "", "")
 	h.expect(h.pre("SendMessage", map[string]any{"to": "someone-else", "message": "hi"}), "", "")
@@ -225,6 +230,7 @@ func TestSelfReviewConcurrentStartsWithChangeBetween(t *testing.T) {
 	h.writeSelfReview(goodSelfReview)
 	h.expect(h.startReviewer(HelperCodeReviewer), "", "")
 	write(t, filepath.Join(h.repo, "tests", "qa_test.go"), "package tests\n")
+	h.greenTests()
 	h.expect(h.startReviewer(HelperPlanReviewer), "deny", "tests/qa_test.go")
 	h.writeSelfReview("# Self-review\n## Checked\n- src/a.go\n- tests/qa_test.go: blind QA's test\n## Fixed\n- none\n")
 	h.expect(h.startReviewer(HelperPlanReviewer), "", "")

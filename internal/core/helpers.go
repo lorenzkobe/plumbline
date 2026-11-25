@@ -592,6 +592,11 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 		if why := c.reviewStillHolds(kind, fp, fpErr); why != "" {
 			return c.deny("review-holds", why)
 		}
+		if fpErr == nil && fp != "" {
+			if why := testsReadyProblem(t, c.setup, fp); why != "" {
+				return c.deny("tests-before-review", why)
+			}
+		}
 		if why := c.selfReviewProblem(fp, fpErr); why != "" {
 			return c.deny("self-review", why)
 		}

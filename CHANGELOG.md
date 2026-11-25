@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5: reviewers start on passing tests, and fix rounds check what the fix reaches
+In 0.8.4's own review, 2 of round 1's 5 must-fix findings were failing tests the lead hadn't run, and every must-fix in rounds 2 and 3 was a bug the previous round's fix made in code that also used what it changed.
+- A reviewer start (or a message restarting a finished reviewer) is refused until the tests pass on the code as it is now: the full suite, or a related-tests run given every changed file (`plumbline run checks` does this while building). A failure the approved code already had doesn't count. No test command saved, or a docs- or commands-only task: not needed (the commit proof decides). A related run given no files, while the saved template takes `{files}`, covers nothing. Git failing to list the changed files refuses. The tests are checked before the self-review, so a test fix doesn't leave a fresh self-review stale.
+- On a fix round (a reviewer run already counted), `self-review.md` needs `## Reach`: a bullet naming each code file changed since the newest counted review, saying what else calls or shows the changed code (other callers, the lead and subagents, other messages and refusals) and that each was checked. Test files and prose (.md, .txt and the like) need none; gate files always do. When git can't read the last review's code, every file the task changed needs one; when it can't list the task's changes either, the start is refused. A rerun on unchanged code (disputes) needs nothing new.
+- "One more round" now says to run the checks and write the Reach too. The checklist, SKILL.md, the session rules and the README say the same.
+- Tasks already building when 0.8.5 installs get both checks at their next reviewer start; the refusal says what to run.
+
 ## 0.8.4: a Review cap question that goes through, and reviews that count
 From a courtly task where the Review cap question was refused eight times in a row and the arbiter couldn't start.
 - Every message that says to ask the Review cap question now says each option takes `"description": ""`, and none glosses the options in brackets any more (Claude copied those into descriptions). AskUserQuestion wants a description on each option, so Claude filled one in, and Plumbline refused it with a message that never mentioned descriptions. The refusal now names what was wrong: a second question, the labels, or a filled description. What's accepted is unchanged.
