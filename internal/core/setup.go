@@ -293,6 +293,18 @@ func formatRewrites(cmd string) bool {
 	return false
 }
 
+// savedChecks are the saved commands that check the code: not the app, the
+// database, end-to-end runs or extra allowed commands.
+func (s *Setup) savedChecks() []string {
+	var out []string
+	for _, c := range []string{s.Commands.Test, s.Commands.Lint, s.Commands.Build, s.Commands.Format, s.Commands.Typecheck, s.Commands.Security} {
+		if c = strings.TrimSpace(c); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // SavedCommands are the exact commands Claude may run before approval.
 func (s *Setup) SavedCommands() []string {
 	if s == nil {

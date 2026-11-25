@@ -69,7 +69,7 @@ func TestCommittedFilesAreNotAChange(t *testing.T) {
 	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 5 }\n")
 	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot: a.go dirty
 	run(t, h.repo, "git", "commit", "-q", "-am", "mine")
-	if o := h.post("Bash", map[string]any{"command": "git remote -v"}, map[string]any{}); o["continue"] == false {
+	if o := h.post("Bash", map[string]any{"command": "git remote -v"}, map[string]any{}); reported(o) {
 		t.Fatalf("a commit by the user stopped the work as a change: %v", o)
 	}
 	// A revert rewrites the file (another size here): still a change.
@@ -77,8 +77,8 @@ func TestCommittedFilesAreNotAChange(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot: b.go dirty
 	run(t, h.repo, "git", "checkout", "--", "src/b.go")
 	o := h.post("Bash", map[string]any{"command": "git checkout -- src/b.go"}, map[string]any{})
-	if o["continue"] != false || !strings.Contains(fmtOut(o), "src/b.go") {
-		t.Fatalf("a revert before approval should stop the work: %v", o)
+	if !asksKeepOrUndo(o) || !strings.Contains(fmtOut(o), "src/b.go") {
+		t.Fatalf("a revert before approval should be asked about: %v", o)
 	}
 }
 

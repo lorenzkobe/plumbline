@@ -532,6 +532,10 @@ func (c *hookCtx) followBranch(segs []Segment) {
 // checkChanged is the changed-files check after a terminal command or an MCP
 // tool that may change files.
 func (c *hookCtx) checkChanged(segs []Segment) Output {
+	since, bg := c.backgroundSince() // before this call's own start is noted
+	if c.launchesBackground(segs) {
+		c.noteBackground()
+	}
 	prev, all, ambiguous, ok := c.takeChanges(readOnlyLine(segs))
 	if !ok || prev == nil || c.paused {
 		return nil
@@ -559,9 +563,16 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		}
 		changed = append(changed, p)
 	}
-	if readOnlyLine(segs) {
+	byBackground := false
+	if c.startTimedLine(segs) {
 		if start := c.takeStart(); !start.IsZero() {
-			changed = changedAfter(c.root, changed, start)
+			own := changedAfter(c.root, changed, start)
+			if bg && since.Before(start) {
+				changed = changedAfter(c.root, changed, since) // what changed since then may be the background command's
+				byBackground = len(changed) > len(own)
+			} else {
+				changed = own
+			}
 		}
 	}
 	if len(changed) == 0 {
@@ -573,10 +584,18 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		_ = SaveTask(c.task)
 	}
 	if c.task == nil || c.task.Phase != PhaseBuilding {
-		c.log("block", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
-		reason := fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))
-		c.helperHalted(reason)
-		return StopAll(msg(reason))
+		if c.in.AgentID != "" { // a helper can't ask the user
+			c.log("block", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
+			reason := fmt.Sprintf("a terminal command changed files before any plan was approved: %s. The work is stopped so you can look. If you changed these yourself, say so and Claude carries on. Otherwise tell Claude whether to keep or undo them.", listFiles(changed))
+			c.helperHalted(reason)
+			return StopAll(msg(reason))
+		}
+		c.log("ask", "changed-before-approval", fmt.Sprintf("%d files", len(changed)))
+		who := "say whether your command made them or they look like the user's own"
+		if byBackground {
+			who = "say that a background command you started may have made them, or the user may have"
+		}
+		return Context("PostToolUse", msg(fmt.Sprintf("a terminal command changed files before any plan was approved: %s. Before anything else, ask the user with AskUserQuestion whether to keep or undo them, and %s. Keep: carry on. Undo: project files can't change before the plan is approved, so give the user the exact command to run themselves with ! (git restore -- <file> for a tracked file, rm <file> for a new one), then carry on.", listFiles(changed), who)))
 	}
 	var outside, theirs, sessions, risky []string
 	others := c.task.otherSessionFiles()

@@ -786,8 +786,8 @@ var reachesOut = map[string]bool{
 // Claude Code's own permission mode still judges it. Commands that reach
 // outside the laptop, installs and downloads (npx), paths that leave the
 // throwaway folders and words whose value isn't known don't count; their own
-// asks still apply. If one changes project files anyway, the post hook
-// stops the work.
+// asks still apply. If one changes project files anyway, the post hook has
+// Claude ask the user to keep or undo them (and stops a helper).
 func (c *hookCtx) throwawayRun(s Segment, installs bool) bool {
 	name := s.Name()
 	if c.task == nil || c.root == "" || s.Dir == "" || installs || name == "" || isPlumblineBin(name) ||
@@ -1949,7 +1949,8 @@ func (c *hookCtx) gateBash(cmd string) Output {
 	}
 	// Outside a task an ordinary command is left to Claude Code's own
 	// permission mode: the rules above still ask for their fixed list, and
-	// the post hook stops the work when a command changes the repo's files.
+	// the post hook has Claude ask keep or undo when a command changes the
+	// repo's files.
 	if len(v.ask) > 0 {
 		return c.ask(v.askRule, strings.Join(uniq(v.ask), " "))
 	}

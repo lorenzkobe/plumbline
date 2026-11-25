@@ -19,7 +19,7 @@ Before you start: `claude --version` shows 2.1.295 or later. Start Claude Code i
 - Before the checkpoint, ask Claude to just make the edit anyway. **Expected: the edit is blocked** (deny holds in auto mode).
 - Ask Claude to run the saved test command. **Expected: it runs without asking.**
 - Ask Claude to run `node -e "1"`. **Expected: refused, no prompt** (so nothing waits on you during a task).
-- Outside any task, ask Claude to run `touch foo.txt`. **Expected: no Plumbline prompt** (Claude Code's own mode decides). **Expected: right after, the work stops** with "a terminal command changed files before any plan was approved", naming foo.txt. Delete foo.txt.
+- Outside any task, ask Claude to run `touch foo.txt`. **Expected: no Plumbline prompt** (Claude Code's own mode decides). **Expected: right after, Claude asks you** (a question prompt) whether to keep or undo foo.txt, with "a terminal command changed files before any plan was approved", then carries on. Pick undo: Claude gives you `! rm foo.txt` to run. Then run `! echo x >> .gitignore` yourself and ask Claude to run the saved test command: **Expected: no question about .gitignore.** Undo it with `! git restore .gitignore`.
 
 ## 4. The checkpoint, then hands-off building
 - Give a small real task and walk away. **Expected: one question prompt (your terminal sound): a plain sentence or two, then a few short lines (risk, checks, review), with "Approve" / "Change something" / "Drop it". No task ids, notes paths or `plumbline` commands in what you read.** Pick "Change something" first: the task stays where it is. (Another time, pick "Drop it": the task closes.)

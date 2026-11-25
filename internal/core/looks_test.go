@@ -127,15 +127,15 @@ func TestLocalLooksBeforeApproval(t *testing.T) {
 	}
 }
 
-func TestLocalLookThatChangesFilesStops(t *testing.T) {
+func TestLocalLookThatChangesFilesAsks(t *testing.T) {
 	h := newHarness(t)
 	h.setup()
 	h.startTask("normal")
 	h.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	h.expect(h.bash("node scripts/gen.js"), "", "")
 	write(t, filepath.Join(h.repo, "src", "a.go"), "changed\n")
-	if o := h.post("Bash", map[string]any{"command": "node scripts/gen.js"}, map[string]any{}); !stopped(o) {
-		t.Fatalf("a look that changed a project file should stop the work: %v", o)
+	if o := h.post("Bash", map[string]any{"command": "node scripts/gen.js"}, map[string]any{}); !asksKeepOrUndo(o) {
+		t.Fatalf("a look that changed a project file should be asked about: %v", o)
 	}
 }
 

@@ -282,7 +282,7 @@ func TestFullTaskAndTryToBreak(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot
 	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 3 }\n")
 	o = h.post("Bash", map[string]any{"command": "gofmt -w src"}, map[string]any{})
-	if o["continue"] == false || !strings.Contains(fmtOut(o), "src/b.go") {
+	if reported(o) || !strings.Contains(fmtOut(o), "src/b.go") {
 		t.Fatalf("outside-plan change should be reported to Claude, not stop the work: %v", o)
 	}
 	run(t, h.repo, "git", "checkout", "src/b.go")
@@ -359,15 +359,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>"`), "deny", "AI markers")
 
 func fmtOut(o Output) string { b, _ := json.Marshal(o); return string(b) }
 
-func TestChangedBeforeApprovalStops(t *testing.T) {
+func TestChangedBeforeApprovalAsks(t *testing.T) {
 	h := newHarness(t)
 	h.setup()
 	h.startTask("normal")
 	h.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	write(t, filepath.Join(h.repo, "src", "a.go"), "changed\n")
 	o := h.post("Bash", map[string]any{"command": "./script.sh"}, map[string]any{})
-	if o["continue"] != false {
-		t.Fatalf("change before approval should stop: %v", o)
+	if !asksKeepOrUndo(o) {
+		t.Fatalf("change before approval should be asked about: %v", o)
 	}
 	// Ignored and git-ignored files don't count.
 	write(t, filepath.Join(h.repo, "coverage", "x.json"), "{}")

@@ -37,20 +37,20 @@ func TestOtherSessionsChangesDontStopThisOne(t *testing.T) {
 	h.call(true, "Edit", "e1", map[string]any{"file_path": a}, nil)
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.call(false, "Edit", "e1", map[string]any{"file_path": a}, map[string]any{})
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("the other session's edit stopped this one: %v", o)
 	}
 	// A terminal command of the building session too.
 	h.call(true, "Bash", "c1", map[string]any{"command": "./test.sh"}, nil)
 	write(t, a, "package src\n\nfunc A() int { return 3 }\n")
 	h.call(false, "Bash", "c1", map[string]any{"command": "./test.sh"}, map[string]any{})
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("the other session's command stopped this one: %v", o)
 	}
 	// The other session's own change still stops it.
 	write(t, filepath.Join(h.repo, "src", "c.go"), "package src\n")
-	if o := b.post("Bash", map[string]any{"command": "./tool.sh"}, map[string]any{}); !stopped(o) {
-		t.Fatalf("a change after this session's own command must still stop it: %v", o)
+	if o := b.post("Bash", map[string]any{"command": "./tool.sh"}, map[string]any{}); !asksKeepOrUndo(o) {
+		t.Fatalf("a change after this session's own command must still be asked about: %v", o)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestOtherSessionsFilesAreNotTheTasks(t *testing.T) {
 	b.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	h.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 9 }\n")
-	if o := b.post("Bash", map[string]any{"command": "./tool.sh"}, map[string]any{}); !stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "./tool.sh"}, map[string]any{}); !asksKeepOrUndo(o) {
 		t.Fatalf("the change must stop the session whose command made it: %v", o)
 	}
 	if o := h.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); o != nil {
@@ -133,7 +133,7 @@ func TestOverlappingCommandsCountForBoth(t *testing.T) {
 		t.Fatalf("setup: %s", r)
 	}
 	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 9 }\n")
-	if o := b.call(false, "Bash", "b1", map[string]any{"command": "plumbline run test"}, map[string]any{}); !stopped(o) {
+	if o := b.call(false, "Bash", "b1", map[string]any{"command": "plumbline run test"}, map[string]any{}); !asksKeepOrUndo(o) {
 		t.Fatalf("the change must count for the session that finished first: %v", o)
 	}
 	o := h.call(false, "Bash", "h1", map[string]any{"command": "./gen.sh"}, map[string]any{})
@@ -157,11 +157,11 @@ func TestReadOnlyCommandWaitsForTheRunningSession(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	h.call(true, "Bash", "h1", map[string]any{"command": "./gen.sh"}, nil)
 	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 2 }\n")
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("a read-only command was blamed for the other session's running one: %v", o)
 	}
 	h.call(false, "Bash", "h1", map[string]any{"command": "./gen.sh"}, map[string]any{})
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("the change came back after the other session's check took it: %v", o)
 	}
 	// A command whose check never ran stops counting as running after a
@@ -172,7 +172,7 @@ func TestReadOnlyCommandWaitsForTheRunningSession(t *testing.T) {
 	old := Now
 	Now = func() time.Time { return old().Add(leadBusyFor + time.Minute) }
 	defer func() { Now = old }()
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); !stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); !asksKeepOrUndo(o) {
 		t.Fatalf("a change from a command long gone must count again: %v", o)
 	}
 }
@@ -187,7 +187,7 @@ func TestPausedChangesStillAttributed(t *testing.T) {
 	write(t, a, "package src\n\nfunc A() int { return 2 }\n")
 	h.post("Edit", map[string]any{"file_path": a}, map[string]any{})
 	must(t, SetPaused(h.repo, false))
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("an edit made while paused stopped the other session after resume: %v", o)
 	}
 }
@@ -335,7 +335,7 @@ func TestFailedCommandIsChecked(t *testing.T) {
 	if len(loadTreeChanges(h.repo).Busy) != 0 {
 		t.Fatal("the failed command still counts as running")
 	}
-	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); stopped(o) {
+	if o := b.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("the failed command's change stopped the other session: %v", o)
 	}
 	// A failed edit changed nothing: its mark ends, nothing is recorded.

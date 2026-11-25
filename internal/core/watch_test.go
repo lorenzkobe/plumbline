@@ -304,7 +304,7 @@ func TestWatcherMayRunAnytime(t *testing.T) {
 	h.docs(DocPlan, goodPlan)
 	h.approve()
 	allowed("while building")
-	if o := h.post("Monitor", mon, map[string]any{}); stopped(o) {
+	if o := h.post("Monitor", mon, map[string]any{}); reported(o) {
 		t.Fatalf("starting the watcher changes nothing: %v", o)
 	}
 }

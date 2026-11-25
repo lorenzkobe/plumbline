@@ -89,7 +89,7 @@ func TestUndoIsNotOutsideThePlan(t *testing.T) {
 	for _, f := range outside {
 		write(t, filepath.Join(h.repo, f), "package src\n\nvar changed = 1\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); reported(o) || !strings.Contains(fmtOut(o), "plan missed them") {
 		t.Fatalf("four files outside the plan get the fix-the-plan note, not a stop: %v", o)
 	}
 
@@ -97,7 +97,7 @@ func TestUndoIsNotOutsideThePlan(t *testing.T) {
 	h.expect(h.bash(undo), "ask", "throws away uncommitted changes")
 	run(t, h.repo, "git", "checkout", "--", outside[0], outside[1], outside[2], outside[3])
 	o := h.post("Bash", map[string]any{"command": undo}, nil)
-	if o["continue"] == false || strings.Contains(fmtOut(o), "outside the approved plan") {
+	if reported(o) || strings.Contains(fmtOut(o), "outside the approved plan") {
 		t.Fatalf("undoing the files stopped the work again: %v", o)
 	}
 	if tk := h.task(); len(tk.OutsidePlan) != 0 || tk.OutsideCount() != 0 {
@@ -105,7 +105,7 @@ func TestUndoIsNotOutsideThePlan(t *testing.T) {
 	}
 
 	write(t, filepath.Join(h.repo, "src", "c.go"), "package src\n\nvar again = 1\n")
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); o["continue"] == false {
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); reported(o) {
 		t.Errorf("one file outside the plan after the undo stopped the work: %v", o)
 	}
 	if n := h.task().OutsideCount(); n != 1 {

@@ -363,14 +363,18 @@ func TestUserChangeBeforeAReadIsntBlamed(t *testing.T) {
 	write(t, a, "package src\n\nfunc A() int { return 9 }\n")
 	call("t0", "git status --short", true) // the snapshot holds the dirty file
 
-	// The user restores it, then Claude reads: no stop.
+	// The user restores it, then Claude reads: no stop. A change time
+	// can't be set back, so the hooks' clock moves forward instead.
 	run(t, h.repo, "git", "checkout", "--", "src/a.go")
-	past := time.Now().Add(-3 * time.Second)
-	must(t, os.Chtimes(a, past, past))
+	old := Now
+	defer func() { Now = old }()
+	shift := 3 * time.Second
+	Now = func() time.Time { return old().Add(shift) }
 	if o := call("t1", "git status --short", true); strings.Contains(o, "changed files") {
 		t.Fatalf("the user's own restore stopped the work: %s", o)
 	}
 	// A change made while the read ran still stops it (it may not be read-only after all).
+	shift = 0
 	in := &HookInput{SessionID: h.sid, Cwd: h.repo, ToolName: "Bash", ToolUseID: "t2", ToolInput: rawJSON(map[string]any{"command": "git status --short"})}
 	PreToolUse(in)
 	write(t, a, "package src\n\nfunc A() int { return 7 }\n")
@@ -380,7 +384,7 @@ func TestUserChangeBeforeAReadIsntBlamed(t *testing.T) {
 	}
 	// A command that writes keeps the full check, whenever the change came.
 	run(t, h.repo, "git", "checkout", "--", "src/a.go")
-	must(t, os.Chtimes(a, past, past))
+	shift += 3 * time.Second
 	if o := call("t3", "touch notes.txt", true); !strings.Contains(o, "src/a.go") {
 		t.Fatalf("a writing command should still be checked: %s", o)
 	}

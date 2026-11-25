@@ -193,7 +193,7 @@ func TestBuildingBashRefusals(t *testing.T) {
 	for _, f := range []string{"src/c.go", "src/d.go", "src/e.go", "src/f.go"} {
 		write(t, filepath.Join(h.repo, f), "package src\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); reported(o) || !strings.Contains(fmtOut(o), "plan missed them") {
 		t.Errorf("past the cap Claude fixes the plan and keeps going: %v", o)
 	}
 }
@@ -371,7 +371,7 @@ func TestSetupSaveDoesNotStop(t *testing.T) {
 	h := groundedTask(t, "small")
 	h.post("Bash", map[string]any{"command": "ls"}, nil)
 	write(t, filepath.Join(h.repo, RepoSetupFile), "{\"kind\":\"personal\"}\n")
-	if o := h.post("Bash", map[string]any{"command": "plumbline setup save --file /tmp/s.json"}, nil); o["continue"] == false {
+	if o := h.post("Bash", map[string]any{"command": "plumbline setup save --file /tmp/s.json"}, nil); reported(o) {
 		t.Fatalf("setup save stopped the work: %v", o)
 	}
 }
@@ -480,7 +480,7 @@ func TestSnapshotPerRepo(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "ls"}, nil)
 	in := h.in("Bash", map[string]any{"command": "ls"}, nil)
 	in.Cwd = other
-	if o := PostToolUse(in); o["continue"] == false {
+	if o := PostToolUse(in); reported(o) {
 		t.Fatalf("another repo's existing dirty files stopped the work: %v", o)
 	}
 }

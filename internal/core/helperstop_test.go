@@ -66,7 +66,7 @@ func TestLeadHaltedLeavesHelpersAlone(t *testing.T) {
 	for _, f := range []string{"y1.go", "y2.go", "y3.go", "y4.go"} {
 		write(t, filepath.Join(h.repo, "src", f), "package src\n\nvar y = 1\n")
 	}
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); stopped(o) || !strings.Contains(fmtOut(o), "plan missed them") {
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, nil); reported(o) || !strings.Contains(fmtOut(o), "plan missed them") {
 		t.Fatalf("the lead past the cap is told to fix the plan, not stopped: %v", o)
 	}
 	if r := h.run(HelperBuilder, id); !r.Finished.IsZero() || r.Status != "" {

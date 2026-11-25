@@ -35,12 +35,12 @@ func TestCapAdjustsThePlan(t *testing.T) {
 	h := buildingTask(t)
 	h.post("Bash", map[string]any{"command": "true"}, nil)
 	o := h.changeOutside("src/b.go", "src/c.go", "src/d.go")
-	if stopped(o) || strings.Contains(fmtOut(o), "plan missed") || !strings.Contains(fmtOut(o), "src/d.go") {
+	if reported(o) || strings.Contains(fmtOut(o), "plan missed") || !strings.Contains(fmtOut(o), "src/d.go") {
 		t.Fatalf("three files outside the plan get the usual note: %v", o)
 	}
 	o = h.changeOutside("src/e.go")
 	out := fmtOut(o)
-	if stopped(o) {
+	if reported(o) {
 		t.Fatalf("a fourth file outside the plan must not stop the work: %v", o)
 	}
 	for _, want := range []string{"src/e.go", "plan missed them", "plan.md's ## Files", "keep going", "Don't stop or ask the user"} {

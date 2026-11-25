@@ -304,8 +304,8 @@ func TestMonitorGetsTheChangedFilesCheck(t *testing.T) {
 	h.post("Bash", map[string]any{"command": "true"}, map[string]any{}) // snapshot
 	write(t, filepath.Join(h.repo, "src", "b.go"), "package src\n\nfunc B() int { return 3 }\n")
 	o := h.post("Monitor", map[string]any{"command": "npm run gen -- --watch", "description": "watch"}, map[string]any{})
-	if o["continue"] != false || !strings.Contains(fmtOut(o), "src/b.go") {
-		t.Fatalf("a Monitor command that changed files before approval should stop the work: %v", o)
+	if !asksKeepOrUndo(o) || !strings.Contains(fmtOut(o), "src/b.go") {
+		t.Fatalf("a Monitor command that changed files before approval should be asked about: %v", o)
 	}
 	// Its WebSocket form runs no command, so it changes nothing.
 	write(t, filepath.Join(h.repo, "src", "a.go"), "package src\n\nfunc A() int { return 9 }\n")

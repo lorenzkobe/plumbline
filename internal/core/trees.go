@@ -206,6 +206,60 @@ func readOnlyLine(segs []Segment) bool {
 	return true
 }
 
+// backgroundPath: when this session (the lead or any of its helpers) first
+// started a command that may write and keeps running after its hooks
+// (run_in_background, Monitor).
+func backgroundPath(session, root string) string {
+	return filepath.Join(DataDir(), "sessions", safeName(session)+"."+treeKey(root)+".background")
+}
+
+// noteBackground keeps the first start: its end is never seen, so every
+// change from then on may be its doing.
+func (c *hookCtx) noteBackground() {
+	p := backgroundPath(c.in.SessionID, c.root)
+	if _, err := os.Lstat(p); err == nil {
+		return
+	}
+	_ = writeFileAtomic(p, []byte(Now().Format(time.RFC3339Nano)))
+}
+
+// launchesBackground: this call ran a command that may write and keeps
+// running after its hooks: run_in_background, a Monitor, a line that ends a
+// part with &, or a call Claude Code moved to the background (its timeout,
+// or ctrl+b), whose result carries the task id. Asked in the post hook, so a
+// call the user declined counts for nothing.
+func (c *hookCtx) launchesBackground(segs []Segment) bool {
+	cmd := c.in.Str("command")
+	if (c.in.ToolName != "Bash" && c.in.ToolName != "Monitor") || strings.TrimSpace(cmd) == "" || readOnlyLine(segs) {
+		return false
+	}
+	if bg, _ := c.in.Input()["run_in_background"].(bool); bg || c.in.ToolName == "Monitor" || HasBackground(cmd) {
+		return true
+	}
+	var resp map[string]any
+	if json.Unmarshal(c.in.ToolResponse, &resp) == nil {
+		if id, _ := resp["backgroundTaskId"].(string); id != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// backgroundSince: when this session's first background command that may
+// write started. A record that can't be read counts from the beginning of
+// time (fails closed).
+func (c *hookCtx) backgroundSince() (time.Time, bool) {
+	b, err := os.ReadFile(backgroundPath(c.in.SessionID, c.root))
+	if os.IsNotExist(err) {
+		return time.Time{}, false
+	}
+	at, perr := time.Parse(time.RFC3339Nano, strings.TrimSpace(string(b)))
+	if err != nil || perr != nil {
+		return time.Time{}, true
+	}
+	return at, true
+}
+
 // startsPath: when this session's read-only commands started, by tool use
 // id, so their changed-files check can tell what changed before they ran.
 func startsPath(snap, root string) string {
@@ -254,20 +308,99 @@ func (c *hookCtx) takeStart() time.Time {
 	return at
 }
 
-// changedAfter keeps the files whose last change came at or after start (a
-// removed file has no time, so it stays). A read-only command can't have
-// changed a file before it ran: that was the user (a ! command, an editor)
-// between Claude's commands (CC2).
+// changedAfter keeps the files whose last change came at or after start. A
+// read-only command or a saved check can't have changed a file before it
+// ran: that was the user (a ! command, an editor) between Claude's commands
+// (CC2). The change time counts too: a move, cp -p or unzip keeps an old
+// modified time but not an old change time. The link itself is looked at,
+// never what it points to. A removed file has no time of its own, so the
+// nearest folder still there decides: removing an entry changes it.
 func changedAfter(root string, files []string, start time.Time) []string {
 	var keep []string
 	for _, p := range files {
-		fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
-		if err == nil && fi.ModTime().Before(start.Add(-500*time.Millisecond)) {
-			continue
+		abs := filepath.Join(root, filepath.FromSlash(p))
+		fi, err := os.Lstat(abs)
+		for err != nil && os.IsNotExist(err) && abs != root && IsInside(abs, root) {
+			abs = filepath.Dir(abs)
+			fi, err = os.Lstat(abs)
+		}
+		if err == nil {
+			if last, ok := lastChange(fi); ok && last.Before(start.Add(-500*time.Millisecond)) {
+				continue
+			}
 		}
 		keep = append(keep, p)
 	}
 	return keep
+}
+
+// lastChange: the later of the modified and change times. A disk that keeps
+// whole seconds (HFS+, ext3) or two (FAT) rounds a time down, so a time with
+// no fraction may be up to two seconds later than it reads.
+func lastChange(fi os.FileInfo) (time.Time, bool) {
+	ct, ok := changeTime(fi)
+	if !ok {
+		return time.Time{}, false
+	}
+	return latestChange(fi.ModTime(), ct), true
+}
+
+func latestChange(mod, ct time.Time) time.Time {
+	last := mod
+	if ct.After(last) {
+		last = ct
+	}
+	if last.Nanosecond() == 0 {
+		last = last.Add(2 * time.Second)
+	}
+	return last
+}
+
+// startTimedLine: a line whose changed-files check leaves out what changed
+// before it started. Each part only reads or is one of the project's saved
+// checks, run in this checkout. Anything else (a script, the app, an extra
+// allowed command, a part that writes) keeps the full check.
+func (c *hookCtx) startTimedLine(segs []Segment) bool {
+	if readOnlyLine(segs) {
+		return true
+	}
+	if len(segs) == 0 || c.setup == nil || !c.setupOK {
+		return false
+	}
+	checks := c.setup.savedChecks()
+	if len(checks) == 0 {
+		return false
+	}
+	cmd := strings.TrimSpace(c.in.Str("command"))
+	for _, s := range checks {
+		if cmd == s && foldPath(filepath.Clean(c.in.Cwd)) == foldPath(c.root) {
+			return true
+		}
+	}
+	for _, seg := range segs {
+		if seg.Opaque == "" && ReadOnly(seg) {
+			continue
+		}
+		if !c.savedCheckSegment(seg, checks) {
+			return false
+		}
+	}
+	return true
+}
+
+// savedCheckSegment: seg is exactly a saved check that is a single command,
+// with nothing added, run at the checkout's top.
+func (c *hookCtx) savedCheckSegment(seg Segment, checks []string) bool {
+	if seg.Opaque != "" || len(seg.Env) > 0 || seg.unknownArgs() || !redirectsHarmless(seg) || seg.Dir == "" || foldPath(filepath.Clean(seg.Dir)) != foldPath(c.root) {
+		return false
+	}
+	for _, s := range checks {
+		ss := Segments(s)
+		if len(ss) == 1 && wordsEqual(ss[0].Words, seg.Words) {
+			return true
+		}
+	}
+	return false
 }
 
 // noteBusy records a tool call that may change files, before it runs, so
@@ -285,9 +418,13 @@ func (c *hookCtx) noteBusy() {
 		}
 		m.Paths = []string{c.rel(abs)}
 	case c.in.ToolName == "Bash" || c.in.ToolName == "Monitor":
-		if readOnlyLine(ParseShell(c.in.Str("command"), c.in.Cwd)) {
+		segs := ParseShell(c.in.Str("command"), c.in.Cwd)
+		if readOnlyLine(segs) {
 			c.noteStart()
 			return
+		}
+		if c.startTimedLine(segs) {
+			c.noteStart() // a saved check may still write: it stays marked running too
 		}
 		m.Any = true
 	case strings.HasPrefix(c.in.ToolName, "mcp__") && c.mcpKind() != "":

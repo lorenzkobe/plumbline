@@ -142,20 +142,20 @@ func TestUntrackedNoteNoTask(t *testing.T) {
 
 	h.post("Bash", map[string]any{"command": "ls"}, map[string]any{})
 	write(t, filepath.Join(h.repo, "docs", "sprint-23.md"), "hi\n")
-	if o := h.post("Bash", map[string]any{"command": "echo hi > docs/sprint-23.md"}, map[string]any{}); o["continue"] == false {
+	if o := h.post("Bash", map[string]any{"command": "echo hi > docs/sprint-23.md"}, map[string]any{}); reported(o) {
 		t.Fatalf("an untracked note written with no task stopped the work: %v", o)
 	}
 	write(t, filepath.Join(h.repo, "docs", "sprint-23.md"), "hi again\n")
-	if o := h.post("Write", map[string]any{"file_path": filepath.Join(h.repo, "docs", "sprint-23.md")}, map[string]any{}); o["continue"] == false {
+	if o := h.post("Write", map[string]any{"file_path": filepath.Join(h.repo, "docs", "sprint-23.md")}, map[string]any{}); reported(o) {
 		t.Fatalf("the Write tool's post hook stopped the work for a note: %v", o)
 	}
-	if o := h.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); o["continue"] == false {
+	if o := h.post("Bash", map[string]any{"command": "ls"}, map[string]any{}); reported(o) {
 		t.Fatalf("a later command stopped the work for the note: %v", o)
 	}
 
 	write(t, filepath.Join(h.repo, "src", "x.go"), "package src\n")
-	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, map[string]any{}); o["continue"] != false {
-		t.Fatalf("a code file changed with no task should still stop the work: %v", o)
+	if o := h.post("Bash", map[string]any{"command": "./gen.sh"}, map[string]any{}); !asksKeepOrUndo(o) {
+		t.Fatalf("a code file changed with no task should still be asked about: %v", o)
 	}
 }
 
@@ -426,7 +426,7 @@ func TestCloseTaskRefused(t *testing.T) {
 	}
 
 	n := noteHarness(t, nil)
-	if o := n.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Close this task?": "Close it"}}); o["continue"] == false {
+	if o := n.post("AskUserQuestion", q, map[string]any{"answers": map[string]any{"Close this task?": "Close it"}}); reported(o) {
 		t.Fatalf("a close question with no task stopped the work: %v", o)
 	}
 	if got, _ := ActiveTask(n.repo, n.sid, ""); got != nil {
