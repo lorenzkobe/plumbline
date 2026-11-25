@@ -83,8 +83,16 @@ func seenProblem(t *Task, r Ref) string {
 	abs := filepath.Join(t.Root, filepath.FromSlash(r.Path))
 	s, ok := t.Seen[abs]
 	if !ok {
-		if hit := findSeenBySuffix(t, r.Path); hit != "" {
-			abs, s, ok = hit, t.Seen[hit], true
+		hits := seenBySuffix(t, r.Path)
+		if len(hits) > 1 {
+			return fmt.Sprintf("%s:%d: %s matches %d files a search showed: %s; write the path from the repo's top", r.Path, r.Line, r.Path, len(hits), listFiles(hits))
+		}
+		if len(hits) == 1 {
+			abs = hits[0]
+			if !filepath.IsAbs(abs) {
+				abs = filepath.Join(t.Root, filepath.FromSlash(abs))
+			}
+			s, ok = t.Seen[abs]
 		}
 	}
 	if !ok {
@@ -113,8 +121,17 @@ func CheckRefs(t *Task, text string) []string {
 		rd, ok := t.Reads[abs]
 		if !ok {
 			// allow a path written relative to a subfolder if it matches one read file
-			if hit := findReadBySuffix(t, r.Path); hit != "" {
-				abs, rd, ok = hit, t.Reads[hit], true
+			hits := readsBySuffix(t, r.Path)
+			if len(hits) > 1 {
+				problems = append(problems, fmt.Sprintf("%s:%d: %s matches %d opened files: %s; write the path from the repo's top", r.Path, r.Line, r.Path, len(hits), listFiles(hits)))
+				continue
+			}
+			if len(hits) == 1 {
+				abs = hits[0]
+				if !filepath.IsAbs(abs) {
+					abs = filepath.Join(t.Root, filepath.FromSlash(abs))
+				}
+				rd, ok = t.Reads[abs]
 			}
 		}
 		if !ok {
@@ -134,17 +151,20 @@ func CheckRefs(t *Task, text string) []string {
 	return problems
 }
 
-func findReadBySuffix(t *Task, rel string) string {
-	hit := ""
+// readsBySuffix: the opened files whose path ends in "/"+rel, from the
+// repo's top when inside it, sorted.
+func readsBySuffix(t *Task, rel string) []string {
+	var hits []string
 	for p := range t.Reads {
 		if strings.HasSuffix(filepath.ToSlash(p), "/"+rel) {
-			if hit != "" {
-				return "" // ambiguous
+			if r, err := filepath.Rel(t.Root, p); err == nil && !climbsOut(r) {
+				p = filepath.ToSlash(r)
 			}
-			hit = p
+			hits = append(hits, p)
 		}
 	}
-	return hit
+	sort.Strings(hits)
+	return hits
 }
 
 func lineCount(p string) int {

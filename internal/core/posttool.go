@@ -117,13 +117,15 @@ func PostToolUse(in *HookInput) Output {
 		}
 		if c.task != nil && IsInside(abs, c.root) && abs != TrackerPath(c.root) {
 			rel := c.rel(abs)
-			if c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) {
+			if c.task.Phase == PhaseBuilding && !c.task.InPlan(rel) && !c.writeIgnored(rel) {
 				c.task.NoteOutside(rel, "edited")
 			}
 			if run := c.task.runByAgent(in.AgentID); run != nil && run.Kind == HelperQA && !contains(run.Wrote, rel) {
 				run.Wrote = append(run.Wrote, rel)
 			}
-			c.task.noteCodeChange()
+			if c.task.Phase == PhaseBuilding || !c.freeNote(rel) {
+				c.task.noteCodeChange() // a note before approval isn't (0.8.7): BaseTree still comes from the approval
+			}
 			c.task.Reported = false
 			if c.task.Reads != nil && in.AgentID == "" {
 				if h := fileHash(abs); h != "" {
@@ -288,7 +290,7 @@ func approvalNext(t *Task) string {
 	if t.Phase == PhaseBuilding {
 		next = "First run plumbline run checks (it records every saved check on the approved code; the first edit waits for it). Then build and prove it to the end without stopping: a failing test first where there's a bug, then the change, plumbline run checks again at the end, the review and the report. Don't wait on the user; anything that needs them goes under \"For you\" in the report."
 		if files := t.bugCaseFiles(); len(files) > 0 {
-			next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed.", strings.Join(files, ","))
+			next += fmt.Sprintf(" Write the [bug] cases' tests before the fix and see them fail with plumbline run related --files %s: the finish check needs that failing run, taken while only tests had changed. With the fix already in, plumbline run related --before-fix --files %s runs them on the approved code in a temporary copy; never stash.", strings.Join(files, ","), strings.Join(files, ","))
 		}
 		if t.Size != "small" {
 			next += " " + builderModelNote
@@ -547,8 +549,13 @@ func (c *hookCtx) checkChanged(segs []Segment) Output {
 		}
 	}
 	var notes map[string]bool
-	if c.task == nil {
+	if c.task == nil || c.task.Phase != PhaseBuilding {
 		notes = untrackedNotes(c.root, all)
+		for p := range notes {
+			if c.task != nil && c.task.planLists(p) {
+				delete(notes, p)
+			}
+		}
 	}
 	var changed []string
 	for _, p := range all {
@@ -1028,7 +1035,7 @@ func closeTask(t *Task, project, detail string) (string, error) {
 		note += " Helpers still running, whose work now counts for nothing: " + strings.Join(running, ", ") + "."
 	}
 	if left := LeftCopies(t); len(left) > 0 {
-		note += fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (remove one with git worktree remove --force <path>).", strings.Join(left, ", "))
+		note += fmt.Sprintf(" Builders' unmerged copies are left on disk, nothing from them is in your code: %s (plumbline builder clean removes them after asking you, once their builders have stopped).", strings.Join(left, ", "))
 	}
 	return note, nil
 }

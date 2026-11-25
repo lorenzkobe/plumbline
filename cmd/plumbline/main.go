@@ -117,6 +117,7 @@ func usage() {
   plumbline task tool-down serena|context7|jira --reason "..."
   plumbline task adopt <id>             continue an earlier task in this session
   plumbline run test|related|lint|build|format|typecheck|security|e2e [--files a,b] [--task id]
+  plumbline run related --before-fix --files <tests>   the [bug] tests on the approved code, in a temporary copy
   plumbline run checks                  every saved check above (not related or e2e), each recorded
   plumbline run proof ui|api|schema -- <command>
   plumbline docs-dir                    the task's notes folder
@@ -124,7 +125,7 @@ func usage() {
   plumbline setup show|laptop|undo-laptop
   plumbline setup save [--file f]       the whole setup as JSON, on stdin or in the file
   plumbline setup sandbox [--exclude psql,mysql] | undo-sandbox   Claude Code's Bash sandbox, this checkout
-  plumbline builder list|merge <n>|drop <n>   builders' copies of the repo
+  plumbline builder list|merge <n>|drop <n>|clean   builders' copies of the repo (clean: closed tasks' copies)
   plumbline waive proof:ui|proof:api|proof:schema|e2e|qa|bug-test --reason "..."
   plumbline stats [--months N]
   plumbline standup [--date YYYY-MM-DD]  your work since your last standup here (or on that day), from this repo
@@ -323,6 +324,9 @@ func cmdTask(args []string) error {
 			return err
 		}
 		pre := t.Preexisting
+		if left := core.LeftClosedCopies(root); len(left) > 0 {
+			fmt.Printf("Note: closed tasks left %d builder copies on disk (%s). plumbline builder clean removes them, after asking the user.\n", len(left), strings.Join(left, ", "))
+		}
 		for _, o := range core.ListTasks(root) {
 			if o.Open() && o.ID != t.ID && o.Branch == t.Branch {
 				fmt.Printf("Note: task %s is also open on %s. Pass --task %s to plumbline commands.\n", o.ID, o.Branch, t.ID)
@@ -467,6 +471,39 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// runBeforeFix runs the [bug] cases' tests on the approved code (core.RunBeforeFix).
+func runBeforeFix(root string, t *core.Task, s *core.Setup, files string) (int, error) {
+	var list []string
+	for _, x := range strings.Split(files, ",") {
+		if x = strings.TrimSpace(x); x != "" {
+			if strings.HasPrefix(x, "-") {
+				return 0, fmt.Errorf("--files takes file paths, not flags (%q)", x)
+			}
+			list = append(list, x)
+		}
+	}
+	fmt.Println("plumbline: running the tests on the approved code with the current tests, in a temporary copy")
+	r, err := core.RunBeforeFix(root, t, list, s, os.Stdout)
+	if err != nil {
+		return 0, err
+	}
+	shows, why := core.BeforeFixShows(r)
+	if shows {
+		missing, err := core.BeforeFixMissing(t, s, r.Files)
+		if err != nil {
+			return 0, err
+		}
+		if len(missing) > 0 {
+			fmt.Printf("plumbline: before the fix: FAIL (%s), but not the way the finish check needs for %s: the [bug] test named in the plan didn't fail, or its failure was there before the task.\n", why, strings.Join(missing, ", "))
+			return 1, nil
+		}
+		fmt.Printf("plumbline: before the fix: FAIL (%s), and it passes with the fix. Recorded as the [bug] tests seen failing before the fix; it proves nothing else.\n", why)
+		return 0, nil
+	}
+	fmt.Printf("plumbline: before the fix: %s.\n", why)
+	return 1, nil
+}
+
 func cmdRun(args []string) (int, error) {
 	if len(args) == 0 {
 		return 0, errors.New("run what? test, related, lint, build, format, typecheck, security, e2e, or proof")
@@ -495,6 +532,12 @@ func cmdRun(args []string) (int, error) {
 		command = s.Commands.Test
 		kind = core.KindTest
 	case "related":
+		if v, ok := f["before-fix"]; ok {
+			if v != "true" {
+				return 0, fmt.Errorf("--before-fix takes no value (got %q); give the tests with --files", v)
+			}
+			return runBeforeFix(root, t, s, f["files"])
+		}
 		template := core.RelatedTemplate(s)
 		if template == "" {
 			fmt.Println("No related-tests command is saved; running the full suite instead.")
@@ -1015,8 +1058,23 @@ func cmdBuilder(args []string) error {
 		}
 		return nil
 	}
+	if args[0] == "clean" {
+		removed, err := core.CleanCopies(root)
+		for _, p := range removed {
+			fmt.Printf("Removed %s\n", p)
+		}
+		if err != nil {
+			return err
+		}
+		if held := core.HeldClosedCopies(root); len(held) > 0 {
+			fmt.Printf("Kept %s: its builder is still running. Run this again once it stops.\n", strings.Join(held, ", "))
+		} else if len(removed) == 0 {
+			fmt.Println("No copies of closed or cancelled tasks are on disk.")
+		}
+		return nil
+	}
 	if args[0] != "merge" && args[0] != "drop" {
-		return fmt.Errorf("unknown builder command %q: list, merge <n> or drop <n>", args[0])
+		return fmt.Errorf("unknown builder command %q: list, merge <n>, drop <n> or clean", args[0])
 	}
 	if len(pos) == 0 {
 		return fmt.Errorf("which builder? plumbline builder %s <n> (plumbline builder list shows them)", args[0])

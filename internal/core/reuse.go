@@ -65,7 +65,7 @@ func ReuseBaseline(root string, t *Task, kind, command string, setup *Setup) (*R
 	now := Now()
 	var src *Run
 	for _, r := range LoadRuns(root) {
-		if r.OnBase || r.Kind != kind || r.Command != command || r.Root == "" || r.Root != root || r.IgnoreKey != key || r.EnvKey != env {
+		if r.OnBase || r.BeforeFix || r.Kind != kind || r.Command != command || r.Root == "" || r.Root != root || r.IgnoreKey != key || r.EnvKey != env {
 			continue
 		}
 		if r.PrintBefore != fp || r.PrintAfter != fp || !r.Complete() || r.TimedOut || r.Stopped || r.Rescued {

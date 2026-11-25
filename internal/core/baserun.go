@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -336,4 +337,236 @@ func sweepBase(root string) {
 			removeBase(root, filepath.Dir(wt), wt)
 		}
 	}
+}
+
+// RunBeforeFix runs the related tests for files on the approved code with
+// the task's current tests laid over it, in a temporary worktree: a [bug]
+// case's test is seen failing before the fix without setting the fix aside
+// in the checkout (git stash can't lose work it never touched).
+func RunBeforeFix(root string, t *Task, files []string, s *Setup, out io.Writer) (*Run, error) {
+	if t == nil || t.Phase != PhaseBuilding || t.ApprovalPrint == "" {
+		return nil, errors.New("--before-fix runs only in a task that is building, on the code as approved")
+	}
+	if s == nil {
+		return nil, errors.New("no project setup; run /plumbline:setup first")
+	}
+	if foldPath(filepath.Clean(root)) != foldPath(filepath.Clean(t.Root)) || insideWorktrees(t.Root, root) {
+		return nil, errors.New("--before-fix runs in the task's main checkout, which has the dependencies to link in; run it there")
+	}
+	template := RelatedTemplate(s)
+	if !strings.Contains(template, "{files}") {
+		return nil, errors.New("--before-fix needs a related-tests command that takes files ({files}); without one, set the fix aside, run plumbline run test and see it fail, then put the fix back")
+	}
+	cases := t.caseTestFiles()
+	var rels []string
+	for _, f := range files {
+		rel := cleanRel(f)
+		if rel == "" {
+			continue
+		}
+		if filepath.IsAbs(rel) || climbsOut(filepath.Clean(rel)) {
+			return nil, fmt.Errorf("%s is outside the project", f)
+		}
+		if !TestFile(rel, s) && !contains(cases, rel) {
+			return nil, fmt.Errorf("%s isn't a test file: --before-fix runs the [bug] cases' tests on the approved code, so --files takes only tests", f)
+		}
+		if !contains(rels, rel) {
+			rels = append(rels, rel)
+		}
+	}
+	if len(rels) == 0 {
+		return nil, errors.New("--before-fix needs --files <the [bug] case tests>")
+	}
+	fp, err := Fingerprint(root, s.IgnoreChanges)
+	if err != nil {
+		return nil, err
+	}
+	tree, err := beforeFixTree(root, t, s, fp)
+	if err != nil {
+		return nil, fmt.Errorf("git couldn't make the approved code with the current tests: %v", err)
+	}
+	args := rels
+	switch {
+	case IsDerivedGo(s):
+		pkgs, why := GoRelatedPkgs(root, rels)
+		if why != "" {
+			return nil, errors.New("no Go packages for these tests (" + why + ")")
+		}
+		args = pkgs
+	case IsDerivedPytest(s):
+		tests, why := PytestRelated(root, rels)
+		if why != "" {
+			return nil, errors.New("no pytest files for these tests (" + why + ")")
+		}
+		args = tests
+	}
+	var q []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			a = "./" + a
+		}
+		q = append(q, shellQuoteWord(a))
+	}
+	command := strings.ReplaceAll(template, "{files}", strings.Join(q, " "))
+	// The copy lacks git-ignored files other than dependencies and env
+	// files, and LFS files are pointers there, so a test can fail in it for
+	// what it lacks. The same tests run first on the current code in a copy
+	// made the same way: only failing without the fix while passing with it
+	// shows the bug (0.8.7).
+	ctl, err := runInCopy(root, t, s, fp, command, rels, true, io.Discard)
+	if err != nil {
+		return nil, err
+	}
+	if v := Judge(ctl, BaselineFor(LoadRuns(root), t.ID, KindTest)); !v.OK || ctl.Ran <= 0 {
+		return nil, fmt.Errorf("the tests don't pass in a temporary copy of the current code (%s), so a failure there shows nothing about the fix: the copy lacks git-ignored files other than node_modules, virtualenvs and .env files, and LFS files are pointers in it. Check how they stand in the checkout with plumbline run related --files; if they pass there, show them failing in the checkout with the fix set aside", ctlSummary(ctl))
+	}
+	return runInCopy(root, t, s, tree, command, rels, false, out)
+}
+
+func ctlSummary(r *Run) string {
+	switch {
+	case r.TimedOut:
+		return "stopped at its time limit"
+	case r.Ran < 0:
+		return fmt.Sprintf("exit %d, test count unreadable", r.Exit)
+	}
+	return fmt.Sprintf("%d ran, %d failed", r.Ran, r.Failed)
+}
+
+// runInCopy runs command on tree in a temporary worktree and records it as
+// a before-fix run (control: the same tests on the current code, which
+// proves nothing itself).
+func runInCopy(root string, t *Task, s *Setup, tree, command string, rels []string, control bool, out io.Writer) (*Run, error) {
+	sweepBase(root)
+	commit, err := commitTree(root, tree, "", "plumbline: approved code with the current tests")
+	if err != nil {
+		return nil, fmt.Errorf("git couldn't make a commit of the code to run: %v", err)
+	}
+	dir, err := os.MkdirTemp("", fmt.Sprintf("%s%d-", basePrefix, os.Getpid()))
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a temporary folder: %v", err)
+	}
+	wt := filepath.Join(dir, filepath.Base(root))
+	defer removeBase(root, dir, wt)
+	if err := addDetached(root, wt, commit, []string{"GIT_LFS_SKIP_SMUDGE=1"}); err != nil {
+		return nil, fmt.Errorf("git couldn't check out the code to run: %v", err)
+	}
+	if err := linkBaseInputs(root, wt); err != nil {
+		return nil, err
+	}
+	r := &Run{ID: newID() + "-" + KindRelated, TaskID: t.ID, Kind: KindRelated, Command: command, Started: Now(), PrintBefore: tree, Ran: -1,
+		Root: wt, IgnoreKey: ignoreKey(s.IgnoreChanges), EnvKey: envKey(root), BeforeFix: true, Control: control, Files: rels}
+	if err := appendRun(root, r); err != nil {
+		return nil, err
+	}
+	text := runIn(root, wt, r, KindRelated, command, s, out)
+	r.PrintAfter = tree
+	readRun(root, t, r, KindRelated, toRepoPaths(text, wt, root), s)
+	if err := appendRun(root, r); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+// BeforeFixMissing: the [bug] case tests in files that the task's runs
+// still don't show failing before the fix. An error when none of files is
+// a [bug] case's test, or the bug-test check is waived: then the run counts
+// for nothing.
+func BeforeFixMissing(t *Task, s *Setup, files []string) ([]string, error) {
+	any := false
+	for _, f := range t.bugCaseFiles() {
+		any = any || contains(files, f)
+	}
+	if !any {
+		return nil, errors.New("none of these files is a [bug] case's test in the approved plan, so the run counts for nothing")
+	}
+	if fp, err := Fingerprint(t.Root, s.IgnoreChanges); err == nil && waived(t, "bug-test", fp) {
+		return nil, errors.New("the user waived the bug-test check on this code, so the run counts for nothing")
+	}
+	fp, err := Fingerprint(t.Root, s.IgnoreChanges)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, m := range bugRedMissing(t, s, fp, LoadRuns(t.Root)) {
+		ref := strings.TrimPrefix(m, "[bug] case test ")
+		ref, _, _ = strings.Cut(ref, ": ")
+		file, _, _ := strings.Cut(ref, "::")
+		if contains(files, file) {
+			out = append(out, ref)
+		}
+	}
+	return out, nil
+}
+
+// beforeFixTree: the approved tree with every test (and case test) that
+// differs in fp taken from fp, removed when fp has none.
+func beforeFixTree(root string, t *Task, s *Setup, fp string) (string, error) {
+	changed, err := treeChanges(root, t.ApprovalPrint, fp)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp("", "plumbline-index-*")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpName)
+	env := []string{"GIT_INDEX_FILE=" + tmpName}
+	if _, err := gitIn(root, env, "read-tree", t.ApprovalPrint); err != nil {
+		return "", err
+	}
+	cases := t.caseTestFiles()
+	for _, p := range changed {
+		if !TestFile(p, s) && !contains(cases, p) {
+			continue
+		}
+		ls, err := gitIn(root, nil, "--literal-pathspecs", "ls-tree", "-z", fp, "--", p)
+		if err != nil {
+			return "", err
+		}
+		entry := strings.TrimSuffix(ls, "\x00")
+		if entry == "" {
+			if _, err := gitIn(root, env, "update-index", "--force-remove", "--", p); err != nil {
+				return "", err
+			}
+			continue
+		}
+		meta, _, _ := strings.Cut(entry, "\t")
+		f := strings.Fields(meta)
+		if len(f) != 3 || f[1] != "blob" {
+			return "", fmt.Errorf("%s isn't a file in the current code", p)
+		}
+		if _, err := gitIn(root, env, "update-index", "--add", "--cacheinfo", f[0]+","+f[2]+","+p); err != nil {
+			return "", err
+		}
+	}
+	out, err := gitIn(root, env, "write-tree")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// BeforeFixShows: a before-fix run shows the tests failing without the fix
+// only when tests ran, the output said how many, it finished in time and
+// some failed. why says what it showed.
+func BeforeFixShows(r *Run) (bool, string) {
+	switch {
+	case r.TimedOut:
+		return false, "stopped at its time limit, so it shows nothing; something likely hangs"
+	case r.Ran < 0:
+		return false, fmt.Sprintf("exit %d, but the output doesn't say how many tests ran (setup can save a tests_ran_pattern), so it shows nothing", r.Exit)
+	case r.Ran == 0:
+		return false, fmt.Sprintf("exit %d with 0 tests run, so it shows nothing; a test that needs a file the fix adds can't load on the approved code", r.Exit)
+	}
+	detail := fmt.Sprintf("%d ran, %d failed", r.Ran, r.Failed)
+	if names := FailedNames(r.FailedIDs); names != "" {
+		detail += ". Failed: " + names
+	}
+	if r.Failed > 0 {
+		return true, detail
+	}
+	return false, "PASS (" + detail + "). The tests don't fail without the fix, so they don't show the bug yet"
 }

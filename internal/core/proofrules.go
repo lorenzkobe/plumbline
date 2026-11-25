@@ -137,7 +137,7 @@ func (c *hookCtx) upgradeProblems(pc PlanCheck) []string {
 // anyComplete: the task has a finished run of this kind.
 func anyComplete(runs []*Run, taskID, kind string) bool {
 	for _, r := range runs {
-		if r.TaskID == taskID && r.Kind == kind && r.Complete() {
+		if r.TaskID == taskID && r.Kind == kind && !r.BeforeFix && r.Complete() {
 			return true
 		}
 	}

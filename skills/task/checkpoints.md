@@ -148,7 +148,7 @@ The plan for the user, as a chat message right before the plan question (not a f
 
 Technical details: <plan.md's full path>
 ```
-Then the question itself (AskUserQuestion, header `Checkpoint`) holds the problem, the fix and the risk in two or three short sentences, because the question box can cover the chat (on a phone or on the web the user may see only it). When the work goes on a new branch, it says which ("I'll do it on a new branch, fix/search-deleted."), so the user can say main instead before any edit. For example: "The Profile screen is one long page, with rare tools next to Sign Out. I'll group it into Account, Activity and This Device, with the rare tools in a closed section. Risk: low, since nothing about your data changes. Approve?"
+Then the question itself (AskUserQuestion, header `Checkpoint`) holds the problem, the fix and the risk in two or three short sentences, because the question box can cover the chat (on a phone or on the web the user may see only it). Don't repeat the plan card in it: the card is above in the chat. When the work goes on a new branch, it says which ("I'll do it on a new branch, fix/search-deleted."), so the user can say main instead before any edit. For example: "The Profile screen is one long page, with rare tools next to Sign Out. I'll group it into Account, Activity and This Device, with the rare tools in a closed section. Risk: low, since nothing about your data changes. Approve?"
 
 ## report.md
 ```

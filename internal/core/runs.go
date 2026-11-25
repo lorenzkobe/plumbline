@@ -80,6 +80,13 @@ type Run struct {
 	// OnBase: run on the task's approved code in a temporary worktree,
 	// after a check failed with no run from before the first edit (0.8.3).
 	OnBase bool `json:"on_base,omitempty"`
+	// BeforeFix: the [bug] cases' tests run on the approved code with the
+	// current tests laid over it, in a temporary worktree (0.8.7). It only
+	// shows a test failing before the fix: never proof, never a baseline.
+	BeforeFix bool `json:"before_fix,omitempty"`
+	// Control: a before-fix run's check on the current code; never the
+	// failing run either.
+	Control bool `json:"control,omitempty"`
 }
 
 var (
@@ -688,6 +695,27 @@ type Verdict struct {
 	Reason string
 }
 
+// JudgeNow is Judge, with what a run that never finished is doing now: one
+// whose process still runs within its time limit is to be waited for, any
+// other was cut off (most often by the call's own time limit) and is run
+// again in the background.
+func JudgeNow(r *Run, baseline *Run, s *Setup) Verdict {
+	v := Judge(r, baseline)
+	if r == nil || v.OK || !r.Finished.IsZero() || r.TimedOut || r.Stopped {
+		return v
+	}
+	at := r.Started.Local().Format("15:04")
+	switch {
+	case processAlive(r.PID) && Now().Sub(r.Started) <= RunLimit(r.Kind, s)+time.Minute:
+		v.Reason = fmt.Sprintf("still running (started %s): wait for it, you're told when a background command ends; don't start another", at)
+	case processAlive(r.PID):
+		v.Reason = fmt.Sprintf("stopped before it finished (it started at %s, longer ago than its time limit): run it again in the background (run_in_background)", at)
+	default:
+		v.Reason = fmt.Sprintf("stopped before it finished (its process is gone, most often cut off by the call's time limit; started %s): run it again in the background (run_in_background)", at)
+	}
+	return v
+}
+
 // Judge checks a run against the task's baseline: no new failures, and a run
 // where no test actually ran is a failure.
 func Judge(r *Run, baseline *Run) Verdict {
@@ -854,8 +882,8 @@ func FetchProof(command string) bool {
 func LatestFor(runs []*Run, taskID, kind, sub, command, print string) *Run {
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
-		if r.OnBase || r.TaskID != taskID || r.Kind != kind || (sub != "" && r.Sub != sub) || r.PrintBefore != print {
-			continue // a base run describes the approved code, never the task's proof
+		if r.OnBase || r.BeforeFix || r.TaskID != taskID || r.Kind != kind || (sub != "" && r.Sub != sub) || r.PrintBefore != print {
+			continue // a base or before-fix run describes the approved code, never the task's proof
 		}
 		if command != "" && !commandMatches(kind, command, r.Command) {
 			continue

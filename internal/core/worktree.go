@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -601,4 +602,97 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, " / ")
+}
+
+// closedCopies: the builders' copies that closed or cancelled tasks left on
+// disk, as their own records name them, with each task. A worktree the user
+// made under the same folder is never one; nor is any copy while the
+// copies' folder is a link to somewhere else.
+func closedCopies(root string) (map[*Task][]int, []string, error) {
+	dir := copiesDir(root)
+	fi, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if !fi.IsDir() {
+		return nil, nil, fmt.Errorf("%s isn't a plain folder (a link?), so no copy in it is removed", dir)
+	}
+	byTask := map[*Task][]int{}
+	var paths []string
+	for _, t := range ListTasks(root) {
+		if t.Open() {
+			continue
+		}
+		for i, r := range t.Helpers {
+			if r.Kind != HelperBuilder || r.Worktree == "" || r.Merged || r.Dropped || r.alive() {
+				continue // a builder still running keeps its copy, as DropBuilder does
+			}
+			wt := filepath.Clean(r.Worktree)
+			if foldPath(filepath.Dir(wt)) != foldPath(filepath.Clean(dir)) || !insideWorktrees(root, wt) {
+				continue
+			}
+			if wfi, err := os.Lstat(wt); err != nil || !wfi.IsDir() {
+				continue
+			}
+			byTask[t] = append(byTask[t], i)
+			paths = append(paths, wt)
+		}
+	}
+	sort.Strings(paths)
+	return byTask, paths, nil
+}
+
+// HeldClosedCopies: copies of closed or cancelled tasks that CleanCopies
+// keeps because their builder is still running.
+func HeldClosedCopies(root string) []string {
+	var out []string
+	for _, t := range ListTasks(root) {
+		if t.Open() {
+			continue
+		}
+		for _, r := range t.Helpers {
+			if r.Kind == HelperBuilder && r.Worktree != "" && !r.Merged && !r.Dropped && r.alive() {
+				if _, err := os.Lstat(r.Worktree); err == nil {
+					out = append(out, filepath.Clean(r.Worktree))
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// LeftClosedCopies lists the copies CleanCopies would remove.
+func LeftClosedCopies(root string) []string {
+	_, paths, _ := closedCopies(root)
+	return paths
+}
+
+// CleanCopies removes the builders' copies that closed or cancelled tasks
+// left on disk (their unmerged work goes with them) and returns them.
+func CleanCopies(root string) ([]string, error) {
+	byTask, _, err := closedCopies(root)
+	if err != nil {
+		return nil, err
+	}
+	var removed []string
+	for t, idx := range byTask {
+		for _, i := range idx {
+			r := &t.Helpers[i]
+			if err := RemoveWorktree(root, r.Worktree); err != nil {
+				_ = SaveTask(t)
+				return removed, err
+			}
+			r.Dropped = true
+			removed = append(removed, filepath.Clean(r.Worktree))
+		}
+		if err := SaveTask(t); err != nil {
+			return removed, err
+		}
+	}
+	sort.Strings(removed)
+	return removed, nil
 }

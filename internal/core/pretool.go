@@ -27,6 +27,10 @@ type hookCtx struct {
 	// trackerAsked: this command's prompt names the sprint file, so a change
 	// to it is one the user was asked about (S4).
 	trackerAsked bool
+	// startFiles: the task's start commit's files, folded, for rm targets
+	// (startErr when git couldn't list them).
+	startFiles map[string]bool
+	startErr   error
 }
 
 func newCtx(in *HookInput) *hookCtx {
@@ -742,8 +746,8 @@ func (c *hookCtx) gateEdit(path string) Output {
 	if c.root == "" || !IsInside(abs, c.root) {
 		return c.ask("outside-project", fmt.Sprintf("%s is outside this project.", abs))
 	}
-	if c.task == nil && untrackedNote(c.root, c.rel(abs)) {
-		return nil
+	if (c.task == nil || c.task.Phase != PhaseBuilding) && c.freeNote(c.rel(abs)) {
+		return nil // untracked notes need no task, nor an approved one (0.8.7)
 	}
 	if c.task == nil {
 		return c.deny("no-task", "no task is active, so code can't change yet. If the user wants a change, start the task (plumbline task start --title \"...\" on its own line, no question needed), look at the code, write the plan, then ask the plan question. To try something out, use a throwaway copy in the scratchpad instead."+c.unboundHint())
@@ -1426,6 +1430,86 @@ func (c *hookCtx) leadNotesOnly(s Segment) bool {
 // and the post hook could only stop the work after the file changed).
 const noTaskShell = "no task is active, so files in the project can't change yet, from the terminal either. If the user wants a change, start the task (plumbline task start --title \"...\" on its own line, no question needed), look at the code, write the plan, then ask the plan question. For logs or experiments, write in the scratchpad or /tmp."
 
+// freeNote: rel is an untracked markdown note (see untrackedNotes) that the
+// task's plan doesn't list, so writing it before approval doesn't start
+// the planned work.
+func (c *hookCtx) freeNote(rel string) bool {
+	if !untrackedNote(c.root, rel) {
+		return false
+	}
+	if c.task == nil {
+		return true
+	}
+	return !c.task.planLists(rel)
+}
+
+// capExempt: removing what the task made, and files whose changes don't
+// count (ignored ones, untracked notes), aren't files the plan missed
+// (0.8.7).
+func (c *hookCtx) capExempt(rel string, removing bool) bool {
+	return removing && c.taskMade(rel) || c.writeIgnored(rel) || untrackedNote(c.root, rel)
+}
+
+// taskMade: rel (a file or a folder) holds nothing from the task's start
+// commit and none of the user's own unsaved work, and no part of its path
+// is a link, so removing it takes away only what the task made. Letter
+// case is folded (macOS); a git error says no.
+func (c *hookCtx) taskMade(rel string) bool {
+	rel = strings.TrimSuffix(filepath.ToSlash(filepath.Clean(rel)), "/")
+	if rel == "" || rel == "." || climbsOut(rel) || filepath.IsAbs(rel) || reNotGlob.MatchString(rel) {
+		return false // a pattern rm expands could reach tracked files
+	}
+	at := c.root
+	for _, part := range strings.Split(rel, "/") {
+		at = filepath.Join(at, part)
+		fi, err := os.Lstat(at)
+		if err != nil {
+			if os.IsNotExist(err) {
+				break
+			}
+			return false
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	if c.startFiles == nil && c.startErr == nil {
+		start := c.task.StartCommit
+		if start == "" {
+			start = "HEAD"
+		}
+		out, err := gitOut(c.task.Root, "-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", "--full-tree", start)
+		if err != nil {
+			c.startErr = err
+		} else {
+			c.startFiles = map[string]bool{}
+			for _, p := range strings.Split(out, "\x00") {
+				if p != "" {
+					c.startFiles[foldPath(p)] = true
+				}
+			}
+		}
+	}
+	if c.startErr != nil {
+		return false
+	}
+	low := foldPath(rel)
+	if c.startFiles[low] {
+		return false
+	}
+	for p := range c.startFiles { // already folded
+		if strings.HasPrefix(p, low+"/") {
+			return false
+		}
+	}
+	for p := range c.task.Preexisting {
+		if p = foldPath(filepath.ToSlash(p)); p == low || strings.HasPrefix(p, low+"/") {
+			return false
+		}
+	}
+	return true
+}
+
 // writeIgnored: a project file whose changes don't count (git ignores it,
 // or the setup's ignore_changes lists it), so writing it needs no task.
 func (c *hookCtx) writeIgnored(rel string) bool {
@@ -1444,7 +1528,7 @@ const ownFilesFromShell = "Plumbline's own files can't be read or changed from t
 // by edits, terminal commands and MCP tools. pending counts other new
 // outside-plan files in the same command. It returns the rule and the reason
 // when the file is refused.
-func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
+func (c *hookCtx) buildFile(rel string, pending int, removing ...bool) (string, string) {
 	if c.task.CommandsOnly && CommandsOnly(c.task, c.setup) && !c.writeIgnored(rel) && !untrackedNote(c.task.Root, rel) {
 		return "commands-only", fmt.Sprintf("this task is commands only: its plan changes no files, so it runs without the saved checks, blind QA or a review, and %s would be a changed file. To change files, replan to change files (plumbline task replan, list them in plan.md's ## Files, then the plan question).", rel)
 	}
@@ -1495,7 +1579,9 @@ func (c *hookCtx) buildFile(rel string, pending int) (string, string) {
 		c.hold(rel, "a file that decides which checks run, outside the plan")
 		return "gate-outside-plan", fmt.Sprintf("%s isn't in the approved plan and decides which checks run (CI, git hooks, test or lint config, AI instructions, plugin parts): one line there can switch a check off. Don't change it. Keep going with the rest, and list it under \"For you\" in the report with what you'd change and why; to change it, the plan must list it (plumbline task replan).", rel)
 	}
-	if _, seen := c.task.OutsidePlan[rel]; !seen && !TestFile(rel, c.setup) && c.task.OutsideCapCount(c.setup)+pending >= OutsidePlanCap {
+	// Removing what the task made, and files whose changes don't count
+	// (ignored ones, untracked notes), aren't files the plan missed (0.8.7).
+	if _, seen := c.task.OutsidePlan[rel]; !seen && !TestFile(rel, c.setup) && c.task.OutsideCapCount(c.setup)+pending >= OutsidePlanCap && !c.capExempt(rel, len(removing) > 0 && removing[0]) {
 		if c.in.AgentID != "" {
 			return "outside-plan-cap", fmt.Sprintf("%s would be file %d outside the approved plan, so the plan missed files. Don't change it. Name it in your notes with why it's needed; the lead adds it to the plan.", rel, c.task.OutsideCapCount(c.setup)+pending+1)
 		}
@@ -1672,6 +1758,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			switch s.Arg(1) {
 			case "hook":
 				v.d("own-files", "Plumbline's hooks are run by Claude Code only.")
+			case "builder":
+				if s.Arg(2) == "clean" {
+					v.a("builder-clean", "this removes the builders' copies that closed or cancelled tasks left on disk, with any work in them that was never merged. Copies of open tasks and worktrees you made yourself stay.")
+				}
 			case "gotest-shard":
 				v.d("gotest-shard", "Plumbline runs gotest-shard itself, inside plumbline run test and run related. Run those instead.")
 			case "pause", "resume", "cancel", "wrong":
@@ -1812,7 +1902,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			v.a("secret-read", "this prints environment variables, where keys, tokens and passwords live, so it may show a secret. Allow only if Claude really needs to see them. To check one is set without showing it: test -n \"$NAME\" && echo set.")
 		} else if composeShowsEnv(s) {
 			v.a("secret-read", "this prints the compose setup with the .env values filled in, so it may show a secret. Allow only if Claude really needs to see them; --services or --no-interpolate don't show values.")
-		} else if ReadsListedFiles(s) {
+		} else if ReadsListedFiles(s) && !(othersRead(segs, i) && listingClean(s)) {
 			v.a("secret-read", fmt.Sprintf("%s reads files that a listing adds (xargs, find -exec or fd -x), and that listing could include .env or key files, which would show their values here. Narrow the listing to the file types needed (rg -l x -g '*.go' | xargs cat, find . -name '*.ts' -exec cat {} +, fd -e go -x cat), or open the files with the Read tool.", s.Name()))
 		}
 		for _, t := range TreeTargets(s) {
@@ -1867,9 +1957,10 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("no-task", noTaskShell+c.unboundHint())
 			case building && abs != "" && IsInside(abs, c.root):
 				rel := c.rel(abs)
-				if rule, reason := c.buildFile(rel, len(pending)); rule != "" {
+				removing := s.Name() == "rm" && !contains(s.Redirects, t) // rm's operands, not a redirect on its line
+				if rule, reason := c.buildFile(rel, len(pending), removing); rule != "" {
 					v.d(rule, reason)
-				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) && !TestFile(rel, c.setup) {
+				} else if _, seen := c.task.OutsidePlan[rel]; !seen && !c.task.InPlan(rel) && !TestFile(rel, c.setup) && !c.capExempt(rel, removing) {
 					pending[rel] = true
 				}
 			}
@@ -2116,6 +2207,26 @@ func (c *hookCtx) isFinalCommit(ci CommitInfo, addsAll bool, added []string) boo
 	return true
 }
 
+// othersRead: every segment of the line but segs[i] only reads, so nothing
+// on it can change the folders a listing walks before the listing runs.
+func othersRead(segs []Segment, i int) bool {
+	for j, o := range segs {
+		if j != i && !ReadOnly(o) {
+			return false
+		}
+	}
+	return true
+}
+
+// runHint: the command that makes a missing run, unless the run is still
+// going (JudgeNow), when starting another is the wrong thing to do.
+func runHint(v Verdict, command string) string {
+	if strings.HasPrefix(v.Reason, "still running") {
+		return ""
+	}
+	return " (run: " + command + ")"
+}
+
 // ProofMissing lists what the commit rule still needs on the current code.
 func ProofMissing(t *Task, s *Setup, final bool) []string {
 	var miss []string
@@ -2131,17 +2242,17 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 	if s.Commands.Test == "" && !docs {
 		miss = append(miss, "no test command is saved (run /plumbline:setup)")
 	} else if !docs {
-		full := Judge(LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp), BaselineFor(runs, t.ID, KindTest))
+		full := JudgeNow(LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp), BaselineFor(runs, t.ID, KindTest), s)
 		if !full.OK && brokenBaseline(runs, t.ID, KindTest) {
 			full.Reason += "; the run before the first edit failed every test (a broken environment, like a database that was down), so it isn't the starting point and every failure counts: tell the user which failures were there before"
 		}
 		if final && !full.OK {
-			miss = append(miss, "full test suite: "+full.Reason+" (run: plumbline run test)")
+			miss = append(miss, "full test suite: "+full.Reason+runHint(full, "plumbline run test"))
 		}
 		if !final && !full.OK {
-			rel := Judge(LatestFor(runs, t.ID, KindRelated, "", savedCommand(s, KindRelated), fp), BaselineFor(runs, t.ID, KindTest))
+			rel := JudgeNow(LatestFor(runs, t.ID, KindRelated, "", savedCommand(s, KindRelated), fp), BaselineFor(runs, t.ID, KindTest), s)
 			if !rel.OK {
-				miss = append(miss, "related tests: "+rel.Reason+" (run: plumbline run related --files <changed files>)")
+				miss = append(miss, "related tests: "+rel.Reason+runHint(rel, "plumbline run related --files <changed files>"))
 			}
 		}
 	}
@@ -2201,7 +2312,7 @@ func CheckCarries(t *Task, s *Setup, runs []*Run, kind, fp string) bool {
 	base := BaselineFor(runs, t.ID, kind)
 	for i := len(runs) - 1; i >= 0; i-- {
 		r := runs[i]
-		if r.TaskID == t.ID && r.Kind == kind && r.Command == cmd && !r.OnBase && r.Complete() && Judge(r, base).OK {
+		if r.TaskID == t.ID && r.Kind == kind && r.Command == cmd && !r.OnBase && !r.BeforeFix && r.Complete() && Judge(r, base).OK {
 			src = r
 			break
 		}

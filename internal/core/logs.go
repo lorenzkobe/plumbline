@@ -120,6 +120,10 @@ type Summary struct {
 	Waivers   int            `json:"waivers"`
 	Failures  int            `json:"failures"` // Plumbline itself broke (crash, bad input, binary that won't start)
 	Asks      map[string]int `json:"asks"`
+	// Why: for send-backs and confirm prompts, how often each reason (its
+	// first item, digits taken out) came up, by rule.
+	SendbackWhy map[string]map[string]int `json:"sendback_why,omitempty"`
+	AskWhy      map[string]map[string]int `json:"ask_why,omitempty"`
 	// Token use of the tasks that logged it, and how many of those had
 	// transcripts that couldn't all be read.
 	Tokens        TokenCount `json:"tokens"`
@@ -128,7 +132,8 @@ type Summary struct {
 }
 
 func summarize(month string, events []Event) Summary {
-	s := Summary{Month: month, BySize: map[string]int{}, Blocks: map[string]int{}, Wrong: map[string]int{}, Sendbacks: map[string]int{}, Asks: map[string]int{}}
+	s := Summary{Month: month, BySize: map[string]int{}, Blocks: map[string]int{}, Wrong: map[string]int{}, Sendbacks: map[string]int{}, Asks: map[string]int{},
+		SendbackWhy: map[string]map[string]int{}, AskWhy: map[string]map[string]int{}}
 	tasks := map[string]string{}
 	for _, e := range events {
 		if e.Task != "" && e.Type == "task" {
@@ -139,8 +144,10 @@ func summarize(month string, events []Event) Summary {
 			s.Blocks[e.Rule]++
 		case "ask":
 			s.Asks[e.Rule]++
+			countWhy(s.AskWhy, e.Rule, e.Detail, false)
 		case "sendback":
 			s.Sendbacks[e.Rule]++
+			countWhy(s.SendbackWhy, e.Rule, e.Detail, true)
 		case "wrong":
 			s.Wrong[e.Rule]++
 		case "waiver":
@@ -257,7 +264,9 @@ func Stats(months int) string {
 	fmt.Fprintf(&b, "Blocks by rule: %s\n", orNone(kv(s.Blocks)))
 	fmt.Fprintf(&b, "Marked wrong by you: %s\n", orNone(kv(s.Wrong)))
 	fmt.Fprintf(&b, "Send-backs at finish: %s\n", orNone(kv(s.Sendbacks)))
+	writeWhy(&b, "Send-back reasons", s.Sendbacks, s.SendbackWhy)
 	fmt.Fprintf(&b, "Confirm prompts by rule: %s\n", orNone(kv(s.Asks)))
+	writeWhy(&b, "Confirm prompt reasons", s.Asks, s.AskWhy)
 	fmt.Fprintf(&b, "Waivers: %d\n", s.Waivers)
 	fmt.Fprintf(&b, "Plumbline failures: %d\n", s.Failures)
 	if s.TokenTasks > 0 {
@@ -268,15 +277,17 @@ func Stats(months int) string {
 		}
 		b.WriteString("\n")
 	}
+	// A rule is worth a look once you've marked it wrong a few times and at
+	// least as often as half of what it stopped (blocks and send-backs).
 	var noisy []string
 	for r, w := range s.Wrong {
-		if bl := s.Blocks[r]; bl > 0 && w*2 >= bl {
+		if stopped := s.Blocks[r] + s.Sendbacks[r]; w >= noisyMin && stopped > 0 && w*2 >= stopped {
 			noisy = append(noisy, r)
 		}
 	}
 	sort.Strings(noisy)
 	if len(noisy) > 0 {
-		fmt.Fprintf(&b, "Rules to look at (half or more of their blocks marked wrong): %s\n", strings.Join(noisy, ", "))
+		fmt.Fprintf(&b, "Rules to look at (%d or more marked wrong, half or more of their blocks and send-backs): %s\n", noisyMin, strings.Join(noisy, ", "))
 	}
 	return b.String()
 }
@@ -303,4 +314,71 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+// noisyMin: the wrong marks a rule needs before stats flag it.
+const noisyMin = 3
+
+var reWhyDigits = regexp.MustCompile(`[0-9]+`)
+
+// countWhy counts an event's reason under its rule: a send-back's first
+// item after its rule name, a prompt's text, up to its first bracket,
+// semicolon or full stop, with digits taken out.
+func countWhy(m map[string]map[string]int, rule, detail string, item bool) {
+	why := detail
+	if item {
+		why, _, _ = strings.Cut(why, "; ")
+		if r, rest, ok := strings.Cut(why, ": "); ok && strings.TrimSpace(r) == rule {
+			why = rest
+		}
+	}
+	if i := strings.IndexAny(why, "(;"); i >= 0 {
+		why = why[:i]
+	}
+	if i := strings.Index(why, ". "); i >= 0 {
+		why = why[:i]
+	}
+	why = strings.Join(strings.Fields(reWhyDigits.ReplaceAllString(why, "")), " ")
+	why = strings.TrimRight(why, " .,:")
+	if why == "" {
+		return
+	}
+	if len(why) > 90 {
+		why = why[:90] + "..."
+	}
+	if m[rule] == nil {
+		m[rule] = map[string]int{}
+	}
+	m[rule][why]++
+}
+
+// writeWhy prints the top reasons of the busiest rules.
+func writeWhy(b *strings.Builder, title string, counts map[string]int, why map[string]map[string]int) {
+	rules := make([]string, 0, len(why))
+	for r := range why {
+		rules = append(rules, r)
+	}
+	sort.Slice(rules, func(i, j int) bool {
+		return counts[rules[i]] > counts[rules[j]] || counts[rules[i]] == counts[rules[j]] && rules[i] < rules[j]
+	})
+	if len(rules) > 5 {
+		rules = rules[:5]
+	}
+	for _, r := range rules {
+		reasons := make([]string, 0, len(why[r]))
+		for k := range why[r] {
+			reasons = append(reasons, k)
+		}
+		sort.Slice(reasons, func(i, j int) bool {
+			return why[r][reasons[i]] > why[r][reasons[j]] || why[r][reasons[i]] == why[r][reasons[j]] && reasons[i] < reasons[j]
+		})
+		if len(reasons) > 3 {
+			reasons = reasons[:3]
+		}
+		parts := make([]string, 0, len(reasons))
+		for _, k := range reasons {
+			parts = append(parts, fmt.Sprintf("%s %d", k, why[r][k]))
+		}
+		fmt.Fprintf(b, "%s, %s: %s\n", title, r, strings.Join(parts, "; "))
+	}
 }

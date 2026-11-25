@@ -1,6 +1,7 @@
 package core
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1365,30 +1366,12 @@ func ReadsListedFiles(s Segment) bool {
 		return false
 	}
 	for _, cmd := range s.feed {
-		if passesNames(cmd) {
+		if namesPassed(cmd) {
 			continue // sort, uniq, head, tail: the same names, fewer or reordered
 		}
 		return !listingSafe(cmd)
 	}
 	return true // nothing known makes the listing
-}
-
-// passesNames: a filter that only reorders or drops the names piped in.
-func passesNames(cmd []string) bool {
-	if len(cmd) == 0 {
-		return false
-	}
-	switch strings.ToLower(filepath.Base(cmd[0])) {
-	case "sort", "uniq", "head", "tail":
-	default:
-		return false
-	}
-	for _, a := range cmd[1:] {
-		if !strings.HasPrefix(a, "-") && strings.Trim(a, "0123456789") != "" {
-			return false // a file it reads instead
-		}
-	}
-	return true
 }
 
 // listingSafe: the command lists only names that match patterns which
@@ -1882,4 +1865,249 @@ func onlyLocalAddresses(s Segment) bool {
 		n++
 	}
 	return n > 0
+}
+
+// listingWalkMax: the most entries listingClean looks at before it keeps
+// the ask.
+const listingWalkMax = 20000
+
+// listingClean (0.8.7): the names fed to s come from grep or rg printing
+// file names only, over folders and files named on the line, through
+// filters that only pass names on, and nothing under those paths could be
+// a secret or be split by xargs into other names. Anything else keeps the
+// ask.
+func listingClean(s Segment) bool {
+	if !s.fed || !s.xargsPlain || s.Dir == "" || !filepath.IsAbs(s.Dir) || len(s.Env) > 0 {
+		return false // GREP_OPTIONS and the like change what grep reads
+	}
+	for _, cmd := range s.feed {
+		if namesPassed(cmd) || namesFilter(cmd) {
+			continue
+		}
+		paths, ok := namesSource(cmd)
+		if !ok {
+			return false
+		}
+		budget := listingWalkMax
+		for _, p := range paths {
+			if !cleanTree(filepath.Join(s.Dir, filepath.FromSlash(p)), &budget) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// grepFlags: the flags a names-only listing may use, by tool. Short ones
+// are letters that may be bunched (-rli); anything not listed (a value
+// flag, --files, --regex=, --directories=, -f) keeps the ask. Recursion is
+// only for the listing that starts the line.
+var grepFlags = map[string]struct{ short, long string }{
+	"grep": {"lLiIsHhwxEFa", " --files-with-matches --files-without-match --ignore-case --no-messages --word-regexp --line-regexp --extended-regexp --fixed-strings --text "},
+	"rg":   {"liswFx", " --files-with-matches --files-without-match --ignore-case --smart-case --no-messages --word-regexp --line-regexp --fixed-strings --hidden --no-ignore "},
+}
+
+// grepWords splits a grep or rg command's words into names-only flags and
+// operands (the pattern, then paths). ok is false for any other flag, an
+// operand that isn't plain text (a variable or substitution, which the
+// parser leaves empty) or holds a pattern character, or a listing that
+// doesn't print names only.
+func grepWords(tool string, args []string, recursive bool) (operands []string, pattern bool, ok bool) {
+	allowed := grepFlags[tool]
+	short := allowed.short
+	if recursive && tool == "grep" {
+		short += "rR"
+	}
+	names := false
+	plain := func(w string) bool {
+		return w != "" && w != "-" && !reNotGlob.MatchString(w) && !strings.ContainsAny(w, "$`{}~")
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			for _, w := range args[i+1:] {
+				if !plain(w) {
+					return nil, false, false
+				}
+				operands = append(operands, w)
+			}
+			return operands, pattern, names
+		case a == "-e" || a == "--regexp":
+			if i+1 >= len(args) || !plain(args[i+1]) {
+				return nil, false, false
+			}
+			i++
+			pattern = true
+		case strings.HasPrefix(a, "--"):
+			if recursive && tool == "grep" && a == "--recursive" {
+				continue
+			}
+			if !strings.Contains(allowed.long, " "+a+" ") {
+				return nil, false, false
+			}
+			if a == "--files-with-matches" || a == "--files-without-match" {
+				names = true
+			}
+		case strings.HasPrefix(a, "-") && len(a) > 1:
+			for _, r := range a[1:] {
+				if !strings.ContainsRune(short, r) {
+					return nil, false, false
+				}
+				if r == 'l' || r == 'L' {
+					names = true
+				}
+			}
+		default:
+			if !plain(a) {
+				return nil, false, false
+			}
+			operands = append(operands, a)
+		}
+	}
+	return operands, pattern, names
+}
+
+func grepTool(word string) string {
+	switch strings.ToLower(filepath.Base(word)) {
+	case "grep", "egrep", "fgrep":
+		return "grep"
+	case "rg":
+		return "rg"
+	}
+	return ""
+}
+
+// namesSource: grep -rl PATTERN PATH... (or rg -l): the paths it lists
+// names under. None named means the working folder, which isn't checked.
+func namesSource(cmd []string) ([]string, bool) {
+	if len(cmd) < 2 {
+		return nil, false
+	}
+	tool := grepTool(cmd[0])
+	if tool == "" {
+		return nil, false
+	}
+	ops, pattern, ok := grepWords(tool, cmd[1:], true)
+	if !ok {
+		return nil, false
+	}
+	if !pattern {
+		if len(ops) == 0 {
+			return nil, false
+		}
+		ops = ops[1:]
+	}
+	if len(ops) == 0 {
+		return nil, false
+	}
+	for _, p := range ops {
+		if filepath.IsAbs(p) || climbsOut(filepath.Clean(p)) {
+			return nil, false
+		}
+	}
+	return ops, true
+}
+
+// namesFilter: xargs grep -l PATTERN (or rg -l), which prints only the fed
+// names that match, and reads no file or folder of its own.
+func namesFilter(cmd []string) bool {
+	if len(cmd) < 3 || strings.ToLower(filepath.Base(cmd[0])) != "xargs" {
+		return false
+	}
+	i := 1
+	for ; i < len(cmd); i++ {
+		switch cmd[i] {
+		case "-0", "-r", "--null", "--no-run-if-empty":
+			continue
+		}
+		break
+	}
+	if i >= len(cmd) {
+		return false
+	}
+	tool := grepTool(cmd[i])
+	if tool == "" {
+		return false
+	}
+	ops, pattern, ok := grepWords(tool, cmd[i+1:], false)
+	if !ok {
+		return false
+	}
+	if pattern {
+		return len(ops) == 0
+	}
+	return len(ops) == 1
+}
+
+// namesPassed: sort, uniq, head or tail with only flags that reorder or
+// drop whole lines, so the names that come out are names that went in.
+func namesPassed(cmd []string) bool {
+	if len(cmd) == 0 {
+		return false
+	}
+	letters := map[string]string{"sort": "bdfinruV", "uniq": "diu", "head": "n0123456789", "tail": "n0123456789"}[strings.ToLower(filepath.Base(cmd[0]))]
+	if letters == "" {
+		return false
+	}
+	for i := 1; i < len(cmd); i++ {
+		a := cmd[i]
+		if len(a) < 2 || a[0] != '-' || strings.HasPrefix(a, "--") {
+			return false
+		}
+		for _, r := range a[1:] {
+			if !strings.ContainsRune(letters, r) {
+				return false
+			}
+		}
+		if strings.HasSuffix(a, "n") && letters[0] == 'n' {
+			if i+1 >= len(cmd) || strings.Trim(cmd[i+1], "0123456789") != "" || cmd[i+1] == "" {
+				return false
+			}
+			i++
+		}
+	}
+	return true
+}
+
+// cleanTree: abs exists, and neither it nor anything under it is a link,
+// a file with a second name, something other than a file or folder, a
+// secret-looking name, or a name xargs would split or unquote.
+func cleanTree(abs string, budget *int) bool {
+	fi, err := os.Lstat(abs)
+	if err != nil {
+		return false
+	}
+	if !fi.IsDir() {
+		return cleanEntry(abs, fi.Mode(), budget)
+	}
+	ok := true
+	err = filepath.WalkDir(abs, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			ok = false
+			return filepath.SkipAll
+		}
+		if !cleanEntry(p, d.Type(), budget) {
+			ok = false
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return ok && err == nil
+}
+
+func cleanEntry(p string, mode fs.FileMode, budget *int) bool {
+	*budget--
+	base := filepath.Base(p)
+	if *budget < 0 || mode&fs.ModeSymlink != 0 || strings.ContainsAny(base, " \t\n\r\"'\\") || IsSecretFile(p) || strings.EqualFold(base, ".git") {
+		return false
+	}
+	switch {
+	case mode.IsDir():
+		return true
+	case mode.IsRegular():
+		return plainFile(p)
+	}
+	return false
 }

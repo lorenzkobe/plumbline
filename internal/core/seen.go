@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -165,15 +166,18 @@ func planFiles(t *Task) []string {
 	return CheckPlan(text).Files
 }
 
-func findSeenBySuffix(t *Task, rel string) string {
-	hit := ""
+// seenBySuffix: the files a search showed whose path ends in "/"+rel,
+// from the repo's top when inside it, sorted.
+func seenBySuffix(t *Task, rel string) []string {
+	var hits []string
 	for p := range t.Seen {
 		if strings.HasSuffix(filepath.ToSlash(p), "/"+rel) {
-			if hit != "" {
-				return ""
+			if r, err := filepath.Rel(t.Root, p); err == nil && !climbsOut(r) {
+				p = filepath.ToSlash(r)
 			}
-			hit = p
+			hits = append(hits, p)
 		}
 	}
-	return hit
+	sort.Strings(hits)
+	return hits
 }

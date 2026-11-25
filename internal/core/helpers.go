@@ -710,8 +710,22 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		if c.task != nil {
 			run = c.task.runByAgent(in.AgentID)
 		}
-		if run != nil && in.ToolName == "Write" && abs == Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
-			return allow("helper findings")
+		if run != nil && abs == Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
+			// The name as given, not resolved: a link or a second name at the
+			// findings path would change another file (0.8.7).
+			raw := p
+			if !filepath.IsAbs(raw) {
+				raw = filepath.Join(in.Cwd, raw)
+			}
+			raw = filepath.Clean(raw)
+			fi, err := os.Lstat(raw)
+			plain := err == nil && fi.Mode().IsRegular() && plainFile(raw) && filepath.Base(raw) == run.Findings
+			switch {
+			case in.ToolName == "Write" && (os.IsNotExist(err) || plain):
+				return allow("helper findings")
+			case (in.ToolName == "Edit" || in.ToolName == "MultiEdit") && plain:
+				return allow("helper findings")
+			}
 		}
 		if kind == HelperQA {
 			return c.qaEdit(run, abs)
@@ -720,7 +734,7 @@ func (c *hookCtx) gateHelper(kind string) Output {
 			return c.deny("helper-read-only", fmt.Sprintf("the %s can only write its findings file, and Plumbline has no record of this run (no open task found). Report your findings in your final message instead.", kind))
 		}
 		if in.ToolName != "Write" {
-			return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only. Put what should change in your findings file.", kind))
+			return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only: the only file it can change is its findings file, %s, with Write, or with Edit once it's there.", kind, filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings)))
 		}
 		return c.deny("helper-read-only", fmt.Sprintf("the %s is read-only: the only file it can write is its findings file, %s.", kind, filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings)))
 	case "AskUserQuestion":

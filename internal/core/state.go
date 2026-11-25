@@ -89,6 +89,10 @@ type Waiver struct {
 }
 
 type Task struct {
+	// setup, setupRead: the project setup InPlan reads risky_paths from.
+	setup     *Setup
+	setupRead bool
+
 	ID      string `json:"id"`
 	Title   string `json:"title"`
 	Ticket  string `json:"ticket,omitempty"`
@@ -785,9 +789,17 @@ func (t *Task) outsideCount(s *Setup, skipTests bool) int {
 			}
 		}
 	}
+	var notes map[string]bool
+	if skipTests {
+		keys := make([]string, 0, len(t.OutsidePlan))
+		for p := range t.OutsidePlan {
+			keys = append(keys, p)
+		}
+		notes = untrackedNotes(t.Root, keys) // one git call for them all
+	}
 	n := 0
 	for p := range t.OutsidePlan {
-		if t.InPlan(p) || skipTests && TestFile(p, s) {
+		if t.InPlan(p) || skipTests && (TestFile(p, s) || notes[p]) {
 			continue
 		}
 		if inCopies[p] || (!gone(t.Root, p) && !t.BackToStart(p)) {
@@ -833,6 +845,17 @@ func (t *Task) InPlan(rel string) bool {
 		if f == rel {
 			return true
 		}
+	}
+	// A folder or pattern covers only ordinary files: a risky or
+	// check-deciding file under it needs its own line, so the user sees it
+	// at the checkpoint (0.8.7).
+	if RiskyPath(rel, t.riskySetup()) || gateOutsidePlan(rel) {
+		return false
+	}
+	for _, f := range t.PlanFiles {
+		if dir, ok := strings.CutSuffix(f, "/**"); ok {
+			f = dir + "/"
+		}
 		if strings.HasSuffix(f, "/") && strings.HasPrefix(rel, f) {
 			return true
 		}
@@ -841,4 +864,41 @@ func (t *Task) InPlan(rel string) bool {
 		}
 	}
 	return false
+}
+
+// planLists: rel is a file the plan names in ## Files, or under a folder
+// it names (the approved list once building, plan.md as written before),
+// folded for macOS.
+func (t *Task) planLists(rel string) bool {
+	files := t.PlanFiles
+	if t.Phase != PhaseBuilding {
+		files = nil
+		if text, _, err := ReadDoc(t, DocPlan); err == nil {
+			files = CheckPlan(text).Files
+		}
+	}
+	want := foldPath(cleanRel(rel))
+	for _, f := range files {
+		f = foldPath(cleanRel(f))
+		if dir, ok := strings.CutSuffix(f, "/**"); ok {
+			f = dir + "/"
+		}
+		if f == want || strings.HasSuffix(f, "/") && strings.HasPrefix(want, f) {
+			return true
+		}
+	}
+	return false
+}
+
+// riskySetup: the project setup, for its risky_paths, read once.
+func (t *Task) riskySetup() *Setup {
+	if !t.setupRead {
+		t.setupRead = true
+		if t.Root != "" {
+			if s, _, err := LoadSetup(t.Root); err == nil {
+				t.setup = s
+			}
+		}
+	}
+	return t.setup
 }

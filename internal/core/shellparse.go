@@ -39,6 +39,9 @@ type Segment struct {
 	// first (nil when not known); a word not known is "".
 	fed  bool
 	feed [][]string
+	// xargsPlain: the xargs that feeds it has no options but -0 and -r, so
+	// its names are the listing's lines as they are.
+	xargsPlain bool
 	// stdinUnknown: a heredoc with expansions feeds it, so a shell reading
 	// it runs commands that can't be known.
 	stdinUnknown bool
@@ -644,6 +647,9 @@ func (w *walker) pipeCmds(st *syntax.Stmt, b map[string]string) [][]string {
 	switch c := st.Cmd.(type) {
 	case *syntax.CallExpr:
 		var words []string
+		if len(c.Assigns) > 0 {
+			words = append(words, "") // an env prefix (GREP_OPTIONS) changes what it does: not known
+		}
 		for _, a := range c.Args {
 			v, lit, _ := wordValue(a, w.dir, b)
 			if !lit {
@@ -1646,6 +1652,16 @@ func unwrapXargs(s Segment, depth int, pc *parseCtx) []Segment {
 	}
 	in.Via = "xargs"
 	in.fed, in.feed = true, s.feed
+	// Plain: names only from the pipe (no < file, here-string or heredoc on
+	// this xargs, and not itself fed by another xargs), cut at blanks.
+	in.xargsPlain = !s.fed && len(s.Inputs) == 0 && s.Stdin == nil && !s.stdinUnknown
+	for _, w := range s.Words[1:min(i, len(s.Words))] {
+		switch w {
+		case "-0", "-r", "--null", "--no-run-if-empty", "--":
+		default:
+			in.xargsPlain = false // -a FILE, -d CHAR, -I {}: names from elsewhere, or cut differently
+		}
+	}
 	if repl != "" {
 		for j := range in.Words {
 			if strings.Contains(in.Words[j], repl) {

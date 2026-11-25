@@ -553,20 +553,22 @@ func TestGrepOfSecretFilesAsks(t *testing.T) {
 	}
 }
 
-// A folder in the plan can't hide an auth file from the security reviewer:
-// the files the task really changed count.
+// A folder in the plan doesn't cover an auth file (0.8.7: it needs its own
+// line), and a listed auth file still calls for the security reviewer: the
+// files the task really changed count.
 func TestChangedFilesCallForSpecialists(t *testing.T) {
 	h := groundedTask(t, "normal")
 	tk := h.task()
 	tk.StartCommit = HeadCommit(h.repo) // as plumbline task start records it
 	must(t, SaveTask(tk))
-	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/\n", 1)
+	plan := strings.Replace(goodPlan, "- src/a.go\n", "- src/\n- src/auth/session.go (new)\n", 1) + "## Team\n- lead, code-reviewer, security-reviewer\n"
 	h.docs(DocPlan, plan)
 	h.runHelper(HelperChallenger, "# Challenge 1\nnothing\n")
 	h.docs(DocPlan, plan+"## Challenge note\n- nothing changed\n")
 	h.approve()
 	session := filepath.Join(h.repo, "src", "auth", "session.go")
-	h.expect(h.pre("Write", map[string]any{"file_path": session}), "", "") // in the plan through src/
+	h.expect(h.pre("Write", map[string]any{"file_path": filepath.Join(h.repo, "src", "auth", "token.go")}), "deny", "risky kind of file") // src/ doesn't cover it
+	h.expect(h.pre("Write", map[string]any{"file_path": session}), "", "")                                                                // its own line
 	write(t, session, "package auth\n")
 	h.post("Write", map[string]any{"file_path": session}, nil)
 	s, _, _ := LoadSetup(h.repo)

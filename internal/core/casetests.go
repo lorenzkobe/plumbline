@@ -178,7 +178,7 @@ func caseRunMissing(t *Task, s *Setup, fp string, runs []*Run, report string) []
 		}
 		proven, skipped := false, 0
 		for _, r := range runs {
-			if r.TaskID != t.ID || r.PrintBefore != fp || !r.Complete() || r.Ran <= 0 {
+			if r.TaskID != t.ID || r.BeforeFix || r.PrintBefore != fp || !r.Complete() || r.Ran <= 0 {
 				continue
 			}
 			if (r.Kind != KindTest && r.Kind != KindRelated && r.Kind != KindE2E) || !commandMatches(r.Kind, savedCommand(s, r.Kind), r.Command) {
