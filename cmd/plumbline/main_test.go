@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -482,5 +485,278 @@ func TestRunChecksCommandsOnly(t *testing.T) {
 	out, _ = plumbline(t, dir, home, "", "run", "checks", "--task", tk.ID)
 	if !strings.Contains(out, "tests-ran") || strings.Contains(out, "commands only") {
 		t.Fatalf("with a file changed, the checks run again: %s", out)
+	}
+}
+
+// --- 0.8.8 blind QA (brief-qa-1.md): run checks in a fix round ---
+
+// r88Reviewed records a finished, counted code review on the code as it is
+// now (a hand-made HelperRun with the fields counts() reads), so the task is
+// in a fix round from here on.
+func (c *q83Checks) r88Reviewed(t *testing.T, findings string) {
+	t.Helper()
+	tk, err := core.LoadTask(c.dir, c.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp, err := core.Fingerprint(c.dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "code-review-1.md"
+	q83Write(t, filepath.Join(core.TaskDocsDir(c.dir, c.id), name), findings)
+	tk.Helpers = append(tk.Helpers, core.HelperRun{Kind: core.HelperCodeReviewer, AgentID: "code-reviewer-1", Started: core.Now().Add(-time.Minute),
+		Finished: core.Now(), PrintBefore: fp, PrintAfter: fp, Findings: name})
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const r88NextLine = "next: write self-review.md (Write or Edit), then start the reviewers"
+
+// C16, C49
+func TestR88_C16_C49_FixRoundSkipsLintAndBuild(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	c.checks(t)
+	c.r88Reviewed(t, "# Code review 1\n## Findings\n- none\n")
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 3 }\n")
+	out := c.checks(t)
+	if strings.Contains(out, "lint-ran") || strings.Contains(out, "build-ran") {
+		t.Fatalf("a fix round doesn't run lint or build\n%s", out)
+	}
+	for _, want := range []string{"lint: runs at --final (fix round)", "build: runs at --final (fix round)", "security-ran", "full-suite-ran"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in a fix round's run checks\n%s", want, out)
+		}
+	}
+}
+
+// C49: format and typecheck run every round too.
+func TestR88_C49_FormatAndTypecheckRunEveryRound(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	s, _, err := core.LoadSetup(c.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Commands.Format, s.Commands.Typecheck = "echo format-ran", "echo typecheck-ran"
+	if _, err := core.SaveSetup(c.dir, s); err != nil {
+		t.Fatal(err)
+	}
+	q83Git(t, c.dir, "add", "-A")
+	q83Git(t, c.dir, "commit", "-q", "-m", "more checks")
+	tk, _ := core.LoadTask(c.dir, c.id)
+	tk.StartCommit = core.HeadCommit(c.dir)
+	tk.ApprovalPrint, _ = core.Fingerprint(c.dir, nil)
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	c.checks(t)
+	c.r88Reviewed(t, "# Code review 1\n## Findings\n- none\n")
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 3 }\n")
+	out := c.checks(t)
+	for _, want := range []string{"format-ran", "typecheck-ran", "security-ran"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("%s runs in a fix round\n%s", want, out)
+		}
+	}
+}
+
+// C17, C18
+func TestR88_C17_C18_FirstRoundAndFinalRunLintAndBuild(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	out := c.checks(t)
+	if !strings.Contains(out, "lint-ran") || !strings.Contains(out, "build-ran") {
+		t.Fatalf("the first run checks (no review yet) run lint and build\n%s", out)
+	}
+	c.r88Reviewed(t, "# Code review 1\n## Findings\n- none\n")
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 3 }\n")
+	c.checks(t)
+	// C18: lint and build haven't run on the final code, so the commit
+	// proof still asks for them.
+	if n := c.proofMissing(t); !strings.Contains(n, "lint") || !strings.Contains(n, "build") {
+		t.Fatalf("the commit proof needs lint and build on the final code: %s", n)
+	}
+	out = c.checks(t, "--final")
+	if !strings.Contains(out, "lint-ran") || !strings.Contains(out, "build-ran") {
+		t.Fatalf("--final runs lint and build in a fix round\n%s", out)
+	}
+	if n := c.proofMissing(t); strings.Contains(n, "lint") || strings.Contains(n, "build") {
+		t.Fatalf("after --final, lint and build are proven: %s", n)
+	}
+}
+
+// C46
+func TestR88_C46_FailedLintStillRunsInAFixRound(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	s, _, err := core.LoadSetup(c.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Commands.Lint = "if [ -f LINTFAIL ]; then echo lint-failed; exit 1; fi; echo lint-ran"
+	if _, err := core.SaveSetup(c.dir, s); err != nil {
+		t.Fatal(err)
+	}
+	q83Git(t, c.dir, "add", "-A")
+	q83Git(t, c.dir, "commit", "-q", "-m", "lint")
+	tk, _ := core.LoadTask(c.dir, c.id)
+	tk.StartCommit = core.HeadCommit(c.dir)
+	tk.ApprovalPrint, _ = core.Fingerprint(c.dir, nil)
+	if err := core.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	q83Write(t, filepath.Join(c.dir, "LINTFAIL"), "x\n")
+	if out, code := plumbline(t, c.dir, c.home, "", "run", "checks", "--task", c.id); code == 0 || !strings.Contains(out, "lint-failed") {
+		t.Fatalf("fixture: lint fails: %d\n%s", code, out)
+	}
+	c.r88Reviewed(t, "# Code review 1\n## Findings\n- none\n")
+	if err := os.Remove(filepath.Join(c.dir, "LINTFAIL")); err != nil {
+		t.Fatal(err)
+	}
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 3 }\n")
+	out := c.checks(t)
+	if !strings.Contains(out, "lint-ran") {
+		t.Fatalf("a lint whose last run failed runs again in a fix round\n%s", out)
+	}
+	if strings.Contains(out, "build-ran") {
+		t.Fatalf("build passed before, so it waits for --final\n%s", out)
+	}
+}
+
+// C21
+func TestR88_C21_PassingChecksNameSelfReviewNext(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	out := c.checks(t)
+	if !strings.Contains(out, r88NextLine) {
+		t.Fatalf("passing checks with no self-review end with the next step\n%s", out)
+	}
+}
+
+// C22
+func TestR88_C22_NoNextLineWhenFailedCurrentOrNotBuilding(t *testing.T) {
+	t.Run("a check failed", func(t *testing.T) {
+		c := q83ChecksTask(t, false)
+		s, _, _ := core.LoadSetup(c.dir)
+		s.Commands.Lint = "echo lint-failed; exit 1"
+		if _, err := core.SaveSetup(c.dir, s); err != nil {
+			t.Fatal(err)
+		}
+		c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+		out, code := plumbline(t, c.dir, c.home, "", "run", "checks", "--task", c.id)
+		if code == 0 || strings.Contains(out, r88NextLine) {
+			t.Fatalf("a failed check: no next-step line: %d\n%s", code, out)
+		}
+	})
+	t.Run("self-review current", func(t *testing.T) {
+		c := q83ChecksTask(t, false)
+		c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+		text := "# Self-review\n## Checked\n- src/a.go: the checklist, links and case\n## Fixed\n- none\n"
+		p := filepath.Join(core.TaskDocsDir(c.dir, c.id), "self-review.md")
+		q83Write(t, p, text)
+		sum := sha256.Sum256([]byte(text))
+		fp, err := core.Fingerprint(c.dir, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tk, _ := core.LoadTask(c.dir, c.id)
+		tk.SelfReview = &core.SelfReview{Print: fp, Hash: hex.EncodeToString(sum[:]), At: core.Now()}
+		if err := core.SaveTask(tk); err != nil {
+			t.Fatal(err)
+		}
+		if out := c.checks(t); strings.Contains(out, r88NextLine) {
+			t.Fatalf("a current self-review: no next-step line\n%s", out)
+		}
+	})
+	t.Run("not building", func(t *testing.T) {
+		c := q83ChecksTask(t, false)
+		tk, _ := core.LoadTask(c.dir, c.id)
+		tk.Phase = core.PhaseUnderstanding
+		if err := core.SaveTask(tk); err != nil {
+			t.Fatal(err)
+		}
+		q83Write(t, filepath.Join(c.dir, "src", "a.go"), "package src\n\nfunc A() int { return 2 }\n")
+		out, _ := plumbline(t, c.dir, c.home, "", "run", "checks", "--task", c.id)
+		if strings.Contains(out, r88NextLine) {
+			t.Fatalf("outside building: no next-step line\n%s", out)
+		}
+	})
+}
+
+// C40
+func TestR88_C40_StatusCountsStillOpenItems(t *testing.T) {
+	c := q83ChecksTask(t, false)
+	c.edit(t, "src/a.go", "package src\n\nfunc A() int { return 2 }\n")
+	c.r88Reviewed(t, "# Code review 2\n## Findings\n- [90] must-fix: still open from run 1: A should return 3 (src/a.go:3 `func A() int`). Fails when: A() is called -> it returns 2.\n- [40] should-fix: still open from run 1: A has no doc comment (src/a.go:3 `func A() int`).\n- [80] must-fix: B is never called (src/a.go:1 `package src`). Fails when: x -> y.\n")
+	out, _ := plumbline(t, c.dir, c.home, "", "status", "--task", c.id)
+	found := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "still open") && strings.Contains(l, "code-reviewer") && strings.Contains(l, "2") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("status lists 2 still-open items for code-reviewer\n%s", out)
+	}
+}
+
+// --- 0.8.8 blind QA: skill text from another Plumbline version ---
+
+// r88ReadHook sends a PostToolUse for a Read of path to the given binary.
+func r88ReadHook(t *testing.T, binary, dir, home, root, session, path string) string {
+	t.Helper()
+	in, err := json.Marshal(map[string]any{
+		"session_id": session, "cwd": dir, "hook_event_name": "PostToolUse", "tool_name": "Read",
+		"tool_input": map[string]any{"file_path": path}, "tool_response": map[string]any{"type": "text"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command(binary, "hook", "post")
+	c.Dir = dir
+	c.Env = append(os.Environ(), "PLUMBLINE_HOME="+home, "CLAUDE_PLUGIN_ROOT="+root, "CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"))
+	c.Stdin = strings.NewReader(string(in))
+	out, err := c.CombinedOutput()
+	if _, ok := err.(*exec.ExitError); err != nil && !ok {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+// C36, C37
+func TestR88_C36_C37_OldSkillTextNote(t *testing.T) {
+	tmp := t.TempDir()
+	v888 := filepath.Join(tmp, "plumbline")
+	if out, err := exec.Command("go", "build", "-ldflags", "-X main.version=0.8.8", "-o", v888, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v %s", err, out)
+	}
+	home, dir := t.TempDir(), gitRepo(t)
+	cache := filepath.Join(home, "plugins", "cache", "plumbline", "plumbline")
+	root := filepath.Join(cache, "0.8.8")
+	old := filepath.Join(cache, "0.8.4", "skills", "task", "checkpoints.md")
+	q83Write(t, old, "# Checkpoints\n")
+	q83Write(t, filepath.Join(root, "skills", "task", "SKILL.md"), "# Task\n")
+
+	out := r88ReadHook(t, v888, dir, home, root, "s-old", old)
+	for _, want := range []string{"this is Plumbline 0.8.4's skill text, but the hooks are 0.8.8", filepath.Join(root, "skills", "task", "SKILL.md")} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("C36: reading 0.8.4's skill text under a 0.8.8 binary should name the current skill (%q)\n%s", want, out)
+		}
+	}
+	// C37: once per session.
+	if out := r88ReadHook(t, v888, dir, home, root, "s-old", old); strings.Contains(out, "skill text") {
+		t.Fatalf("C37: the note comes once a session\n%s", out)
+	}
+	// C37: the current version's skill text needs no note.
+	cur := filepath.Join(root, "skills", "task", "SKILL.md")
+	if out := r88ReadHook(t, v888, dir, home, root, "s-cur", cur); strings.Contains(out, "skill text") {
+		t.Fatalf("C37: the current version's skill: no note\n%s", out)
+	}
+	// C37: a dev build (not a plain x.y.z) adds no note.
+	if out := r88ReadHook(t, bin, dir, home, root, "s-dev", old); strings.Contains(out, "skill text") {
+		t.Fatalf("C37: a dev build adds no note\n%s", out)
 	}
 }

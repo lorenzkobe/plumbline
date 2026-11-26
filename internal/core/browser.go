@@ -130,6 +130,14 @@ func realData(s *Setup) bool {
 	return s != nil && (s.LocalRealData == nil || *s.LocalRealData)
 }
 
+// realDataWhy: what the real-data asks say about where that comes from.
+func realDataWhy(s *Setup) string {
+	if s != nil && s.LocalRealData != nil {
+		return "your setup says so"
+	}
+	return "your setup doesn't say, so Plumbline assumes it"
+}
+
 // gateBrowser: in the browser, what could save, send or delete asks first
 // when the app uses real data (DATA1, BR1). Looking never asks.
 func (c *hookCtx) gateBrowser() Output {
@@ -140,9 +148,9 @@ func (c *hookCtx) gateBrowser() Output {
 		return nil // the user allowed clicks for this task (CL1)
 	}
 	if c.task != nil && !browserScripts(c.in.ToolName, c.in.Input()) {
-		return c.ask("real-data", "Claude wants to click and type in the app on this laptop, which uses your real account. Allowing it counts for the rest of this task's clicks and typing (page scripts that could change data still ask). Allow only if it won't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
+		return c.ask("real-data", "Claude wants to click and type in the app on this laptop, which may use real data ("+realDataWhy(c.setup)+"), such as your real account. Allowing it counts for the rest of this task's clicks and typing (page scripts that could change data still ask). Allow only if it won't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
 	}
-	return c.ask("real-data", "this could save, send or delete something in the browser, and the app on this laptop uses real data (your real account). Allow only if it can't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
+	return c.ask("real-data", "this could save, send or delete something in the browser, in the app on this laptop, which may use real data ("+realDataWhy(c.setup)+"), such as your real account. Allow only if it can't change anything you care about. (/plumbline:setup can record that the local app uses a test database.)")
 }
 
 // noteBrowserAllowed: a click or typing on real data ran, so the user

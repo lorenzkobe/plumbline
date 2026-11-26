@@ -421,6 +421,10 @@ func Stop(in *HookInput) Output {
 	if c.task.HelperRunning() {
 		return noteOnly(note) // waiting on a background helper is not "done"
 	}
+	if r := liveCheck(c.task, c.setup); c.setupOK && r != nil {
+		// Waiting on a background check is not "done" either (0.8.8).
+		return noteOnly(strings.TrimSpace(note + " " + msg(fmt.Sprintf("a check is still running (%s, started %s): you're told when it ends; then finish.", r.Kind, r.Started.Local().Format("15:04")))))
+	}
 	t := c.task
 	question := endsWithQuestion(in.LastMessage)
 	if question && t.Reported {

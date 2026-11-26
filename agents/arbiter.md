@@ -24,3 +24,5 @@ You are not another full review. Don't look for new problems in code the fixes d
 - Under `## Findings`, list each must-fix that is still open (an old one not fixed, a disputed one you upheld, or one a fix brought in), with its file:line, a backticked quote and `Fails when: <input or state> -> <wrong result>`. Write `- none` when no must-fix is open.
 - Under `## Checked and fine`, list each earlier must-fix you found fixed, and each disputed finding you withdrew, with the file:line that shows it.
 - Only a finding you can show in the code counts. When you can't tell, it stays open: say what would settle it.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

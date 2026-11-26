@@ -3,8 +3,10 @@ package core
 import (
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -1880,13 +1882,27 @@ func listingClean(s Segment) bool {
 	if !s.fed || !s.xargsPlain || s.Dir == "" || !filepath.IsAbs(s.Dir) || len(s.Env) > 0 {
 		return false // GREP_OPTIONS and the like change what grep reads
 	}
-	for _, cmd := range s.feed {
+	for i, cmd := range s.feed {
 		if namesPassed(cmd) || namesFilter(cmd) {
 			continue
 		}
-		paths, ok := namesSource(cmd)
+		var globs []bool
+		if i < len(s.feedGlob) {
+			globs = s.feedGlob[i]
+		}
+		if slices.Contains(globs, true) && slices.Contains(s.Glob, true) {
+			return false // the reader's own pattern is expanded apart from the listing
+		}
+		paths, patterns, ok := namesSource(cmd, globs)
 		if !ok {
 			return false
+		}
+		// A pattern that matches nothing now leaves grep -r on the working
+		// folder under nullglob: count it only when it matches something.
+		for _, g := range patterns {
+			if !shellMatches(filepath.Join(s.Dir, filepath.FromSlash(g))) {
+				return false
+			}
 		}
 		budget := listingWalkMax
 		for _, p := range paths {
@@ -1904,16 +1920,17 @@ func listingClean(s Segment) bool {
 // flag, --files, --regex=, --directories=, -f) keeps the ask. Recursion is
 // only for the listing that starts the line.
 var grepFlags = map[string]struct{ short, long string }{
-	"grep": {"lLiIsHhwxEFa", " --files-with-matches --files-without-match --ignore-case --no-messages --word-regexp --line-regexp --extended-regexp --fixed-strings --text "},
-	"rg":   {"liswFx", " --files-with-matches --files-without-match --ignore-case --smart-case --no-messages --word-regexp --line-regexp --fixed-strings --hidden --no-ignore "},
+	"grep": {"lLiIsHhwxEFan", " --files-with-matches --files-without-match --ignore-case --no-messages --word-regexp --line-regexp --extended-regexp --fixed-strings --text "},
+	"rg":   {"liswFxn", " --files-with-matches --files-without-match --ignore-case --smart-case --no-messages --word-regexp --line-regexp --fixed-strings --hidden --no-ignore "},
 }
 
 // grepWords splits a grep or rg command's words into names-only flags and
 // operands (the pattern, then paths). ok is false for any other flag, an
 // operand that isn't plain text (a variable or substitution, which the
 // parser leaves empty) or holds a pattern character, or a listing that
-// doesn't print names only.
-func grepWords(tool string, args []string, recursive bool) (operands []string, pattern bool, ok bool) {
+// doesn't print names only. globs[i] marks args[i] as an unquoted pattern:
+// when it is a pathGlob it is taken as an operand, and globOps marks it.
+func grepWords(tool string, args []string, recursive bool, globs []bool) (operands []string, globOps []bool, pattern bool, ok bool) {
 	allowed := grepFlags[tool]
 	short := allowed.short
 	if recursive && tool == "grep" {
@@ -1923,20 +1940,29 @@ func grepWords(tool string, args []string, recursive bool) (operands []string, p
 	plain := func(w string) bool {
 		return w != "" && w != "-" && !reNotGlob.MatchString(w) && !strings.ContainsAny(w, "$`{}~")
 	}
+	operand := func(i int) bool {
+		w := args[i]
+		isGlob := i < len(globs) && globs[i] && pathGlob(w)
+		if !isGlob && !plain(w) {
+			return false
+		}
+		operands = append(operands, w)
+		globOps = append(globOps, isGlob)
+		return true
+	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == "--":
-			for _, w := range args[i+1:] {
-				if !plain(w) {
-					return nil, false, false
+			for j := i + 1; j < len(args); j++ {
+				if !operand(j) {
+					return nil, nil, false, false
 				}
-				operands = append(operands, w)
 			}
-			return operands, pattern, names
+			return operands, globOps, pattern, names
 		case a == "-e" || a == "--regexp":
 			if i+1 >= len(args) || !plain(args[i+1]) {
-				return nil, false, false
+				return nil, nil, false, false
 			}
 			i++
 			pattern = true
@@ -1945,7 +1971,7 @@ func grepWords(tool string, args []string, recursive bool) (operands []string, p
 				continue
 			}
 			if !strings.Contains(allowed.long, " "+a+" ") {
-				return nil, false, false
+				return nil, nil, false, false
 			}
 			if a == "--files-with-matches" || a == "--files-without-match" {
 				names = true
@@ -1953,20 +1979,60 @@ func grepWords(tool string, args []string, recursive bool) (operands []string, p
 		case strings.HasPrefix(a, "-") && len(a) > 1:
 			for _, r := range a[1:] {
 				if !strings.ContainsRune(short, r) {
-					return nil, false, false
+					return nil, nil, false, false
 				}
 				if r == 'l' || r == 'L' {
 					names = true
 				}
 			}
 		default:
-			if !plain(a) {
-				return nil, false, false
+			if !operand(i) {
+				return nil, nil, false, false
 			}
-			operands = append(operands, a)
 		}
 	}
-	return operands, pattern, names
+	return operands, globOps, pattern, names
+}
+
+// pathGlob: dir/pattern with * or ? only in the last part, in a folder
+// below the working folder. The other pattern forms ([...], {a,b}, **, ~,
+// an escape) and a pattern with no folder (its names could read as flags)
+// keep the ask.
+// shellMatches: the pattern matches a name the shell's * and ? match too.
+// Go's filepath.Glob also matches dotfiles, which the shell's don't, so a
+// folder holding only .gitkeep would count as a match that the shell drops.
+func shellMatches(pattern string) bool {
+	m, err := filepath.Glob(pattern)
+	if err != nil {
+		return false
+	}
+	for _, f := range m {
+		if !strings.HasPrefix(filepath.Base(f), ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// hasDotDot: a path with a .. element. The kernel follows a link before
+// the .., so cleaning it away judges another folder than the one read.
+func hasDotDot(p string) bool {
+	return slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..")
+}
+
+func pathGlob(w string) bool {
+	dir, last := path.Split(w)
+	if dir == "" || last == "" || strings.HasPrefix(w, "-") || !strings.ContainsAny(last, "*?") {
+		return false
+	}
+	if strings.HasPrefix(last, ".") {
+		return false // .* and .? match . and .. in bash before 5.2
+	}
+	if strings.ContainsAny(w, "[\\{}~$` \t\n\r\"'") || strings.Contains(w, "**") || strings.ContainsAny(dir, "*?") {
+		return false
+	}
+	d := filepath.Clean(dir)
+	return !filepath.IsAbs(d) && !climbsOut(d)
 }
 
 func grepTool(word string) string {
@@ -1981,33 +2047,48 @@ func grepTool(word string) string {
 
 // namesSource: grep -rl PATTERN PATH... (or rg -l): the paths it lists
 // names under. None named means the working folder, which isn't checked.
-func namesSource(cmd []string) ([]string, bool) {
+// A dir/*.ext operand stands for the folder above it, which holds
+// everything the pattern can match; globs marks the unquoted patterns.
+func namesSource(cmd []string, globs []bool) (paths, patterns []string, ok bool) {
 	if len(cmd) < 2 {
-		return nil, false
+		return nil, nil, false
 	}
 	tool := grepTool(cmd[0])
 	if tool == "" {
-		return nil, false
+		return nil, nil, false
 	}
-	ops, pattern, ok := grepWords(tool, cmd[1:], true)
-	if !ok {
-		return nil, false
+	var argGlobs []bool
+	if len(globs) > 1 {
+		argGlobs = globs[1:]
+	}
+	ops, globOps, pattern, plain := grepWords(tool, cmd[1:], true, argGlobs)
+	if !plain {
+		return nil, nil, false
 	}
 	if !pattern {
-		if len(ops) == 0 {
-			return nil, false
+		if len(ops) == 0 || globOps[0] {
+			return nil, nil, false
 		}
-		ops = ops[1:]
+		ops, globOps = ops[1:], globOps[1:]
 	}
 	if len(ops) == 0 {
-		return nil, false
+		return nil, nil, false
 	}
-	for _, p := range ops {
-		if filepath.IsAbs(p) || climbsOut(filepath.Clean(p)) {
-			return nil, false
+	paths = make([]string, len(ops))
+	for i, p := range ops {
+		if hasDotDot(p) {
+			return nil, nil, false // a .. after a link climbs from the link's target
 		}
+		if globOps[i] {
+			patterns = append(patterns, p)
+			p = path.Dir(p)
+		}
+		if filepath.IsAbs(p) || climbsOut(filepath.Clean(p)) {
+			return nil, nil, false
+		}
+		paths[i] = p
 	}
-	return ops, true
+	return paths, patterns, true
 }
 
 // namesFilter: xargs grep -l PATTERN (or rg -l), which prints only the fed
@@ -2031,7 +2112,7 @@ func namesFilter(cmd []string) bool {
 	if tool == "" {
 		return false
 	}
-	ops, pattern, ok := grepWords(tool, cmd[i+1:], false)
+	ops, _, pattern, ok := grepWords(tool, cmd[i+1:], false, nil)
 	if !ok {
 		return false
 	}

@@ -6,7 +6,6 @@ package core
 // and CleanCopies.
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -1174,15 +1173,9 @@ func TestF87_C34_DocsDescribe087(t *testing.T) {
 		must(t, err)
 		return string(b)
 	}
-	var pj struct {
-		Version string `json:"version"`
-	}
-	must(t, json.Unmarshal([]byte(readTop(".claude-plugin/plugin.json")), &pj))
-	if pj.Version != "0.8.7" {
-		t.Errorf("plugin.json version %q", pj.Version)
-	}
-	if l := f87Line(readTop("CHANGELOG.md"), "## "); !strings.HasPrefix(l, "## 0.8.7") {
-		t.Errorf("CHANGELOG's newest entry: %q", l)
+	// plugin.json and the newest entry moved on with 0.8.8 (review088_test.go).
+	if !strings.Contains(readTop("CHANGELOG.md"), "\n## 0.8.7") {
+		t.Error("CHANGELOG has no 0.8.7 entry")
 	}
 	checks := map[string][]string{
 		"skills/task/SKILL.md":        {"codemod", "plumbline status", "tracer"},

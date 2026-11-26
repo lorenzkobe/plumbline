@@ -23,3 +23,5 @@ Your findings file is the one file you change: create it with Write, then change
 - What the loosened guard was the only guard for (another command, another path) that loses its check.
 - A git or tool error, or empty output, read as "allowed".
 - Mark each finding must-fix or should-fix. A must-fix says `Fails when: <shape or state> -> <what runs without the check>`. Write "Suggest: <the change to the plan>" for the fix.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

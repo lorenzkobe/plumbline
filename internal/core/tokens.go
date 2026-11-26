@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -161,9 +162,29 @@ func (t *Task) TokenTotal() (TokenCount, bool) {
 	return total, len(t.Tokens) > 0
 }
 
-// LogTokens logs a closed task's token use, when any was counted.
+// LogTokens logs a closed task's token use, when any was counted, with a
+// total per helper kind (a helper no run explains goes under "other").
 func LogTokens(t *Task, project string) {
-	if tc, ok := t.TokenTotal(); ok {
-		LogEvent(Event{Type: "tokens", Task: t.ID, Size: t.Size, Project: project, Tokens: &tc})
+	tc, ok := t.TokenTotal()
+	if !ok {
+		return
 	}
+	var byKind map[string]TokenCount
+	for key, c := range t.Tokens {
+		id, isAgent := strings.CutPrefix(key, "agent:")
+		if !isAgent {
+			continue
+		}
+		kind := "other"
+		if r := t.runByAgent(id); r != nil && r.Kind != "" {
+			kind = r.Kind
+		}
+		if byKind == nil {
+			byKind = map[string]TokenCount{}
+		}
+		sum := byKind[kind]
+		sum.Add(c)
+		byKind[kind] = sum
+	}
+	LogEvent(Event{Type: "tokens", Task: t.ID, Size: t.Size, Project: project, Tokens: &tc, HelperTokens: byKind})
 }

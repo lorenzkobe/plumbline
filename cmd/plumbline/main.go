@@ -26,6 +26,7 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	core.Version = version
 	args := os.Args[2:]
 	if os.Args[1] != "hook" && asksHelp(args) {
 		usage() // --help on a subcommand must not run it (RP1)
@@ -791,6 +792,10 @@ func runChecks(args []string) (int, error) {
 				label = "test (related)"
 			}
 		}
+		if (c.name == "lint" || c.name == "build") && building != nil && !final && building.FixRound() && !core.LastRunFailed(runs, building.ID, c.name) {
+			summary = append(summary, c.name+": runs at --final (fix round)")
+			continue
+		}
 		if c.name != "test" && building != nil && core.CheckCarries(building, s, runs, c.name, fp) {
 			summary = append(summary, c.name+": PASS (it passed in this task, and only files it doesn't read changed since)")
 			continue
@@ -815,6 +820,11 @@ func runChecks(args []string) (int, error) {
 		return 0, errors.New("no checks are saved for this project (run /plumbline:setup)")
 	}
 	fmt.Printf("\nplumbline: checks: %s\n", strings.Join(summary, ", "))
+	if exit == 0 && building != nil {
+		if now, err := core.Fingerprint(root, s.IgnoreChanges); err == nil && !core.SelfReviewCurrent(building, s, now) {
+			fmt.Println("plumbline: next: write self-review.md (Write or Edit), then start the reviewers")
+		}
+	}
 	return exit, nil
 }
 
@@ -914,6 +924,15 @@ func cmdStatus(args []string) error {
 		}
 		if r := core.RequiredReviewers(t, s); len(r) > 0 {
 			fmt.Println("Reviewers needed:", strings.Join(r, ", "))
+		}
+		if open := core.StillOpen(t); len(open) > 0 {
+			var parts []string
+			for _, k := range core.ReviewerKinds {
+				if n := open[k]; n > 0 {
+					parts = append(parts, fmt.Sprintf("%s %d", k, n))
+				}
+			}
+			fmt.Println("Findings still open from an earlier review run:", strings.Join(parts, ", "))
 		}
 		miss := core.FinishMissing(t, s)
 		if len(miss) == 0 {

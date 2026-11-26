@@ -39,6 +39,9 @@ type Segment struct {
 	// first (nil when not known); a word not known is "".
 	fed  bool
 	feed [][]string
+	// feedGlob[i][j]: feed[i][j] is an unquoted pattern as written. Nil
+	// where the listing is made by find or fd.
+	feedGlob [][]bool
 	// xargsPlain: the xargs that feeds it has no options but -0 and -r, so
 	// its names are the listing's lines as they are.
 	xargsPlain bool
@@ -89,7 +92,7 @@ func (s Segment) unknownArgs() bool { return s.MoreArgs || s.dynArgs() }
 // tail returns the segment's words from i on as a new segment that runs in
 // the same place (a wrapper's inner command).
 func (s Segment) tail(i int, via string) Segment {
-	in := Segment{Dir: s.Dir, Piped: s.Piped, Stdin: s.Stdin, stdinUnknown: s.stdinUnknown, Via: via, MoreArgs: s.MoreArgs, Exported: s.Exported, Shown: s.Shown, fed: s.fed, feed: s.feed}
+	in := Segment{Dir: s.Dir, Piped: s.Piped, Stdin: s.Stdin, stdinUnknown: s.stdinUnknown, Via: via, MoreArgs: s.MoreArgs, Exported: s.Exported, Shown: s.Shown, fed: s.fed, feed: s.feed, feedGlob: s.feedGlob}
 	in.Env = append(in.Env, s.Env...)
 	in.Redirects = append(in.Redirects, s.Redirects...)
 	in.Inputs = append(in.Inputs, s.Inputs...)
@@ -303,7 +306,12 @@ func (w *walker) visit(n syntax.Node) bool {
 		}
 	case *syntax.WhileClause:
 		w.forgetAssigned(n)
-	case *syntax.ArithmExp, *syntax.ArithmCmd, *syntax.LetClause:
+	case *syntax.ArithmExp:
+		w.pc.arith = true
+		if !w.pureArith(n) {
+			w.forgetAll()
+		}
+	case *syntax.ArithmCmd, *syntax.LetClause:
 		w.pc.arith = true
 		w.forgetAll()
 	case *syntax.TestClause:
@@ -472,11 +480,28 @@ func (w *walker) combos(ce *syntax.CallExpr, st *syntax.Stmt) []map[string]strin
 	}
 	used := []string{}
 	seen := map[string]bool{}
+	add := func(name string) {
+		if len(w.vars[name]) > 1 && !seen[name] {
+			seen[name] = true
+			used = append(used, name)
+		}
+	}
 	look := func(n syntax.Node) {
 		syntax.Walk(n, func(x syntax.Node) bool {
-			if p, ok := x.(*syntax.ParamExp); ok && p.Param != nil && len(w.vars[p.Param.Value]) > 1 && !seen[p.Param.Value] {
-				seen[p.Param.Value] = true
-				used = append(used, p.Param.Value)
+			switch x := x.(type) {
+			case *syntax.ParamExp:
+				if x.Param != nil {
+					add(x.Param.Value)
+				}
+			case *syntax.ArithmExp:
+				syntax.Walk(x, func(y syntax.Node) bool {
+					if wd, ok := y.(*syntax.Word); ok {
+						if name, ok := arithName(wd); ok {
+							add(name)
+						}
+					}
+					return true
+				})
 			}
 			return true
 		})
@@ -589,7 +614,7 @@ func (w *walker) segment(ce *syntax.CallExpr, st *syntax.Stmt, piped bool, b map
 		w.redirects(&s, st.Redirs, b)
 	}
 	if piped {
-		s.feed = w.upstream(b)
+		s.feed, s.feedGlob = w.upstream(b)
 	}
 	if len(s.Words) > 0 && (s.Dyn[0] || s.Glob[0]) {
 		if !knownName(ce.Args[0]) || s.Glob[0] {
@@ -623,8 +648,9 @@ func (w *walker) shown() bool {
 
 // upstream lists the commands piped into the one being visited, nearest
 // first, with their words as far as they are known.
-func (w *walker) upstream(b map[string]string) [][]string {
+func (w *walker) upstream(b map[string]string) ([][]string, [][]bool) {
 	var out [][]string
+	var globs [][]bool
 	for i := len(w.stack) - 2; i >= 2; i -= 2 {
 		st, ok := w.stack[i].(*syntax.Stmt)
 		bin, isBin := w.stack[i-1].(*syntax.BinaryCmd)
@@ -632,38 +658,44 @@ func (w *walker) upstream(b map[string]string) [][]string {
 			break
 		}
 		if bin.Y == st {
-			cmds := w.pipeCmds(bin.X, b)
+			cmds, gl := w.pipeCmds(bin.X, b)
 			for j := len(cmds) - 1; j >= 0; j-- {
 				out = append(out, cmds[j])
+				globs = append(globs, gl[j])
 			}
 		}
 	}
-	return out
+	return out, globs
 }
 
 // pipeCmds: the commands of a pipeline, left to right. Anything but a
 // plain command (a subshell, a loop) is nil: what it prints isn't known.
-func (w *walker) pipeCmds(st *syntax.Stmt, b map[string]string) [][]string {
+func (w *walker) pipeCmds(st *syntax.Stmt, b map[string]string) ([][]string, [][]bool) {
 	switch c := st.Cmd.(type) {
 	case *syntax.CallExpr:
 		var words []string
+		var globs []bool
 		if len(c.Assigns) > 0 {
 			words = append(words, "") // an env prefix (GREP_OPTIONS) changes what it does: not known
+			globs = append(globs, false)
 		}
 		for _, a := range c.Args {
-			v, lit, _ := wordValue(a, w.dir, b)
+			v, lit, glob := wordValue(a, w.dir, b)
 			if !lit {
 				v = ""
 			}
 			words = append(words, v)
+			globs = append(globs, lit && glob && hasGlob(v))
 		}
-		return [][]string{words}
+		return [][]string{words}, [][]bool{globs}
 	case *syntax.BinaryCmd:
 		if c.Op == syntax.Pipe || c.Op == syntax.PipeAll {
-			return append(w.pipeCmds(c.X, b), w.pipeCmds(c.Y, b)...)
+			xc, xg := w.pipeCmds(c.X, b)
+			yc, yg := w.pipeCmds(c.Y, b)
+			return append(xc, yc...), append(xg, yg...)
 		}
 	}
-	return [][]string{nil}
+	return [][]string{nil}, [][]bool{nil}
 }
 
 // stdoutAway: a redirect sends standard output to a file (/dev/null too).
@@ -937,6 +969,16 @@ func wordValue(w *syntax.Word, dir string, b map[string]string) (val string, lit
 			lit = false
 		}
 	}
+	arith := func(a *syntax.ArithmExp) {
+		if n, ok := arithValue(a, func(name string) (int64, bool) {
+			v, ok := knownVar(name, dir, b)
+			return parseArithInt(v, ok)
+		}); ok {
+			sb.WriteString(strconv.FormatInt(n, 10))
+		} else {
+			lit = false
+		}
+	}
 	for i, p := range w.Parts {
 		switch p := p.(type) {
 		case *syntax.Lit:
@@ -966,12 +1008,16 @@ func wordValue(w *syntax.Word, dir string, b map[string]string) (val string, lit
 					sb.WriteString(unescapeDouble(q.Value))
 				case *syntax.ParamExp:
 					param(q)
+				case *syntax.ArithmExp:
+					arith(q)
 				default:
 					lit = false
 				}
 			}
 		case *syntax.ParamExp:
 			param(p)
+		case *syntax.ArithmExp:
+			arith(p)
 		case *syntax.ExtGlob:
 			glob = true
 			lit = false
@@ -983,6 +1029,143 @@ func wordValue(w *syntax.Word, dir string, b map[string]string) (val string, lit
 		return printWord(w), false, glob
 	}
 	return sb.String(), true, glob
+}
+
+var reArithName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// arithName: a word that is one variable name, written bare or with a $.
+func arithName(w *syntax.Word) (string, bool) {
+	if len(w.Parts) != 1 {
+		return "", false
+	}
+	switch p := w.Parts[0].(type) {
+	case *syntax.Lit:
+		return p.Value, reArithName.MatchString(p.Value)
+	case *syntax.ParamExp:
+		if simpleParam(p) && reArithName.MatchString(p.Param.Value) {
+			return p.Param.Value, true
+		}
+	}
+	return "", false
+}
+
+// arithBound keeps every result well inside int64, so no product wraps.
+const arithBound = 1_000_000_000_000_000
+
+var reArithInt = regexp.MustCompile(`^(0|[1-9][0-9]{0,14})$`)
+
+// parseArithInt reads a plain decimal integer: no leading 0 (octal), 0x or
+// base#, which the shell reads differently.
+func parseArithInt(v string, known bool) (int64, bool) {
+	if !known {
+		return 0, false
+	}
+	neg := strings.HasPrefix(v, "-")
+	if neg {
+		v = v[1:]
+	}
+	if !reArithInt.MatchString(v) || neg && v == "0" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if neg {
+		n = -n
+	}
+	return n, true
+}
+
+// arithValue evaluates $((...)) when it is only integers and variables
+// name resolves, joined by + - * / % and parentheses, with unary + and -.
+// Anything else (an assignment, ++, --, a comma, ?:, a bit operator, a
+// division by zero) is not known.
+func arithValue(a *syntax.ArithmExp, name func(string) (int64, bool)) (int64, bool) {
+	if a.Unsigned {
+		return 0, false
+	}
+	return arithEval(a.X, name)
+}
+
+func arithEval(x syntax.ArithmExpr, name func(string) (int64, bool)) (int64, bool) {
+	var n int64
+	ok := true
+	switch x := x.(type) {
+	case *syntax.Word:
+		nm, isName := arithName(x)
+		switch {
+		case isName:
+			n, ok = name(nm)
+		case len(x.Parts) == 1:
+			l, isLit := x.Parts[0].(*syntax.Lit)
+			if !isLit {
+				return 0, false
+			}
+			n, ok = parseArithInt(l.Value, true)
+		default:
+			return 0, false
+		}
+	case *syntax.ParenArithm:
+		n, ok = arithEval(x.X, name)
+	case *syntax.UnaryArithm:
+		if x.Post || x.Op != syntax.Plus && x.Op != syntax.Minus {
+			return 0, false
+		}
+		n, ok = arithEval(x.X, name)
+		if x.Op == syntax.Minus {
+			n = -n
+		}
+	case *syntax.BinaryArithm:
+		l, lok := arithEval(x.X, name)
+		r, rok := arithEval(x.Y, name)
+		if !lok || !rok {
+			return 0, false
+		}
+		switch x.Op {
+		case syntax.Add:
+			n = l + r
+		case syntax.Sub:
+			n = l - r
+		case syntax.Mul:
+			n = l * r
+			if l != 0 && n/l != r {
+				return 0, false
+			}
+		case syntax.Quo, syntax.Rem:
+			if r == 0 {
+				return 0, false
+			}
+			n = l / r
+			if x.Op == syntax.Rem {
+				n = l % r
+			}
+		default:
+			return 0, false
+		}
+	default:
+		return 0, false
+	}
+	return n, ok && n > -arithBound && n < arithBound
+}
+
+// pureArith: the expansion can't assign, so the variables stay as they
+// were. Each name in it must be a variable this line gave only integer
+// values, since a value like "y=3" would be run as an expression.
+func (w *walker) pureArith(a *syntax.ArithmExp) bool {
+	if w.inFunc > 0 {
+		return false
+	}
+	_, ok := arithValue(a, func(name string) (int64, bool) {
+		vals := w.vars[name]
+		for _, v := range vals {
+			if _, ok := parseArithInt(v, true); !ok {
+				return 0, false
+			}
+		}
+		return 1, len(vals) > 0
+	})
+	return ok
 }
 
 func printWord(w *syntax.Word) string {
@@ -1651,7 +1834,7 @@ func unwrapXargs(s Segment, depth int, pc *parseCtx) []Segment {
 		in.Redirects, in.Env, in.Inputs, in.Stdin, in.Piped = nil, nil, nil, nil, false
 	}
 	in.Via = "xargs"
-	in.fed, in.feed = true, s.feed
+	in.fed, in.feed, in.feedGlob = true, s.feed, s.feedGlob
 	// Plain: names only from the pipe (no < file, here-string or heredoc on
 	// this xargs, and not itself fed by another xargs), cut at blanks.
 	in.xargsPlain = !s.fed && len(s.Inputs) == 0 && s.Stdin == nil && !s.stdinUnknown

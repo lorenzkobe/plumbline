@@ -17,10 +17,12 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change (`git diff <base>` plus new files), the schema it changes and the queries that use it.
 4. Go through the shared checklist, then your focus, and write your findings.
-5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, with its label.
+5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, label first, then "still open from run <n>:" (`- [90] must-fix: still open from run 1: ...`).
 
 ## Your focus: could it lose, corrupt or slow down data?
 - Migrations: safe on a full production table (locks, defaults on big tables, backfills), reversible, and in step with the code that needs them.
 - Integrity: transactions around multi-step writes, partial updates, unique constraints, races between two requests.
 - Queries: N+1 queries, missing indexes for new filters, unbounded results, work inside loops.
 - Money math: floats for money, rounding, currency, totals that don't add up.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

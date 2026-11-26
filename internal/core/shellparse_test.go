@@ -222,3 +222,60 @@ func TestTrivialProof(t *testing.T) {
 		}
 	}
 }
+
+func TestArithmeticWordsAreKnownOnlyWhenPlainIntegers(t *testing.T) {
+	arg := func(cmd string) (string, bool) {
+		s := ParseShell(cmd, "/w")
+		last := s[len(s)-1]
+		return last.Words[len(last.Words)-1], last.Dyn[len(last.Dyn)-1]
+	}
+	for cmd, want := range map[string]string{
+		`for l in 8851 9052; do echo "$((l-25)),$((l+30))p"; done`: "9027,9082p",
+		`n=7; echo $((n*(2+3)-4/2%3))`:                             "33",
+		`echo $((-3 + +5))`:                                        "2",
+		`echo $[2*3]`:                                              "6",
+		`n=-4; echo $((n/3))`:                                      "-1",
+	} {
+		if got, dyn := arg(cmd); dyn || got != want {
+			t.Errorf("%s: %q (dyn %v), want %q", cmd, got, dyn, want)
+		}
+	}
+	for _, cmd := range []string{
+		`echo $((x+1))`, `n=0; echo $((1/n))`, `n=09; echo $((n+1))`, `n=1; echo $((n++))`,
+		`echo $((1,2))`, `echo $((2**3))`, `echo $((1000000000*1000000000))`, `echo $((010))`,
+	} {
+		if got, dyn := arg(cmd); !dyn {
+			t.Errorf("%s: %q should not be known", cmd, got)
+		}
+	}
+}
+
+func TestPureArithmeticKeepsVariablesOthersForgetThem(t *testing.T) {
+	last := func(cmd string) (string, bool) {
+		s := ParseShell(cmd, "/w")
+		l := s[len(s)-1]
+		return l.Words[len(l.Words)-1], l.Dyn[len(l.Dyn)-1]
+	}
+	if got, dyn := last(`n=3; echo $((n+1)); echo $n`); dyn || got != "3" {
+		t.Errorf("a pure expansion keeps n: %q (dyn %v)", got, dyn)
+	}
+	if _, dyn := last(`n=3; echo $((n=5)); echo $n`); !dyn {
+		t.Error("an assigning expansion forgets n")
+	}
+	if _, dyn := last(`n='m=5'; m=1; echo $((n)); echo $m`); !dyn {
+		t.Error("a name holding an expression forgets the variables")
+	}
+}
+
+func TestPathGlobAcceptsOnlyAPatternInTheLastPartOfAFolder(t *testing.T) {
+	for w, want := range map[string]bool{
+		"supabase/migrations/*.sql": true, "a/b/00?_x.sql": true, "./*.sql": true,
+		"*.sql": false, "a/*/x.sql": false, "a/**/x.sql": false, "a/[ab].sql": false, "a/{a,b}.sql": false,
+		"/abs/*.sql": false, "../a/*.sql": false, "a/../../b/*.sql": false, "-d/*.sql": false,
+		"a/~*.sql": false, `a/\*.sql`: false, "a/x y/*.sql": false, "a/x.sql": false, "a/": false,
+	} {
+		if got := pathGlob(w); got != want {
+			t.Errorf("pathGlob(%q) = %v, want %v", w, got, want)
+		}
+	}
+}

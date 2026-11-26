@@ -106,6 +106,11 @@ func PostToolUse(in *HookInput) Output {
 				}
 			}
 		}
+		if in.AgentID == "" {
+			if note := oldSkillNote(in.SessionID, in.Str("file_path")); note != "" {
+				return Context("PostToolUse", note)
+			}
+		}
 	case in.ToolName == "Edit" || in.ToolName == "Write" || in.ToolName == "MultiEdit" || in.ToolName == "NotebookEdit":
 		p := in.Str("file_path")
 		if p == "" {

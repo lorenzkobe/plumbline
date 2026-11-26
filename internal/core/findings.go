@@ -156,7 +156,7 @@ func (t *Task) quoteProblem(item string) string {
 		}
 	}
 	if !found {
-		return fmt.Sprintf("%s: no such file in the repo, now or at the task's start (cite it from the repo root)", refs[0].Path)
+		return fmt.Sprintf("%s: no such file in the repo, now or at the task's start: cite it by its full path from the repo's top, e.g. src/app/api/x/route.ts:12, not route.ts:12", refs[0].Path)
 	}
 	return fmt.Sprintf("%s:%d: the quote isn't within %d lines of the cited line; open the file and cite the line the quote is on", refs[0].Path, refs[0].Line, quoteWindow)
 }
@@ -306,6 +306,24 @@ var (
 	reFailsWhen      = regexp.MustCompile(`(?i)\bfails when\b[*_]*\s*:[*_]*`)
 )
 
+// StillOpen: per reviewer kind, the labelled findings in its last finished
+// review that it carried from an earlier run ("still open from run <n>:").
+func StillOpen(t *Task) map[string]int {
+	out := map[string]int{}
+	for _, k := range ReviewerKinds {
+		last := t.lastFinished(k)
+		if last == nil {
+			continue
+		}
+		for _, it := range labelItems(t.findingsText(*last)) {
+			if strings.Contains(strings.ToLower(it), "still open from run") {
+				out[k]++
+			}
+		}
+	}
+	return out
+}
+
 func labelItems(text string) []string {
 	var lines []string
 	level := 0
@@ -399,20 +417,21 @@ func (c *hookCtx) laterRunNote(kind string, n int) string {
 	if kind == HelperChallenger || kind == HelperGuard {
 		return fmt.Sprintf(" Do a fresh pass first, as if this were your first run, and write those findings. Only then open your earlier findings (%s) and check whether each was really answered.", prev)
 	}
-	again := " An earlier finding that wasn't fixed goes in this run's findings again, with its label."
+	var last *HelperRun
+	carried := n - 1 // the run whose findings it opens: the last that counted
+	for i := n - 2; i >= 0; i-- {
+		if t.counts(runs[i]) {
+			last, carried = &runs[i], i+1
+			break
+		}
+	}
+	again := fmt.Sprintf(" An earlier finding that wasn't fixed goes in this run's findings again, with its label, then \"still open from run %d:\" (- [90] must-fix: still open from run %d: ...).", carried, carried)
 	fresh := func(findings, list string) string {
 		s := " Do a fresh pass first, as if this were your first run, and write those findings."
 		if list != "" {
 			s += " Files changed since that run: " + list + "."
 		}
 		return s + fmt.Sprintf(" Only then open your earlier findings (%s) and check whether each was really fixed.", findings) + again
-	}
-	var last *HelperRun
-	for i := n - 2; i >= 0; i-- {
-		if t.counts(runs[i]) {
-			last = &runs[i]
-			break
-		}
 	}
 	if last == nil {
 		return fresh(prev, "")

@@ -598,7 +598,7 @@ func (c *hookCtx) gateHelperStart(kind string) Output {
 			}
 		}
 		if why := c.selfReviewProblem(fp, fpErr); why != "" {
-			return c.deny("self-review", why)
+			return c.deny("self-review", shortRepeat(c.in.SessionID, why))
 		}
 	}
 	prompt, _ := c.in.Input()["prompt"].(string)
@@ -648,7 +648,18 @@ func (c *hookCtx) reviewStillHolds(kind, fp string, err error) string {
 		return fmt.Sprintf("the %s's last review (%s) still counts: only tests or docs changed since. After such a fix only the code reviewer looks again (it watches for weakened tests); plumbline status lists the reviews still needed.", kind, last.Findings)
 	}
 	if cleanCarries(t, c.setup, kind, last, fp) {
-		return fmt.Sprintf("the %s's last review (%s) found nothing and still counts: since then only files the other reviewers cited (and tests) changed, none of them its kind of file or code; plumbline status lists the reviews still needed.", kind, last.Findings)
+		return fmt.Sprintf("the %s's last review (%s) had no must-fix and still counts: since then only files the other reviewers cited (and tests) changed, none of them its kind of file or code%s; plumbline status lists the reviews still needed.", kind, last.Findings, reachChecked(t, *last))
+	}
+	return ""
+}
+
+// reachChecked: the carry message names the Reach check only when it ran,
+// for a review with should-fix findings.
+func reachChecked(t *Task, last HelperRun) string {
+	for _, it := range findingItems(t.findingsText(last), "findings") {
+		if !strictNone(it) {
+			return ", nor anything self-review.md's ## Reach named since"
+		}
 	}
 	return ""
 }
@@ -710,22 +721,8 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		if c.task != nil {
 			run = c.task.runByAgent(in.AgentID)
 		}
-		if run != nil && abs == Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
-			// The name as given, not resolved: a link or a second name at the
-			// findings path would change another file (0.8.7).
-			raw := p
-			if !filepath.IsAbs(raw) {
-				raw = filepath.Join(in.Cwd, raw)
-			}
-			raw = filepath.Clean(raw)
-			fi, err := os.Lstat(raw)
-			plain := err == nil && fi.Mode().IsRegular() && plainFile(raw) && filepath.Base(raw) == run.Findings
-			switch {
-			case in.ToolName == "Write" && (os.IsNotExist(err) || plain):
-				return allow("helper findings")
-			case (in.ToolName == "Edit" || in.ToolName == "MultiEdit") && plain:
-				return allow("helper findings")
-			}
+		if c.ownNotesWrite(run, p) {
+			return allow("helper findings")
 		}
 		if kind == HelperQA {
 			return c.qaEdit(run, abs)
@@ -773,6 +770,31 @@ func (c *hookCtx) gateHelper(kind string) Output {
 		return c.reviewerNotes(kind, mcpPath(in.Input()), true)
 	}
 	return nil
+}
+
+// ownNotesWrite: Write, Edit or MultiEdit of the helper's own findings or
+// notes file. The name as given is checked, not resolved: a link or a second
+// name at that path would change another file (0.8.7; builders 0.8.8).
+// Write may also create it.
+func (c *hookCtx) ownNotesWrite(run *HelperRun, p string) bool {
+	in := c.in
+	if run == nil || c.task == nil || p == "" || Abs(p, in.Cwd) != Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
+		return false
+	}
+	raw := p
+	if !filepath.IsAbs(raw) {
+		raw = filepath.Join(in.Cwd, raw)
+	}
+	raw = filepath.Clean(raw)
+	fi, err := os.Lstat(raw)
+	plain := err == nil && fi.Mode().IsRegular() && plainFile(raw) && filepath.Base(raw) == run.Findings
+	switch in.ToolName {
+	case "Write":
+		return os.IsNotExist(err) || plain
+	case "Edit", "MultiEdit":
+		return plain
+	}
+	return false
 }
 
 func (c *hookCtx) helperBash(kind, cmd string) Output {
@@ -921,6 +943,7 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 	}
 	data := Abs(DataDir(), "/")
 	abs := Abs(path, c.in.Cwd) // resolves symlinks, so /tmp and /private/tmp match
+	full := abs
 	pattern := false
 	if i := strings.IndexAny(abs, "*?["); i >= 0 {
 		abs, pattern = filepath.Dir(abs[:i]+"x"), true
@@ -934,6 +957,9 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 	// A search or a pattern starting above the data folder can reach into it.
 	above := (tree || pattern) && isInsideFold(data, abs)
 	if !inside && !above {
+		return nil
+	}
+	if inside && pattern && c.task != nil && qaTestsPath(Abs(TaskDocsDir(c.task.Root, c.task.ID), "/"), full) {
 		return nil
 	}
 	if inside && !pattern && c.task != nil {
@@ -958,7 +984,52 @@ func (c *hookCtx) reviewerNotes(kind, path string, tree bool) Output {
 	if kind == HelperArbiter {
 		return c.deny("reviewer-own-notes", fmt.Sprintf("in the notes folder the arbiter reads only %s, %s, the reviewers' findings and disputes files, and its own findings, not the report or self-review.md. Read the code and the diff for the rest.", DocPlan, DocUnderstanding))
 	}
-	return c.deny("reviewer-own-notes", fmt.Sprintf("each review stays independent: in the notes folder the %s reads only %s, %s and its own earlier findings, not other reviewers' findings or the report. Read the code and the diff for the rest.", kind, DocUnderstanding, DocPlan))
+	return c.deny("reviewer-own-notes", fmt.Sprintf("each review stays independent: in the notes folder the %s reads only %s, %s, its own earlier findings and blind QA's tests as QA wrote them (under qa-<n>-tests/, named by full path), not other reviewers' findings or the report. Read the code and the diff for the rest.", kind, DocUnderstanding, DocPlan))
+}
+
+// qaTestsPath: a path into blind QA's kept tests whose names hold pattern
+// characters: a route folder like [id], or a qa-*-tests glob. It is read
+// only when everything it can match stays in a qa-N-tests folder. abs is
+// already cleaned, so a ../ climbing out shows as another first part.
+func qaTestsPath(docs, abs string) bool {
+	rel, err := filepath.Rel(docs, abs)
+	if err != nil || rel == "." || climbsOut(rel) {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	first := parts[0]
+	for i, p := range parts[1:] {
+		// .* and [.][.] can expand to .. in bash before 5.2; a bracket
+		// part counts only as a folder that is really named that way.
+		if !reNotGlob.MatchString(p) {
+			continue
+		}
+		if strings.HasPrefix(p, ".") {
+			return false
+		}
+		if strings.HasPrefix(p, "[") {
+			if fi, err := os.Lstat(filepath.Join(append([]string{docs}, parts[:i+2]...)...)); err != nil || !fi.IsDir() {
+				return false
+			}
+		}
+	}
+	if reQATestsDir.MatchString(first) {
+		return true
+	}
+	if !reNotGlob.MatchString(first) || !strings.HasPrefix(first, "qa-") || !strings.HasSuffix(first, "-tests") {
+		return false
+	}
+	entries, err := os.ReadDir(docs)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		ok, err := filepath.Match(first, e.Name())
+		if err != nil || ok && !(e.IsDir() && reQATestsDir.MatchString(e.Name())) {
+			return false
+		}
+	}
+	return true
 }
 
 // SubagentStart records a helper run and tells the helper where its notes
@@ -1131,7 +1202,7 @@ func writeHint(kind string) string {
 
 // quoteRule: how a cited line is quoted, said up front so findings aren't
 // sent back for it (HLP1).
-const quoteRule = " Every file:line you cite needs a few words of that line in backticks right after it, for example (src/a.ts:12 `return total`): Plumbline checks the quote is within 3 lines and sends the file back if not."
+const quoteRule = " Every file:line you cite, by its full path from the repo's top, needs a few words of that line in backticks right after it, for example (src/a.ts:12 `return total`): Plumbline checks the quote is within 3 lines and sends the file back if not."
 
 // stopReason: what a helper must do before it stops or hands back, or "".
 func stopReason(t *Task, run *HelperRun, missing bool, problems []string, verb string) string {

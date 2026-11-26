@@ -15,6 +15,33 @@ type SelfReview struct {
 	Print string    `json:"print"`
 	Hash  string    `json:"hash"`
 	At    time.Time `json:"at"`
+	// Reach: the paths each recorded self-review's ## Reach named, oldest
+	// first, kept across rewrites so a carried review sees every fix since
+	// it, not only the newest (0.8.8).
+	Reach []ReachEntry `json:"reach,omitempty"`
+}
+
+type ReachEntry struct {
+	At    time.Time `json:"at"`
+	Paths []string  `json:"paths,omitempty"`
+}
+
+// reachPaths: the words of ## Reach that name a path (a slash or a file
+// extension), without quotes, punctuation or a :line.
+func reachPaths(text string) []string {
+	var out []string
+	for _, line := range Section(text, "Reach") {
+		for _, w := range strings.Fields(line) {
+			w = strings.Trim(w, "`'\"()[],;:.*")
+			if i := strings.Index(w, ":"); i > 0 {
+				w = w[:i] // src/a.tsx:12
+			}
+			if w != "" && (strings.Contains(w, "/") || filepath.Ext(w) != "") {
+				out = append(out, filepath.ToSlash(w))
+			}
+		}
+	}
+	return out
 }
 
 func selfReviewPath(t *Task) string {
@@ -38,7 +65,13 @@ func (c *hookCtx) afterSelfReview(abs string) Output {
 	if h == "" || err != nil || fp == "" {
 		return Context("PostToolUse", msg(fmt.Sprintf("%s isn't recorded: Plumbline couldn't read it or the code's state (%v). Write it again.", DocSelfReview, err)))
 	}
-	t.SelfReview = &SelfReview{Print: fp, Hash: h, At: Now()}
+	var reach []ReachEntry
+	if t.SelfReview != nil {
+		reach = t.SelfReview.Reach
+	}
+	now := Now()
+	reach = append(reach, ReachEntry{At: now, Paths: reachPaths(readText(p))})
+	t.SelfReview = &SelfReview{Print: fp, Hash: h, At: now, Reach: reach}
 	if err := SaveTask(t); err != nil {
 		return Context("PostToolUse", msg(fmt.Sprintf("%s isn't recorded: the task couldn't be saved (%v). Write it again.", DocSelfReview, err)))
 	}
@@ -60,12 +93,23 @@ func selfReviewTodo(t *Task) string {
 	return fmt.Sprintf("go through skills/task/review-checklist.md and the project's CLAUDE.md over your own diff (%s, plus new files), fix what you find, then write %s with the Write or Edit tool: `## Checked` (each changed file by its path, and what you checked in it), `## Fixed` (what you fixed, or `- none`), and on a fix round `## Reach` (each code file changed since the last review, with what else calls or shows the changed code, checked).", diff, selfReviewPath(t))
 }
 
+const selfReviewMissing = "before any reviewer run, review your own change: "
+
 func (c *hookCtx) selfReviewProblem(fp string, fpErr error) string {
-	t := c.task
+	return selfReviewIssue(c.task, c.setup, fp, fpErr)
+}
+
+// SelfReviewCurrent: self-review.md is the one the lead wrote with Write or
+// Edit, for the code as it is now (fp), with what it must hold.
+func SelfReviewCurrent(t *Task, s *Setup, fp string) bool {
+	return t != nil && fp != "" && selfReviewIssue(t, s, fp, nil) == ""
+}
+
+func selfReviewIssue(t *Task, s *Setup, fp string, fpErr error) string {
 	p := selfReviewPath(t)
 	if _, err := os.Lstat(p); err != nil {
 		if os.IsNotExist(err) {
-			return "before any reviewer run, review your own change: " + selfReviewTodo(t)
+			return selfReviewMissing + selfReviewTodo(t)
 		}
 		return fmt.Sprintf("%s couldn't be read (%v); write it again with the Write tool.", DocSelfReview, err)
 	}
@@ -76,7 +120,7 @@ func (c *hookCtx) selfReviewProblem(fp string, fpErr error) string {
 	if sr == nil || sr.Hash != fileHash(p) {
 		return fmt.Sprintf("%s isn't recorded, or changed after it was: only the Write or Edit tool while building records it (a terminal write, or one before the plan was approved, isn't). Write it again with the Write or Edit tool.", DocSelfReview)
 	}
-	if why := selfReviewContent(t, c.setup); why != "" {
+	if why := selfReviewContent(t, s); why != "" {
 		return why
 	}
 	if fpErr != nil || fp == "" {
@@ -90,13 +134,14 @@ func (c *hookCtx) selfReviewProblem(fp string, fpErr error) string {
 		}
 		return fmt.Sprintf("the code changed after %s was written (%s). Go through the checklist over that change and update %s with the Write or Edit tool.", DocSelfReview, what, DocSelfReview)
 	}
-	return reachProblem(t, c.setup, readText(p))
+	return reachProblem(t, s, readText(p))
 }
 
 // testsReadyProblem: why a reviewer can't start yet because the tests haven't
 // passed on the code as it is now, or "". A reviewer reading red code spends
 // its run on failures the lead's own run would show. The full suite counts,
-// or a related run whose files cover every changed file. Without a test
+// or a related run whose files cover every changed code file (prose is
+// left out: no test reads it). Without a test
 // command, or on a docs- or commands-only task, the commit proof decides.
 func testsReadyProblem(t *Task, s *Setup, fp string) string {
 	if s == nil || s.Commands.Test == "" || CommandsOnly(t, s) || DocsOnly(t, s) {
@@ -141,7 +186,7 @@ func testsReadyProblem(t *Task, s *Setup, fp string) string {
 	}
 	var missing []string
 	for _, f := range files {
-		if !ran[foldPath(f)] {
+		if !ran[foldPath(f)] && !docFile(f) {
 			missing = append(missing, f)
 		}
 	}

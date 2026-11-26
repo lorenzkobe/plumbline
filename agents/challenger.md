@@ -23,3 +23,5 @@ Your findings file is the one file you change: create it with Write, then change
 - Would the plan's `## Real-world proof` show the change works for a real user?
 - Does `## Team` name the reviewers the risk calls for (security, data and performance, UX and accessibility)?
 - Does `## Guards loosened` hold every guard the plan removes or narrows (an ask, a refusal, a permission check, a validation, or something new that runs without asking)? For each one, check its map against the code: every way to reach it, and what else it was the only guard for.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

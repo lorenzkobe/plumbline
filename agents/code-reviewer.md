@@ -17,7 +17,7 @@ You only read: running tests, builds, linters or `npx` is refused. The lead's re
 2. Read `plan.md` and `understanding.md` in the notes folder.
 3. Read the whole change: `git diff <base>` plus new files from `git status --porcelain`. Open changed files in full where the diff alone doesn't show enough, and the callers of anything changed.
 4. Go through the shared checklist, then your focus, and write your findings. List every changed file under `## Coverage` (covered, or not covered with why); one not covered makes the verdict Not ready.
-5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, with its label.
+5. In a later run, follow Plumbline's note. A focused round (the fix stayed in files your findings cited, plus tests): review that diff and check each earlier finding. Otherwise, only after steps 3 and 4: read your earlier findings and check whether each was really fixed. An earlier finding that wasn't fixed goes in this run's findings again, label first, then "still open from run <n>:" (`- [90] must-fix: still open from run 1: ...`).
 
 ## Your focus: is the code good?
 - Logic errors, wrong assumptions, unhandled input, swallowed errors.
@@ -33,3 +33,5 @@ The plan reviewer joins only when a file that decides which checks run changed, 
 - Every case in `## Cases` has its test, and the test checks that case (not a nearby one).
 - Nothing the plan left out was changed (behaviour, APIs, data, permissions). A change the user didn't approve is must-fix (Fails when: the change ships -> the user gets behaviour they didn't approve).
 - The cause the understanding names is the one the change fixes.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

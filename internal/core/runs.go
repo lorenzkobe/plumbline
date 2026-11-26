@@ -876,6 +876,53 @@ func FetchProof(command string) bool {
 	return fetch
 }
 
+// liveCheck: a saved check (tests, lint, build, format, typecheck,
+// security) of this task still running on the code as it is now: its
+// process lives and it started within its time limit, as JudgeNow tells.
+// A reused process id lets this through at most until that limit.
+func liveCheck(t *Task, s *Setup) *Run {
+	if t == nil || s == nil {
+		return nil
+	}
+	var live []*Run // cheap checks first: no fingerprint when nothing runs
+	for _, r := range LoadRuns(t.Root) {
+		switch r.Kind {
+		case KindTest, KindRelated, KindLint, KindBuild, KindFormat, KindTypecheck, KindSecurity:
+		default:
+			continue
+		}
+		if r.TaskID == t.ID && r.Finished.IsZero() && !r.TimedOut && !r.Stopped && !r.OnBase && !r.BeforeFix &&
+			processAlive(r.PID) && Now().Sub(r.Started) <= RunLimit(r.Kind, s)+time.Minute {
+			live = append(live, r)
+		}
+	}
+	if len(live) == 0 {
+		return nil
+	}
+	fp, err := Fingerprint(t.Root, s.IgnoreChanges)
+	if err != nil || fp == "" {
+		return nil
+	}
+	for _, r := range live {
+		if r.PrintBefore == fp {
+			return r
+		}
+	}
+	return nil
+}
+
+// LastRunFailed: the task's newest finished run of kind failed, so a fix
+// round runs it again rather than waiting for --final.
+func LastRunFailed(runs []*Run, taskID, kind string) bool {
+	for i := len(runs) - 1; i >= 0; i-- {
+		r := runs[i]
+		if r.TaskID == taskID && r.Kind == kind && !r.Finished.IsZero() {
+			return r.Exit != 0 || r.Failed > 0
+		}
+	}
+	return false
+}
+
 // LatestFor returns the task's newest run of a kind (and sub) on the given
 // code. A non-empty command is the saved command the run must have used, so
 // a run from an older setup, or another task's run, doesn't count.

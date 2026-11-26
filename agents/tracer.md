@@ -19,3 +19,5 @@ Your findings file is the one file you change: create it with Write, then change
 - Read only. Terminal commands must only read.
 - Name exact lines. The lead opens every file it quotes, so a wrong line costs it a read.
 - Report facts from the code, not guesses. Label anything you couldn't confirm.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

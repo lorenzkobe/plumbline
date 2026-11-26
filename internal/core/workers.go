@@ -280,7 +280,7 @@ func (c *hookCtx) gateBuilder() Output {
 		run = c.task.runByAgent(in.AgentID)
 	}
 	edit := in.ToolName == "Edit" || in.ToolName == "Write" || in.ToolName == "MultiEdit" || in.ToolName == "NotebookEdit"
-	if edit && run != nil && in.ToolName == "Write" && Abs(in.Str("file_path"), in.Cwd) == Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/") {
+	if edit && c.ownNotesWrite(run, in.Str("file_path")) {
 		return allow("builder notes")
 	}
 	changes := edit || in.ToolName == "Bash" || in.ToolName == "Monitor" || strings.HasPrefix(in.ToolName, "mcp__") && c.mcpKind() != ""
@@ -433,6 +433,9 @@ func (c *hookCtx) builderBash(wt, cmd string) Output {
 			scratch := isInsideFold(abs, Abs(os.TempDir(), "/")) || (c.in.ScratchpadDir != "" && isInsideFold(abs, Abs(c.in.ScratchpadDir, "/")))
 			if scratch && !inProject(abs) {
 				continue
+			}
+			if own := c.ownNotesPath(); own != "" && foldPath(abs) == foldPath(own) {
+				return c.deny("builder-own-copy", c.ownFilesReason(abs))
 			}
 			return c.deny("builder-own-copy", fmt.Sprintf("%s is outside your copy of the repo (%s). Builders change files only there.", abs, wt))
 		}

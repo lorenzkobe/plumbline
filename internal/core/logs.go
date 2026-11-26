@@ -25,6 +25,10 @@ type Event struct {
 	Wrong   bool      `json:"wrong,omitempty"`
 	// Tokens: a finished or cancelled task's token use (counts only).
 	Tokens *TokenCount `json:"tokens,omitempty"`
+	// Helper: the kind of the helper the event came from (blocks, starts).
+	// HelperTokens: a task's tokens by helper kind, on its tokens event.
+	Helper       string                `json:"helper,omitempty"`
+	HelperTokens map[string]TokenCount `json:"helper_tokens,omitempty"`
 }
 
 func logsDir() string { return filepath.Join(DataDir(), "logs") }
@@ -129,12 +133,23 @@ type Summary struct {
 	Tokens        TokenCount `json:"tokens"`
 	TokenTasks    int        `json:"token_tasks,omitempty"`
 	TokensUnknown int        `json:"tokens_unknown,omitempty"`
+	// By helper kind: blocks, repeat blocks and tokens; and for reviewers the
+	// runs started, the tasks that used each kind and the tasks that used any.
+	HelperBlocks  map[string]int        `json:"helper_blocks,omitempty"`
+	HelperRepeats map[string]int        `json:"helper_repeats,omitempty"`
+	HelperTokens  map[string]TokenCount `json:"helper_tokens,omitempty"`
+	ReviewerRuns  map[string]int        `json:"reviewer_runs,omitempty"`
+	ReviewerTasks map[string]int        `json:"reviewer_tasks,omitempty"`
+	ReviewedTasks int                   `json:"review_tasks,omitempty"`
 }
 
 func summarize(month string, events []Event) Summary {
 	s := Summary{Month: month, BySize: map[string]int{}, Blocks: map[string]int{}, Wrong: map[string]int{}, Sendbacks: map[string]int{}, Asks: map[string]int{},
-		SendbackWhy: map[string]map[string]int{}, AskWhy: map[string]map[string]int{}}
+		SendbackWhy: map[string]map[string]int{}, AskWhy: map[string]map[string]int{},
+		HelperBlocks: map[string]int{}, HelperRepeats: map[string]int{}, HelperTokens: map[string]TokenCount{}, ReviewerRuns: map[string]int{}, ReviewerTasks: map[string]int{}}
 	tasks := map[string]string{}
+	reviewed := map[string]bool{}
+	kindTasks := map[string]bool{}
 	for _, e := range events {
 		if e.Task != "" && e.Type == "task" {
 			tasks[e.Task] = e.Size
@@ -142,6 +157,24 @@ func summarize(month string, events []Event) Summary {
 		switch e.Type {
 		case "block":
 			s.Blocks[e.Rule]++
+			if e.Helper != "" {
+				s.HelperBlocks[e.Helper]++
+			}
+		case "repeat-block":
+			if e.Helper != "" {
+				s.HelperRepeats[e.Helper]++
+			}
+		case "helper":
+			if kind, ok := strings.CutSuffix(e.Rule, "-start"); ok && isReviewer(kind) {
+				s.ReviewerRuns[kind]++
+				if e.Task != "" {
+					reviewed[e.Task] = true
+					if !kindTasks[kind+"\x00"+e.Task] {
+						kindTasks[kind+"\x00"+e.Task] = true
+						s.ReviewerTasks[kind]++
+					}
+				}
+			}
 		case "ask":
 			s.Asks[e.Rule]++
 			countWhy(s.AskWhy, e.Rule, e.Detail, false)
@@ -155,6 +188,11 @@ func summarize(month string, events []Event) Summary {
 		case "failure":
 			s.Failures++
 		case "tokens":
+			for k, tc := range e.HelperTokens {
+				c := s.HelperTokens[k]
+				c.Add(tc)
+				s.HelperTokens[k] = c
+			}
 			if e.Tokens != nil {
 				s.Tokens.Add(*e.Tokens)
 				s.TokenTasks++
@@ -164,6 +202,7 @@ func summarize(month string, events []Event) Summary {
 			}
 		}
 	}
+	s.ReviewedTasks = len(reviewed)
 	s.Tasks = len(tasks)
 	for _, sz := range tasks {
 		s.BySize[sz]++
@@ -277,6 +316,36 @@ func Stats(months int) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(s.HelperBlocks) > 0 {
+		fmt.Fprintf(&b, "Blocks by helper kind: %s\n", kv(s.HelperBlocks))
+	}
+	if len(s.HelperRepeats) > 0 {
+		fmt.Fprintf(&b, "Repeat blocks by helper kind: %s\n", kv(s.HelperRepeats))
+	}
+	var runs []string
+	for _, k := range ReviewerKinds {
+		if n := s.ReviewerRuns[k]; n > 0 {
+			runs = append(runs, fmt.Sprintf("%s: %d %s in %d of %d %s", k, n, plural(n, "run", "runs"), s.ReviewerTasks[k], s.ReviewedTasks, plural(s.ReviewedTasks, "task", "tasks")))
+		}
+	}
+	if len(runs) > 0 {
+		fmt.Fprintf(&b, "Reviewer runs across tasks: %s\n", strings.Join(runs, "; "))
+	}
+	if len(s.HelperTokens) > 0 {
+		kinds := make([]string, 0, len(s.HelperTokens))
+		for k := range s.HelperTokens {
+			kinds = append(kinds, k)
+		}
+		sort.Slice(kinds, func(i, j int) bool {
+			a, c := s.HelperTokens[kinds[i]].Total(), s.HelperTokens[kinds[j]].Total()
+			return a > c || a == c && kinds[i] < kinds[j]
+		})
+		parts := make([]string, 0, len(kinds))
+		for _, k := range kinds {
+			parts = append(parts, fmt.Sprintf("%s %s", k, groupDigits(s.HelperTokens[k].Total())))
+		}
+		fmt.Fprintf(&b, "Tokens by helper kind: %s\n", strings.Join(parts, ", "))
+	}
 	// A rule is worth a look once you've marked it wrong a few times and at
 	// least as often as half of what it stopped (blocks and send-backs).
 	var noisy []string
@@ -307,6 +376,13 @@ func kv(m map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s %d", name, m[k]))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func orNone(s string) string {

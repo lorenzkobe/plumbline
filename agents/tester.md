@@ -17,3 +17,5 @@ Your findings file is the one file you change: create it with Write, then change
 ## Rules
 - Don't fix anything, and don't edit files other than your report. Terminal commands otherwise must only read.
 - Report what ran, exactly. Never say a check passed unless its output says so.
+
+Cite code by its full path from the repo's top, with the line and a few of its words: `src/app/api/orders/route.ts:42` `return total`, never by its bare name (`route.ts:42`).

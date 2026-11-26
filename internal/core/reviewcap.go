@@ -137,6 +137,17 @@ const (
 	arbiterBlocked = "blocked"
 )
 
+// FixRound: a reviewer has a review that counts, so the checks run now are
+// for a fix (0.8.8: lint and build then wait for --final).
+func (t *Task) FixRound() bool {
+	for _, k := range ReviewerKinds {
+		if t.lastCounted(k) != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (t *Task) lastCounted(kind string) *HelperRun {
 	runs := t.helperRuns(kind)
 	for i := len(runs) - 1; i >= 0; i-- {
@@ -319,12 +330,31 @@ var specialistSignal = map[string]*regexp.Regexp{
 	HelperUX:       reUXSignal,
 }
 
+// reachSince: a path that a self-review recorded after the specialist's
+// review named in ## Reach matches the specialist's path signal.
+func reachSince(sr *SelfReview, since time.Time, signal *regexp.Regexp) bool {
+	for _, e := range sr.Reach {
+		if !e.At.After(since) {
+			continue
+		}
+		for _, p := range e.Paths {
+			if signal.MatchString(reCamel.ReplaceAllString(p, "${1}_${2}")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // cleanCarries: a specialist whose last counted review found nothing keeps
 // it after a fix that stayed in what the other reviewers cited (B3, 0.8.3).
 // Every file changed since its tree is a test file or one another
 // reviewer's last counted findings cite (any reviewer kind, required or not), none decides which checks run or
 // matches this specialist's own path signal, and nothing the fix adds calls
-// for it by content. Any git error means it doesn't carry.
+// for it by content. A review with should-fix findings and no must-fix
+// carries the same way when self-review.md is current and no ## Reach
+// recorded since the review names a file of its kind (0.8.8). Any git
+// error means it doesn't carry.
 func cleanCarries(t *Task, s *Setup, kind string, last *HelperRun, fp string) bool {
 	signal, specialist := specialistSignal[kind]
 	if !t.newReviewRules() || !specialist || last == nil || !t.counts(*last) || t.disputeOpen(kind, *last) || last.PrintAfter == "" || fp == "" || last.PrintAfter == fp {
@@ -334,10 +364,22 @@ func cleanCarries(t *Task, s *Setup, kind string, last *HelperRun, fp string) bo
 	if len(items) == 0 {
 		return false
 	}
+	clean := true
 	for _, it := range items {
-		if !strictNone(it) {
-			return false // "None of the handlers check..." is a finding
+		switch {
+		case strictNone(it):
+		case reShouldFixLabel.MatchString(it):
+			clean = false
+		default:
+			return false // a must-fix, or an unlabeled finding ("None of the handlers check...")
 		}
+	}
+	// With should-fix findings, the fix's reach decides (0.8.8): the current
+	// self-review's ## Reach names what else the fix touches, and any of it
+	// of this specialist's kind brings it back.
+	if !clean && (!SelfReviewCurrent(t, s, fp) || reachSince(t.SelfReview, last.Finished, signal) ||
+		reachSince(&SelfReview{Reach: []ReachEntry{{At: Now(), Paths: reachPaths(readText(selfReviewPath(t)))}}}, last.Finished, signal)) {
+		return false
 	}
 	changed, err := treeChanges(t.Root, last.PrintAfter, fp)
 	if err != nil || len(changed) == 0 {

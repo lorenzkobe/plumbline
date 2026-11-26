@@ -165,6 +165,11 @@ func (c *hookCtx) projectKey() string {
 
 func (c *hookCtx) log(typ, rule, detail string) {
 	e := Event{Type: typ, Rule: rule, Detail: limit(scrubDetail(detail, c.root), 160), Project: c.projectKey()}
+	if c.in != nil && c.in.AgentID != "" {
+		if kind, ok := strings.CutPrefix(c.in.AgentType, "plumbline:"); ok {
+			e.Helper = kind
+		}
+	}
 	if c.task != nil {
 		e.Task = c.task.ID
 		e.Size = c.task.Size
@@ -182,6 +187,7 @@ func (c *hookCtx) deny(rule, reason string) Output {
 			reason += repeatNote
 		}
 	}
+	reason += noteRule(c.in.SessionID, c.in.AgentID, rule)
 	return Decision("PreToolUse", "deny", msg(reason))
 }
 
@@ -1522,6 +1528,28 @@ func (c *hookCtx) writeIgnored(rel string) bool {
 
 // ownFilesFromShell: a terminal write into Plumbline's data folder. Task
 // notes have their own way in (UX2: the refusal names it).
+// ownFilesReason: a helper writing its own notes file from the terminal is
+// told which tools write it; any other write into the data folder gets
+// ownFilesFromShell.
+func (c *hookCtx) ownFilesReason(abs string) string {
+	if own := c.ownNotesPath(); own != "" && foldPath(abs) == foldPath(own) {
+		return fmt.Sprintf("write your notes with the Write or Edit tool, not the shell: %s.", own)
+	}
+	return ownFilesFromShell
+}
+
+// ownNotesPath: the calling helper's own findings or notes file, or "".
+func (c *hookCtx) ownNotesPath() string {
+	if c.in.AgentID == "" || c.task == nil {
+		return ""
+	}
+	run := c.task.runByAgent(c.in.AgentID)
+	if run == nil || run.Findings == "" {
+		return ""
+	}
+	return Abs(filepath.Join(TaskDocsDir(c.task.Root, c.task.ID), run.Findings), "/")
+}
+
 const ownFilesFromShell = "Plumbline's own files can't be read or changed from the terminal: plumbline status shows the task, and a failed plumbline run names its failing tests in its last line. Write the task's notes (understanding.md, plan.md, report.md, findings) with the Write or Edit tool (the lead may also use cat, tee, echo or printf into its own notes); anything else goes through the plumbline command."
 
 // buildFile is the building-phase rule for one file outside the plan, shared
@@ -1939,7 +1967,7 @@ func (c *hookCtx) gateBash(cmd string) Output {
 				v.d("own-files", "Plumbline's own files can't be changed from the terminal, and this writes in a folder Plumbline can't work out.")
 			case abs != "" && isInsideFold(abs, DataDir()):
 				if !notes {
-					v.d("own-files", ownFilesFromShell)
+					v.d("own-files", c.ownFilesReason(abs))
 				}
 			case abs != "" && c.root != "" && foldPath(abs) == foldPath(filepath.Join(ProjectRoot(c.root), RepoSetupFile)):
 				v.a("setup-change", "this changes Plumbline's saved project setup from the terminal. Until the user confirms it again with /plumbline:setup, its saved commands don't run and nothing in it switches a rule off.")
@@ -1966,7 +1994,13 @@ func (c *hookCtx) gateBash(cmd string) Output {
 			}
 		}
 		if !quiet && !isPlumblineBin(name) && mentionsDataDir(s) {
-			v.d("own-files", ownFilesFromShell)
+			reason := ownFilesFromShell
+			for _, t := range targets {
+				if abs := targetAbs(s, t); abs != "" && c.ownFilesReason(abs) != ownFilesFromShell {
+					reason = c.ownFilesReason(abs)
+				}
+			}
+			v.d("own-files", reason)
 		}
 		if !quiet && mentionsProtectedConfig(s, c.in.Cwd) {
 			if gitUntracksOnly(s) {
