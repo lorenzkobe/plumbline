@@ -21,6 +21,9 @@ type Setup struct {
 	Kind        string `json:"kind"` // "company" or "personal"
 	BaseBranch  string `json:"base_branch,omitempty"`
 	TicketRegex string `json:"ticket_regex,omitempty"` // company commit prefix, default [A-Z][A-Z0-9]+-\d+
+	// Root: the project the setup was loaded from, so a derived command can
+	// read the root package.json's test script. Never saved.
+	Root string `json:"-"`
 
 	Commands struct {
 		Test        string `json:"test,omitempty"`
@@ -200,6 +203,7 @@ func LoadSetup(root string) (*Setup, bool, error) {
 			s.Commands.BuilderSetup = ""
 		}
 	}
+	s.Root = root
 	return &s, ok, nil
 }
 

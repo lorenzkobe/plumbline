@@ -1,0 +1,20 @@
+{
+  "packageManager": "npm",
+  "packages": {
+    "count": 3,
+    "items": [
+      {
+        "name": "@acme/ui",
+        "path": "packages/ui"
+      },
+      {
+        "name": "solo",
+        "path": "packages/solo"
+      },
+      {
+        "name": "web",
+        "path": "packages/web"
+      }
+    ]
+  }
+}

@@ -441,6 +441,11 @@ var (
 	reCargoResult = regexp.MustCompile(`test result: .*`)
 	reMochaPend   = regexp.MustCompile(`(?m)^\s*(\d+) pending`)
 	rePWSkipped   = regexp.MustCompile(`(?m)^\s*(\d+) skipped`)
+	reANSI        = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]")
+	// turbo prints "• Packages in scope: ..." and prefixes each line of a
+	// task's output with "<package>:<task>: ".
+	reTurboBanner = regexp.MustCompile(`(?m)^\s*• (?:Packages in scope|Running )`)
+	reTurboPrefix = regexp.MustCompile(`(?m)^[^\s:#]+:\S*?:(?: |$)`)
 )
 
 // sumSkipped adds up every "N skipped" (todo, pending, ignored) in a
@@ -493,6 +498,10 @@ func mochaFailures(text string, at int) []string {
 // cargo, mocha, Playwright, go test), or the setup's tests_ran_pattern.
 func ParseTestOutput(text, custom string) TestCounts {
 	var c TestCounts
+	text = reANSI.ReplaceAllString(text, "")
+	if reTurboBanner.MatchString(text) {
+		text = reTurboPrefix.ReplaceAllString(text, "")
+	}
 	if custom != "" {
 		if re, err := regexp.Compile(custom); err == nil {
 			if m := re.FindStringSubmatch(text); m != nil {
@@ -510,32 +519,30 @@ func ParseTestOutput(text, custom string) TestCounts {
 			}
 		}
 	}
-	if m := reJest.FindAllStringSubmatch(text, -1); m != nil {
-		last := m[len(m)-1]
-		c.Ran = atoi(last[2])
-		if f := reJestFailed.FindStringSubmatch(last[1]); f != nil {
-			c.Failed = atoi(f[1])
+	// Every summary counts: a command can run several suites (a && b, or
+	// one per package in nx and turbo), with jest and vitest side by side.
+	jest, vitest := reJest.FindAllStringSubmatch(text, -1), reVitest.FindAllStringSubmatch(text, -1)
+	for _, m := range append(jest, vitest...) {
+		c.Ran += atoi(m[2])
+		if f := reJestFailed.FindStringSubmatch(m[1]); f != nil {
+			c.Failed += atoi(f[1])
 		}
-		c.Skipped = sumSkipped(last[1])
+		c.Skipped += sumSkipped(m[1])
+	}
+	if jest != nil {
 		for _, x := range reJestFailID.FindAllStringSubmatch(text, -1) {
 			c.IDs = append(c.IDs, strings.TrimSpace(x[1])+" › "+strings.TrimSpace(x[2]))
 		}
-		c.IDs = uniq(c.IDs)
-		return c
 	}
-	if m := reVitest.FindAllStringSubmatch(text, -1); m != nil {
-		last := m[len(m)-1]
-		c.Ran = atoi(last[2])
-		if f := reJestFailed.FindStringSubmatch(last[1]); f != nil {
-			c.Failed = atoi(f[1])
-		}
-		c.Skipped = sumSkipped(last[1])
+	if vitest != nil {
 		for _, x := range reVitestFail.FindAllStringSubmatch(text, -1) {
 			c.IDs = append(c.IDs, x[1]+" > "+x[2])
 		}
 		for _, x := range reVitestFileFail.FindAllStringSubmatch(text, -1) {
 			c.IDs = append(c.IDs, x[1]) // the whole file failed
 		}
+	}
+	if jest != nil || vitest != nil {
 		c.IDs = uniq(c.IDs)
 		return c
 	}

@@ -1,0 +1,135 @@
+{
+  "graph": {
+    "nodes": {
+      "solo": {
+        "name": "solo",
+        "type": "app",
+        "data": {
+          "root": "packages/solo",
+          "name": "solo",
+          "tags": [
+            "npm:public"
+          ],
+          "metadata": {
+            "targetGroups": {
+              "NPM Scripts": [
+                "test"
+              ]
+            },
+            "js": {
+              "packageName": "solo",
+              "packageVersion": "1.0.0",
+              "isInPackageManagerWorkspaces": true
+            }
+          },
+          "targets": {
+            "test": {
+              "executor": "nx:run-script",
+              "options": {
+                "script": "test"
+              },
+              "metadata": {
+                "scriptContent": "vitest run",
+                "runCommand": "npm run test"
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true
+            }
+          },
+          "implicitDependencies": []
+        }
+      },
+      "web": {
+        "name": "web",
+        "type": "app",
+        "data": {
+          "root": "packages/web",
+          "name": "web",
+          "tags": [
+            "npm:public"
+          ],
+          "metadata": {
+            "targetGroups": {
+              "NPM Scripts": [
+                "test"
+              ]
+            },
+            "js": {
+              "packageName": "web",
+              "packageVersion": "1.0.0",
+              "isInPackageManagerWorkspaces": true
+            }
+          },
+          "targets": {
+            "test": {
+              "executor": "nx:run-script",
+              "options": {
+                "script": "test"
+              },
+              "metadata": {
+                "scriptContent": "vitest run",
+                "runCommand": "npm run test"
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true
+            }
+          },
+          "implicitDependencies": []
+        }
+      },
+      "@acme/ui": {
+        "name": "@acme/ui",
+        "type": "lib",
+        "data": {
+          "root": "packages/ui",
+          "name": "@acme/ui",
+          "tags": [
+            "npm:public"
+          ],
+          "metadata": {
+            "targetGroups": {
+              "NPM Scripts": [
+                "test"
+              ]
+            },
+            "js": {
+              "packageName": "@acme/ui",
+              "packageVersion": "1.0.0",
+              "packageMain": "index.js",
+              "isInPackageManagerWorkspaces": true
+            }
+          },
+          "targets": {
+            "test": {
+              "executor": "nx:run-script",
+              "options": {
+                "script": "test"
+              },
+              "metadata": {
+                "scriptContent": "vitest run",
+                "runCommand": "npm run test"
+              },
+              "configurations": {},
+              "parallelism": true,
+              "cache": true
+            }
+          },
+          "implicitDependencies": []
+        }
+      }
+    },
+    "dependencies": {
+      "solo": [],
+      "web": [
+        {
+          "source": "web",
+          "target": "@acme/ui",
+          "type": "static"
+        }
+      ],
+      "@acme/ui": []
+    }
+  }
+}

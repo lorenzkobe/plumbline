@@ -207,6 +207,11 @@ The user asked for every item in 0.8.3 rather than one release each. Numbers bef
 - [x] S5 (0.8.3), a shorter task skill with the same rules.
 - [ ] The live check: one real courtly or kwenta task on 0.8.3, numbers into speed-083.md.
 
+## Release 0.8.12 (2026-11-27)
+- [x] Affected tests for nx, turbo and cargo (the last item named after 0.8.9), directly or behind `npm test` (the user's call at the plan review), with `affected_final` accepting only a run with no failures for them.
+- [x] The task skill: no full suite before approval unless Plumbline asks, and a bug is reproduced with one test file (from a session on another machine whose 65-minute suite ran before the plan).
+- Left: a cargo run on the approved code builds from scratch (no `target/` in the temporary copy); cargo's failure names collide across crates in the full suite too.
+
 ## The open items (0.6.11), shipped before release 5
 - [x] M16: the baseline is retaken on the code a followed branch switch or pull lands on, while nothing changed since approval.
 - [x] T1: staticcheck is clean. Run it with `GOTOOLCHAIN=go1.27.4 go run honnef.co/go/tools/cmd/staticcheck@latest ./...` (the `go` on the PATH is 1.23, and its automatic switch picks a toolchain too old for Go 1.27's standard library).

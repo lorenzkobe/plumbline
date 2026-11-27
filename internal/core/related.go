@@ -14,6 +14,9 @@ func derivedRelated(test string) string {
 	if c, ok := ParseGoTest(test); ok {
 		return strings.Join(append([]string{"go", "test"}, c.Flags...), " ") + " {files}"
 	}
+	if c, ok := ParseMonorepoTest(test); ok {
+		return c.template()
+	}
 	words := strings.Fields(test)
 	for i, w := range words {
 		switch w {
@@ -37,7 +40,17 @@ func derivedRelated(test string) string {
 func RelatedTemplate(s *Setup) string { return savedCommand(s, KindRelated) }
 
 func RelatedIsDerived(s *Setup) bool {
-	return strings.TrimSpace(s.Commands.TestRelated) == "" && derivedRelated(s.Commands.Test) != ""
+	return strings.TrimSpace(s.Commands.TestRelated) == "" && derivedFor(s) != ""
+}
+
+// derivedFor: the related command Plumbline derives from the setup's test
+// command, including a bare npm, pnpm or yarn test over an nx or turbo
+// script.
+func derivedFor(s *Setup) string {
+	if d := derivedRelated(s.Commands.Test); d != "" {
+		return d
+	}
+	return monorepoTemplate(s)
 }
 
 func GoRelatedPkgs(root string, files []string) (pkgs []string, why string) {

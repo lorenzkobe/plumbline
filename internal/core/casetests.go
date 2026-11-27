@@ -12,6 +12,9 @@ import (
 
 // cleanRel: a repo-relative path as written on the command line or in the
 // plan, with slashes and without a leading "./".
+// CleanRel: a project-relative path as Run.Files records it.
+func CleanRel(p string) string { return cleanRel(p) }
+
 func cleanRel(p string) string {
 	p = filepath.ToSlash(strings.TrimSpace(p))
 	for strings.HasPrefix(p, "./") {
@@ -136,7 +139,7 @@ func savedCommand(s *Setup, kind string) string {
 		if s.Commands.TestRelated != "" {
 			return s.Commands.TestRelated
 		}
-		return derivedRelated(s.Commands.Test)
+		return derivedFor(s)
 	case KindE2E:
 		return s.Commands.E2E
 	case KindLint:

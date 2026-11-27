@@ -1,0 +1,26 @@
+   Compiling core_lib v0.1.0 (/work/cargo-ws/crates/core_lib)
+   Compiling devuser v0.1.0 (/work/cargo-ws/crates/devuser)
+   Compiling app v0.1.0 (/work/cargo-ws/crates/app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.06s
+     Running unittests src/lib.rs (target/debug/build/app/b36a579cdbdf5796/out/app-b36a579cdbdf5796)
+
+running 1 test
+test tests::two ... FAILED
+
+failures:
+
+---- tests::two stdout ----
+
+thread 'tests::two' (451362609) panicked at crates/app/src/lib.rs:3:27:
+assertion `left == right` failed
+  left: 3
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::two
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p app --lib`

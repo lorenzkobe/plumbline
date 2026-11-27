@@ -29,6 +29,9 @@ func AffectedGraph(s *Setup) string {
 	if _, ok := ParseGoTest(s.Commands.Test); ok {
 		return "go list"
 	}
+	if c, ok := monorepoOf(s); ok {
+		return c.graphName()
+	}
 	d := derivedRelated(s.Commands.Test)
 	switch {
 	case strings.HasSuffix(d, " --findRelatedTests {files}"):
@@ -289,6 +292,11 @@ func AffectedProof(t *Task, s *Setup, runs []*Run, fp string) *Run {
 	// full suite's baseline, which a smaller run passes by running fewer
 	// tests.
 	if at < 0 || runs[at].Failed > 0 && (unnamedFailures(runs[at]) > 0 || base != nil && unnamedFailures(base) > 0) || !JudgeNow(runs[at], base, s).OK {
+		return nil
+	}
+	// Failure names in these tools are per unit (tests::two in two crates),
+	// so a failure can't be matched to the baseline's: only a clean run counts.
+	if _, mono := monorepoOf(s); mono && (runs[at].Failed > 0 || runs[at].Exit != 0) {
 		return nil
 	}
 	for i, r := range runs {

@@ -385,8 +385,17 @@ func RunBeforeFix(root string, t *Task, files []string, s *Setup, out io.Writer)
 	if err != nil {
 		return nil, fmt.Errorf("git couldn't make the approved code with the current tests: %v", err)
 	}
-	args := rels
+	args, flags := rels, false
 	switch {
+	case IsDerivedMonorepo(s):
+		units, _, outside, why := MonorepoAffectedRun(root, s, rels)
+		if why != "" {
+			return nil, errors.New("no units for these tests (" + why + ")")
+		}
+		if len(outside) > 0 {
+			return nil, errors.New(strings.Join(outside, ", ") + " is in no unit, so no unit's tests run it; move the test into the unit it tests")
+		}
+		args, flags = units, true
 	case IsDerivedGo(s):
 		pkgs, why := GoRelatedPkgs(root, rels)
 		if why != "" {
@@ -400,14 +409,7 @@ func RunBeforeFix(root string, t *Task, files []string, s *Setup, out io.Writer)
 		}
 		args = tests
 	}
-	var q []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			a = "./" + a
-		}
-		q = append(q, shellQuoteWord(a))
-	}
-	command := strings.ReplaceAll(template, "{files}", strings.Join(q, " "))
+	command := FillRelated(template, args, flags)
 	// The copy lacks git-ignored files other than dependencies and env
 	// files, and LFS files are pointers there, so a test can fail in it for
 	// what it lacks. The same tests run first on the current code in a copy

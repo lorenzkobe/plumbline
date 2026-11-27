@@ -1,0 +1,41 @@
+
+   • turbo 2.11.13
+   • Packages in scope: @acme/ui, web
+   • Running test in 2 packages
+   • Remote caching disabled
+
+web:test: cache miss, executing 487d99c9d1ad3197
+@acme/ui:test: cache miss, executing 8cbf038457c7b2f0
+web:test: 
+web:test: > web@1.0.0 test
+web:test: > vitest run
+web:test: 
+@acme/ui:test: 
+@acme/ui:test: > @acme/ui@1.0.0 test
+@acme/ui:test: > vitest run
+@acme/ui:test: 
+@acme/ui:test: 
+@acme/ui:test:  RUN  v3.2.7 /work/turbo-ws/packages/ui
+@acme/ui:test: 
+web:test: 
+web:test:  RUN  v3.2.7 /work/turbo-ws/packages/web
+web:test: 
+web:test:  ✓ web.test.js (1 test) 1ms
+web:test: 
+web:test:  Test Files  1 passed (1)
+web:test:       Tests  1 passed (1)
+web:test:    Start at  18:02:43
+web:test:    Duration  602ms (transform 23ms, setup 0ms, collect 15ms, tests 1ms, environment 0ms, prepare 183ms)
+web:test: 
+@acme/ui:test:  ✓ ui.test.js (2 tests) 1ms
+@acme/ui:test: 
+@acme/ui:test:  Test Files  1 passed (1)
+@acme/ui:test:       Tests  2 passed (2)
+@acme/ui:test:    Start at  18:02:43
+@acme/ui:test:    Duration  623ms (transform 18ms, setup 0ms, collect 12ms, tests 1ms, environment 0ms, prepare 86ms)
+@acme/ui:test: 
+
+ Tasks:    2 successful, 2 total
+Cached:    0 cached, 2 total
+  Time:    1.045s 
+

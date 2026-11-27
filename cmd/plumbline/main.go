@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime/debug"
 	"sort"
@@ -463,14 +464,7 @@ func keys(m map[string]string) []string {
 	return out
 }
 
-func shellQuote(s string) string {
-	if s != "" && strings.IndexFunc(s, func(r rune) bool {
-		return !(r == '-' || r == '_' || r == '.' || r == '/' || r == ':' || r == '=' || r == ',' || r == '@' || r == '+' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'))
-	}) < 0 {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+func shellQuote(s string) string { return core.ShellQuote(s) }
 
 // runBeforeFix runs the [bug] cases' tests on the approved code (core.RunBeforeFix).
 func runBeforeFix(root string, t *core.Task, s *core.Setup, files string) (int, error) {
@@ -569,6 +563,7 @@ func cmdRun(args []string) (int, error) {
 			files[i] = strings.TrimSpace(files[i])
 		}
 		args := files
+		flagArgs := false
 		final := f["final"] != ""
 		switch {
 		case final && !s.AffectedFinal:
@@ -592,6 +587,17 @@ func cmdRun(args []string) (int, error) {
 				command, kind, files = s.Commands.Test, core.KindTest, nil
 			}
 			args = tests
+		case core.IsDerivedMonorepo(s):
+			units, mapped, outside, why := core.MonorepoAffectedRun(root, s, files)
+			if why != "" {
+				fmt.Printf("No related tests for this change (%s); running the full suite instead.\n", why)
+				command, kind, files = s.Commands.Test, core.KindTest, nil
+			}
+			if mapped {
+				graph = core.AffectedGraph(s)
+			}
+			args, flagArgs = units, true
+			files = without(files, outside) // no unit holds them, so they don't run
 		default:
 			if g := core.AffectedGraph(s); g != "" && core.JSAffectedFiles(root, files) == "" {
 				graph = g
@@ -604,14 +610,7 @@ func cmdRun(args []string) (int, error) {
 		if kind == core.KindTest {
 			break
 		}
-		q := []string{}
-		for _, x := range args {
-			if strings.HasPrefix(x, "-") {
-				x = "./" + x
-			}
-			q = append(q, shellQuote(x))
-		}
-		command = strings.ReplaceAll(template, "{files}", strings.Join(q, " "))
+		command = core.FillRelated(template, args, flagArgs)
 		if !strings.Contains(template, "{files}") {
 			files = nil // the command doesn't take them, so they didn't run because of it
 		}
@@ -1301,4 +1300,14 @@ func cmdGoTestShard(args []string) int {
 		return 1
 	}
 	return core.RunGoShard(dir, strings.Join(args, " "), os.Stdout)
+}
+
+func without(list, drop []string) []string {
+	var out []string
+	for _, x := range list {
+		if !contains(drop, path.Clean(core.CleanRel(x))) {
+			out = append(out, x)
+		}
+	}
+	return out
 }

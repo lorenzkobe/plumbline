@@ -1,0 +1,50 @@
+   Compiling core_lib v0.1.0 (/work/cargo-ws/crates/core_lib)
+   Compiling app v0.1.0 (/work/cargo-ws/crates/app)
+   Compiling devuser v0.1.0 (/work/cargo-ws/crates/devuser)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.01s
+     Running unittests src/lib.rs (target/debug/build/app/b36a579cdbdf5796/out/app-b36a579cdbdf5796)
+
+running 1 test
+test tests::two ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/build/core_lib/3debfb12cdffe644/out/core_lib-3debfb12cdffe644)
+
+running 1 test
+test tests::adds ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/build/devuser/14a54093ca5c3976/out/devuser-14a54093ca5c3976)
+
+running 1 test
+test tests::it_works ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/it.rs (target/debug/build/devuser/78ecf94a56eec945/out/it-78ecf94a56eec945)
+
+running 1 test
+test uses ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests app
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests core_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests devuser
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

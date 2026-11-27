@@ -1,0 +1,119 @@
+
+   • turbo 2.11.13
+   • Packages in scope: @acme/ui, web
+   • Running test in 2 packages
+   • Remote caching disabled
+
+web:test: cache miss, executing 8b838971e919f8be
+@acme/ui:test: cache miss, executing c1d52e90f269add0
+@acme/ui:test: 
+@acme/ui:test: > @acme/ui@1.0.0 test
+@acme/ui:test: > vitest run
+@acme/ui:test: 
+web:test: 
+web:test: > web@1.0.0 test
+web:test: > vitest run
+web:test: 
+web:test: 
+web:test:  RUN  v3.2.7 /work/turbo-ws/packages/web
+web:test: 
+@acme/ui:test: 
+@acme/ui:test:  RUN  v3.2.7 /work/turbo-ws/packages/ui
+@acme/ui:test: 
+@acme/ui:test:  ❯ ui.test.js (2 tests | 2 failed) 7ms
+@acme/ui:test:    × adds 6ms
+@acme/ui:test:      → expected 4 to be 3 // Object.is equality
+@acme/ui:test:    × adds2 0ms
+@acme/ui:test:      → expected 5 to be 4 // Object.is equality
+web:test:  ❯ web.test.js (1 test | 1 failed) 7ms
+web:test:    × web uses ui 7ms
+web:test:      → expected 3 to be 2 // Object.is equality
+@acme/ui:test: 
+@acme/ui:test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+@acme/ui:test: 
+@acme/ui:test:  FAIL  ui.test.js > adds
+@acme/ui:test: AssertionError: expected 4 to be 3 // Object.is equality
+@acme/ui:test: 
+@acme/ui:test: [32m- Expected[39m
+@acme/ui:test: [31m+ Received[39m
+@acme/ui:test: 
+@acme/ui:test: [32m- 3[39m
+@acme/ui:test: [31m+ 4[39m
+@acme/ui:test: 
+@acme/ui:test:  ❯ ui.test.js:1:99
+@acme/ui:test:       1| import {test,expect} from "vitest";import {add} from "./index.js";test…
+@acme/ui:test:        |                                                                                                   ^
+@acme/ui:test:       2| 
+@acme/ui:test: 
+@acme/ui:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+@acme/ui:test: 
+@acme/ui:test:  FAIL  ui.test.js > adds2
+@acme/ui:test: AssertionError: expected 5 to be 4 // Object.is equality
+@acme/ui:test: 
+@acme/ui:test: [32m- Expected[39m
+@acme/ui:test: [31m+ Received[39m
+@acme/ui:test: 
+@acme/ui:test: [32m- 4[39m
+@acme/ui:test: [31m+ 5[39m
+@acme/ui:test: 
+@acme/ui:test:  ❯ ui.test.js:1:142
+@acme/ui:test:       1| import {test,expect} from "vitest";import {add} from "./index.js";test…
+@acme/ui:test:        |                                                                                                                                              ^
+@acme/ui:test:       2| 
+@acme/ui:test: 
+@acme/ui:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+@acme/ui:test: 
+@acme/ui:test: 
+@acme/ui:test:  Test Files  1 failed (1)
+@acme/ui:test:       Tests  2 failed (2)
+@acme/ui:test:    Start at  18:02:42
+@acme/ui:test:    Duration  741ms (transform 42ms, setup 0ms, collect 18ms, tests 7ms, environment 0ms, prepare 171ms)
+@acme/ui:test: 
+web:test: 
+web:test:  Test Files  1 failed (1)
+web:test:       Tests  1 failed (1)
+web:test:    Start at  18:02:42
+web:test:    Duration  776ms (transform 27ms, setup 0ms, collect 19ms, tests 7ms, environment 0ms, prepare 130ms)
+web:test: 
+web:test: 
+web:test: ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+web:test: 
+web:test:  FAIL  web.test.js > web uses ui
+web:test: AssertionError: expected 3 to be 2 // Object.is equality
+web:test: 
+web:test: [32m- Expected[39m
+web:test: [31m+ Received[39m
+web:test: 
+web:test: [32m- 2[39m
+web:test: [31m+ 3[39m
+web:test: 
+web:test:  ❯ web.test.js:1:254
+web:test: 
+web:test: 
+web:test: ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+web:test: 
+@acme/ui:test: npm error Lifecycle script `test` failed with error:
+@acme/ui:test: npm error code 1
+@acme/ui:test: npm error path /work/turbo-ws/packages/ui
+@acme/ui:test: npm error workspace @acme/ui@1.0.0
+@acme/ui:test: npm error location /work/turbo-ws/packages/ui
+@acme/ui:test: npm error command failed
+@acme/ui:test: npm error command sh -c vitest run
+@acme/ui#test:  WARNING  command finished with error, but continuing...
+web:test: npm error Lifecycle script `test` failed with error:
+web:test: npm error code 1
+web:test: npm error path /work/turbo-ws/packages/web
+web:test: npm error workspace web@1.0.0
+web:test: npm error location /work/turbo-ws/packages/web
+web:test: npm error command failed
+web:test: npm error command sh -c vitest run
+web#test:  WARNING  command finished with error, but continuing...
+@acme/ui#test:  ERROR  command (/work/turbo-ws/packages/ui) /node/bin/npm run test exited (1)
+web#test:  ERROR  command (/work/turbo-ws/packages/web) /node/bin/npm run test exited (1)
+
+ Tasks:    0 successful, 2 total
+Cached:    0 cached, 2 total
+  Time:    1.466s 
+Failed:    @acme/ui#test, web#test
+
+ ERROR  run failed: command  exited (1)

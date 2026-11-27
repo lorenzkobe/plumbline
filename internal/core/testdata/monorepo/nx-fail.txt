@@ -1,0 +1,125 @@
+
+ NX   Running target test for 2 projects:
+
+- @acme/ui
+- web
+
+
+
+> nx run web:test
+
+
+> web@1.0.0 test
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90m/work/nx-ws/packages/web[39m
+
+ [31m❯[39m web.test.js [2m([22m[2m1 test[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 5[2mms[22m[39m
+[31m   [31m×[31m web uses ui[39m[32m 5[2mms[22m[39m
+[31m     → expected 3 to be 2 // Object.is equality[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m web.test.js[2m > [22mweb uses ui
+[31m[1mAssertionError[22m: expected 3 to be 2 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 2[39m
+[31m+ 3[39m
+
+[36m [2m❯[22m web.test.js:[2m1:251[22m[39m
+    [90m  1| [39mimport {test,expect} from "vitest";import {add} from "@acme/ui";test("…
+    [90m   | [39m                                                                                                                                                                                                                                                          [31m^[39m
+    [90m  2| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 17:49:39
+[2m   Duration [22m 507ms[2m (transform 14ms, setup 0ms, collect 10ms, tests 5ms, environment 0ms, prepare 59ms)[22m
+
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /work/nx-ws/packages/web
+npm error workspace web@1.0.0
+npm error location /work/nx-ws/packages/web
+npm error command failed
+npm error command sh -c vitest run
+
+> nx run @acme/ui:test
+
+
+> @acme/ui@1.0.0 test
+> vitest run
+
+
+[1m[46m RUN [49m[22m [36mv3.2.7 [39m[90m/work/nx-ws/packages/ui[39m
+
+ [31m❯[39m ui.test.js [2m([22m[2m2 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[32m 5[2mms[22m[39m
+[31m   [31m×[31m adds[39m[32m 4[2mms[22m[39m
+[31m     → expected 4 to be 3 // Object.is equality[39m
+[31m   [31m×[31m adds2[39m[32m 0[2mms[22m[39m
+[31m     → expected 5 to be 4 // Object.is equality[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m ui.test.js[2m > [22madds
+[31m[1mAssertionError[22m: expected 4 to be 3 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 4[39m
+
+[36m [2m❯[22m ui.test.js:[2m1:99[22m[39m
+    [90m  1| [39mimport {test,expect} from "vitest";import {add} from "./index.js";test…
+    [90m   | [39m                                                                                                  [31m^[39m
+    [90m  2| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m ui.test.js[2m > [22madds2
+[31m[1mAssertionError[22m: expected 5 to be 4 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 4[39m
+[31m+ 5[39m
+
+[36m [2m❯[22m ui.test.js:[2m1:142[22m[39m
+    [90m  1| [39mimport {test,expect} from "vitest";import {add} from "./index.js";test…
+    [90m   | [39m                                                                                                                                             [31m^[39m
+    [90m  2| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m2 failed[39m[22m[90m (2)[39m
+[2m   Start at [22m 17:49:39
+[2m   Duration [22m 538ms[2m (transform 12ms, setup 0ms, collect 17ms, tests 5ms, environment 0ms, prepare 40ms)[22m
+
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /work/nx-ws/packages/ui
+npm error workspace @acme/ui@1.0.0
+npm error location /work/nx-ws/packages/ui
+npm error command failed
+npm error command sh -c vitest run
+
+
+
+ NX   Running target test for 2 projects failed
+
+Failed tasks:
+
+- web:test
+- @acme/ui:test
+

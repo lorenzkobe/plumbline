@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.8.12: affected tests for nx, turbo and cargo, and no suite before approval
+- The task skill now says not to run the full test suite before approval unless Plumbline asks, which only a plan that changes packages does. A failing test later is compared on the approved code anyway. To reproduce a bug, Claude runs one test file or a script with the test runner directly (`npx vitest run <file>`, `go test -run <Name> ./pkg`, `cargo test -p <crate> --test <name>`), not the whole suite. rules-task.md says the same.
+- Related tests now work in nx, turbo and cargo workspaces. A saved test command `nx run-many -t test`, `turbo run test` or `cargo test` qualifies when every word is on Plumbline's list: an optional npx, pnpm [exec], yarn or bunx runner, a target or task, and flags that don't select what runs. So does a bare `npm test`, `npm run test`, `pnpm test` or `yarn test` whose root package.json test script is one of them, when there's no `pretest` or `posttest` script (npm runs those around the test script, and the derived command wouldn't). That script is then run through the manager's runner (`npx`, `pnpm exec`, `yarn`). cargo flags that break once the run is narrowed to some crates (`--features`, `--lib`, `--doc`, `--bins`, `--examples`) and nx output styles other than `static` (their line prefixes can't be read) aren't derived. A command that selects its own projects (`-p`, `--projects`, `--filter`, `--affected`, `--package`, `--exclude`, a cargo test name), any other word, or shell syntax isn't derived, and its repo runs the full suite as before.
+- For each related run, Plumbline asks the tool once for its units, within 2 minutes (the tool and everything it started are stopped after that): `nx graph --file=stdout` (with `NX_DAEMON=false`), `turbo ls --output=json` or `cargo metadata --format-version 1 --no-deps --offline`. It then runs:
+  - nx: `nx affected -t test --files=<changed files>`;
+  - turbo: `turbo run test --continue --filter=...<package>` for each changed package;
+  - cargo: `cargo test --no-fail-fast --package=<crate>` for each changed crate and every workspace crate that depends on it (normal, dev or build path dependencies, transitively).
+  `--continue` and `--no-fail-fast` make a failing run go through every unit.
+- The full suite runs instead when:
+  - the tool's listing fails, times out, isn't JSON or lists nothing;
+  - cargo's workspace isn't the project;
+  - a changed file is outside the project, or at its top (a manifest, a lockfile, nx.json, turbo.json, Cargo.toml, rust-toolchain), or in `.cargo/`;
+  - for turbo, a changed file is outside every package, or turbo.json has a root task (`//#test`), which a package filter never runs, or turbo.json is missing;
+  - no changed file is in a unit.
+  Markdown outside every unit is skipped. Markdown inside a crate counts for it (`include_str!`).
+- With `affected_final`, these runs can stand in for the full suite at `--final`, under the existing rules. In addition:
+  - every changed file must map to a unit through a plain file, so a symlink, a hard link or a unit reached through a symlinked folder doesn't count, and for nx and cargo neither does a non-markdown file outside every unit, or one only a root unit holds (a root `[package]` or an nx root project, since member crates may read it too). A file outside every unit isn't listed as run either, so a case or bug test there isn't counted as run (nx still gets it in `--files`, since nx maps some of these files itself through `sharedGlobals`);
+  - the run must have no failures and exit 0. These tools' failure names are per unit (`tests::two` in two crates), so a failure can't be matched to the baseline's.
+- `plumbline run related --before-fix` maps the `[bug]` tests to their units the same way. A listing that fails, or a `[bug]` test in no unit, is an error, not a run. In a cargo repo the run on the approved code builds from scratch: the temporary copy has no `target/`.
+- Test output is read better in every repo:
+  - colour codes are removed first;
+  - every jest and vitest summary counts, not only the last, so `npm run test && npm run test:db` counts both suites;
+  - jest and vitest summaries in one output both count;
+  - turbo's `<package>:<task>: ` line prefix is removed when the output has turbo's banner.
+  A baseline recorded on 0.8.11 may count differently from a run on 0.8.12 in the same task; that only ever shows more failures, never fewer.
+- The setup skill's `affected_final` question names the new graphs, and its search adds `include_str!` and `include_bytes!`.
+- Tests use real nx 22.7.12, turbo 2.11.13 and cargo 1.100.0 output, captured from sample workspaces (in internal/core/testdata/monorepo).
+
 ## 0.8.11: a Jira ticket's links are opened before the plan
 - In a company task on a Jira ticket, Plumbline now collects the links in the ticket and its comments: prototypes, designs, specs, linked tickets, Confluence pages and attachment files. It finds them in the response to the lead's Jira read of that ticket. The read counts only when an input value is the ticket's key, in any letter case: a read of ABC-1234 or a JQL search adds nothing to ABC-123. Jira's own URLs (API, avatars, icons, thumbnails, profile pages, the ticket's own page) aren't links. These are matched only on the ticket's Jira site itself (Atlassian Cloud, or the hosts in the read's `self` values, ports ignored), except the ticket's own page, which is skipped on any host. An API reference elsewhere (`docs.github.com/en/rest/...`, or `developer.acme.com/rest/...` beside `jira.acme.com`) is a link. HTML entities such as `&amp;` are decoded, and a link keeps its own parentheses (`Foo_(bar)`). A Jira read by numeric id, URL or search meets "read the ticket" but can't be tied to it, so the checkpoint asks for a read by key. A task still in planning from before 0.8.11 needs one.
 - The checkpoint is refused until each link is either opened or listed under `## Links` in understanding.md (plan.md for a small task without one). A listed link needs a line saying why it couldn't be opened (three words or more, not counting table bars and dashes), and must be named in a question asking the user for screenshots or access. The checkpoint question itself counts. The refusal names up to 5 links.
