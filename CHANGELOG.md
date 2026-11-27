@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.9: affected tests at the end of a task
+- Related Go runs now include every package that imports a changed package, or whose tests do, through `go list -test`. Before, they ran only the changed packages. If go list fails or reports a broken package, or a changed folder isn't one of the suite's packages (a symlinked folder, another module), the changed packages run alone, as before.
+- New setup option `affected_final`, off unless saved. When it's on and the test command has an import graph (plain `go test`, or jest or vitest with no saved `test_related`), `plumbline run checks --final` runs the affected tests instead of the full suite and labels them "test (affected, full suite not run)". A passing run of them is accepted as the final commit's proof, and the commit question says "affected tests passed (<graph>); the full suite didn't run".
+- The full suite still runs at `--final` when:
+  - git can't list the task's changes;
+  - a changed file is outside the graph: go.mod, testdata, or a non-Go file other than markdown for Go; for jest and vitest, a deleted file, anything other than JS/TS, a `.d.ts` declaration file, a config or setup file loaded by name, `__mocks__`, or a symlink or hard link;
+  - for Go, a package in the suite has a `.go` file that is a symlink;
+  - no test reaches the change, or the output doesn't say how many tests ran.
+- The affected run must cover every file changed since the task's start, including files in slice commits and files that were already dirty when the task began. It doesn't count in these cases:
+  - a full suite failed on the same code;
+  - a test run failed after the affected run;
+  - the run has a failure its output didn't name;
+  - the task is a hotfix, whose full suite still runs right after its commit.
+- When the affected run passed only after tests that failed in parallel were rerun alone, the report has to say so, as it already does for the full suite.
+- `/plumbline:setup` searches the tests for things the import graph can't see before asking: building or running the project's binary, reading files by path, computed imports, setup files at other paths. When it finds any, it recommends leaving the option off.
+- pytest's name match, saved custom related commands and wrapper scripts never stand in for the full suite.
+
 ## 0.8.8: reviewers read QA's tests, fix rounds skip lint and build, and fewer helper retries
 From the courtly runs of 25 and 26 Nov on 0.8.7 (3 big tasks: 199 blocks, 33 prompts; `reviewer-own-notes` was 54% of the blocks).
 - Reviewers can read blind QA's tests under `qa-<n>-tests/` when the path holds a route folder like `[id]`, or through a `qa-*-tests` glob that matches only those folders. Before, the `[` read as a pattern and 107 reads were refused. A `../` out of them, a dot glob (`.*`, `.?`, which bash before 5.2 expands to `..`), another glob, `cd` into the notes folder and other helpers' findings stay refused. The refusal now says QA's tests are readable by full path.

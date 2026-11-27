@@ -87,6 +87,9 @@ type Run struct {
 	// Control: a before-fix run's check on the current code; never the
 	// failing run either.
 	Control bool `json:"control,omitempty"`
+	// Graph: the dependency graph that mapped every file of a related run
+	// ("go list", "jest", "vitest"); empty when any file was outside it.
+	Graph string `json:"graph,omitempty"`
 }
 
 var (
@@ -253,16 +256,21 @@ func parseRuns(f io.Reader) []*Run {
 // Execute runs a saved command through the shell, streams its output to the
 // terminal, and records the result.
 func Execute(root string, t *Task, kind, sub, command string, setup *Setup, out io.Writer) (*Run, error) {
-	return execute(root, t, kind, sub, command, nil, setup, out)
+	return execute(root, t, kind, sub, command, nil, "", setup, out)
 }
 
 // ExecuteRelated runs the related-tests command for the given files and
 // records which files it was given.
 func ExecuteRelated(root string, t *Task, command string, files []string, setup *Setup, out io.Writer) (*Run, error) {
-	return execute(root, t, KindRelated, "", command, files, setup, out)
+	return execute(root, t, KindRelated, "", command, files, "", setup, out)
 }
 
-func execute(root string, t *Task, kind, sub, command string, files []string, setup *Setup, out io.Writer) (*Run, error) {
+// ExecuteAffected is ExecuteRelated for a file list the graph mapped whole.
+func ExecuteAffected(root string, t *Task, command string, files []string, graph string, setup *Setup, out io.Writer) (*Run, error) {
+	return execute(root, t, KindRelated, "", command, files, graph, setup, out)
+}
+
+func execute(root string, t *Task, kind, sub, command string, files []string, graph string, setup *Setup, out io.Writer) (*Run, error) {
 	ignore := []string(nil)
 	if setup != nil {
 		ignore = setup.IgnoreChanges
@@ -271,7 +279,7 @@ func execute(root string, t *Task, kind, sub, command string, files []string, se
 	if err != nil {
 		return nil, err
 	}
-	r := &Run{ID: newID() + "-" + kind, Kind: kind, Sub: sub, Command: command, Started: Now(), PrintBefore: before, Ran: -1, Root: root, IgnoreKey: ignoreKey(ignore), EnvKey: envKey(root)}
+	r := &Run{ID: newID() + "-" + kind, Kind: kind, Sub: sub, Command: command, Started: Now(), PrintBefore: before, Ran: -1, Root: root, IgnoreKey: ignoreKey(ignore), EnvKey: envKey(root), Graph: graph}
 	for _, f := range files {
 		if f = cleanRel(f); f != "" {
 			r.Files = append(r.Files, f)

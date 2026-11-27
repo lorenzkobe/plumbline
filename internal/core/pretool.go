@@ -2157,6 +2157,9 @@ func (c *hookCtx) gateCommit(s Segment, addsAll bool, added []string, single boo
 		kind = "last commit of a docs-only task: only markdown notes changed, so no test suite ran; lint, build and the other saved checks passed"
 	case final:
 		kind = "last commit of the task, full suite passed"
+		if r := FinalAffectedRun(ctx.task, ctx.setup); r != nil {
+			kind = "last commit of the task, affected tests passed (" + r.Graph + "); the full suite didn't run"
+		}
 	}
 	if single && ctx.task.CommitOK != "" && ctx.task.CommitOK == commitPrint(ctx.root, ctx.ignore()) {
 		// The user just answered "Commit it" on this code: one stop, not two.
@@ -2280,7 +2283,7 @@ func ProofMissing(t *Task, s *Setup, final bool) []string {
 		if !full.OK && brokenBaseline(runs, t.ID, KindTest) {
 			full.Reason += "; the run before the first edit failed every test (a broken environment, like a database that was down), so it isn't the starting point and every failure counts: tell the user which failures were there before"
 		}
-		if final && !full.OK {
+		if final && !full.OK && AffectedProof(t, s, runs, fp) == nil {
 			miss = append(miss, "full test suite: "+full.Reason+runHint(full, "plumbline run test"))
 		}
 		if !final && !full.OK {

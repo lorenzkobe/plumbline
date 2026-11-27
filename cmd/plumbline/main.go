@@ -526,7 +526,7 @@ func cmdRun(args []string) (int, error) {
 	if terr != nil {
 		return 0, terr
 	}
-	var command, sub string
+	var command, sub, graph string
 	var files []string // the related run's files
 	switch kind {
 	case "test":
@@ -569,12 +569,20 @@ func cmdRun(args []string) (int, error) {
 			files[i] = strings.TrimSpace(files[i])
 		}
 		args := files
+		final := f["final"] != ""
 		switch {
+		case final && !s.AffectedFinal:
+			fmt.Println("plumbline: --final: the setup doesn't let affected tests stand in for the full suite (affected_final); running the full suite.")
+			command, kind, files = s.Commands.Test, core.KindTest, nil
 		case core.IsDerivedGo(s):
-			pkgs, why := core.GoRelatedPkgs(root, files)
+			c, _ := core.ParseGoTest(s.Commands.Test)
+			pkgs, mapped, why := core.GoAffectedPkgs(root, c, files)
 			if why != "" {
 				fmt.Printf("No related Go packages for this change (%s); running the full suite instead.\n", why)
 				command, kind, files = s.Commands.Test, core.KindTest, nil
+			}
+			if mapped {
+				graph = core.AffectedGraph(s)
 			}
 			args = pkgs
 		case core.IsDerivedPytest(s):
@@ -584,6 +592,14 @@ func cmdRun(args []string) (int, error) {
 				command, kind, files = s.Commands.Test, core.KindTest, nil
 			}
 			args = tests
+		default:
+			if g := core.AffectedGraph(s); g != "" && core.JSAffectedFiles(root, files) == "" {
+				graph = g
+			}
+		}
+		if kind == core.KindRelated && final && graph == "" {
+			fmt.Println("plumbline: --final: not every changed file maps through the dependency graph; running the full suite.")
+			command, kind, files = s.Commands.Test, core.KindTest, nil
 		}
 		if kind == core.KindTest {
 			break
@@ -659,13 +675,19 @@ func cmdRun(args []string) (int, error) {
 	switch {
 	case r != nil:
 	case kind == core.KindRelated:
-		r, err = core.ExecuteRelated(root, t, command, files, s, os.Stdout)
+		r, err = core.ExecuteAffected(root, t, command, files, graph, s, os.Stdout)
 	default:
 		r, err = core.Execute(root, t, kind, sub, command, s, os.Stdout)
+	}
+	if err == nil && kind == core.KindRelated && f["final"] != "" && r.Ran <= 0 && r.Complete() {
+		fmt.Println("plumbline: --final: no test reaches the changed code (or the output didn't say how many ran); running the full suite.")
+		kind = core.KindTest
+		r, err = core.Execute(root, t, kind, "", s.Commands.Test, s, os.Stdout)
 	}
 	if err != nil {
 		return 0, err
 	}
+	lastKind = kind
 	var base *core.Run
 	if t != nil {
 		bk := kind
@@ -712,6 +734,10 @@ func cmdRun(args []string) (int, error) {
 // lastFailed: the failing tests of the last run cmdRun recorded (FL1), so
 // run checks can name them in its one summary line.
 var lastFailed []string
+
+// lastKind: the kind of run cmdRun recorded last (a related --final run can
+// turn into the full suite).
+var lastKind string
 
 // noSizeNote: a task started without --size is normal, so Claude is told
 // to judge it, or a one-word change takes the full path (SZ1).
@@ -784,6 +810,13 @@ func runChecks(args []string) (int, error) {
 		}
 		run := append([]string{c.name}, pass...)
 		label := c.name
+		affected := false
+		if c.name == "test" && building != nil && final && s.AffectedFinal && core.AffectedGraph(s) != "" {
+			if files, err := core.TaskChangedFiles(building); err == nil && len(files) > 0 {
+				run = append([]string{"related", "--files", strings.Join(files, ","), "--final"}, pass...)
+				affected = true
+			}
+		}
 		if c.name == "test" && building != nil && !final {
 			// While building and fixing, related tests; the full suite runs
 			// once, with --final, after the last review round.
@@ -800,9 +833,13 @@ func runChecks(args []string) (int, error) {
 			summary = append(summary, c.name+": PASS (it passed in this task, and only files it doesn't read changed since)")
 			continue
 		}
+		lastKind = ""
 		code, err := cmdRun(run)
 		if err != nil {
 			return 1, err
+		}
+		if affected && lastKind == core.KindRelated {
+			label = "test (affected, full suite not run)"
 		}
 		status := "PASS"
 		if code != 0 {

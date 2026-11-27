@@ -739,12 +739,6 @@ func TestR88_C43_DocsDescribe088(t *testing.T) {
 		Version string `json:"version"`
 	}
 	must(t, json.Unmarshal([]byte(readTop(".claude-plugin/plugin.json")), &pj))
-	if pj.Version != "0.8.8" {
-		t.Errorf("plugin.json version %q", pj.Version)
-	}
-	if l := f87Line(readTop("CHANGELOG.md"), "## "); !strings.HasPrefix(l, "## 0.8.8") {
-		t.Errorf("CHANGELOG's newest entry: %q", l)
-	}
 	cl := readTop("CHANGELOG.md")
 	at := strings.Index(cl, "## 0.8.8")
 	if at < 0 {

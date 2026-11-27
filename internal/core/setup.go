@@ -53,6 +53,10 @@ type Setup struct {
 	// (blind QA writes only test files). Only the user adds these.
 	TestFiles    []string `json:"test_files,omitempty"`
 	SuiteSeconds int      `json:"suite_seconds,omitempty"`
+	// AffectedFinal: at the end of a task, a passing run of the tests the
+	// dependency graph says the changes reach stands in for the full suite.
+	// Off unless the user chose it at setup.
+	AffectedFinal bool `json:"affected_final,omitempty"`
 
 	FrontendRepo string `json:"frontend_repo,omitempty"`
 	DeployNotes  string `json:"deploy_notes,omitempty"`

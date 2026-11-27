@@ -53,9 +53,15 @@ func FinishMissing(t *Task, s *Setup) []string {
 		reportTime = fi.ModTime()
 	}
 	miss = append(miss, reviewMissing(t, s, fp, report, reportTime)...)
-	if r := LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp); r != nil && r.Rescued && report != "" &&
+	proof := LatestFor(runs, t.ID, KindTest, "", s.Commands.Test, fp)
+	if !JudgeNow(proof, BaselineFor(runs, t.ID, KindTest), s).OK {
+		if aff := AffectedProof(t, s, runs, fp); aff != nil {
+			proof = aff
+		}
+	}
+	if r := proof; r != nil && r.Rescued && report != "" &&
 		!strings.Contains(strings.ToLower(strings.Join(Section(report, "for you"), "\n")), "only in parallel") {
-		miss = append(miss, "report: the full suite passed only after tests that failed in parallel passed when run alone (its output names them); a timing bug in the change could hide there, so say so under \"For you\" (\"only in parallel\", with the test names)")
+		miss = append(miss, "report: the "+map[bool]string{true: "affected tests", false: "full suite"}[r.Kind == KindRelated]+" passed only after tests that failed in parallel passed when run alone (its output names them); a timing bug in the change could hide there, so say so under \"For you\" (\"only in parallel\", with the test names)")
 	}
 	miss = append(miss, builderMissing(t)...)
 	miss = append(miss, qaMissing(t, s, report)...)
