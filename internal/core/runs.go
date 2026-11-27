@@ -59,7 +59,10 @@ type Run struct {
 	Ran         int       `json:"ran"`    // tests that ran; -1 when the output could not be read
 	Failed      int       `json:"failed"` // failing tests, or problems for lint/build
 	FailedIDs   []string  `json:"failed_ids,omitempty"`
-	Skipped     int       `json:"skipped,omitempty"` // skipped, todo or pending tests
+	// CargoNames: cargo FailedIDs carry their test binary ("app/app:
+	// tests::two"), as from 0.8.13; a cargo baseline without it named them bare.
+	CargoNames bool `json:"cargo_names,omitempty"`
+	Skipped    int  `json:"skipped,omitempty"` // skipped, todo or pending tests
 	// Files: the files a related run was given. Seen: the task's case
 	// tests that the run's output names (the file, or its Go package).
 	Files    []string `json:"files,omitempty"`
@@ -300,7 +303,7 @@ func execute(root string, t *Task, kind, sub, command string, files []string, gr
 	if err := appendRun(root, r); err != nil {
 		return nil, err
 	}
-	text := runIn(root, root, r, kind, command, setup, out)
+	text := runIn(root, root, r, kind, command, setup, nil, out)
 	r.PrintAfter, _ = Fingerprint(root, ignore)
 	readRun(root, t, r, kind, text, setup)
 	if err := appendRun(root, r); err != nil {
@@ -313,8 +316,9 @@ func execute(root string, t *Task, kind, sub, command string, files []string, gr
 }
 
 // runIn runs command in dir for the run r recorded in root's runs, within
-// its time limit, and returns its output; r gets its exit and finish time.
-func runIn(root, dir string, r *Run, kind, command string, setup *Setup, out io.Writer) string {
+// its time limit, with env added, and returns its output; r gets its exit
+// and finish time.
+func runIn(root, dir string, r *Run, kind, command string, setup *Setup, env []string, out io.Writer) string {
 	var buf bytes.Buffer
 	live := &liveWriter{path: liveOutputPath(root, r.ID)}
 	if os.MkdirAll(filepath.Dir(live.path), 0o700) == nil && os.WriteFile(live.path, nil, 0o600) == nil {
@@ -328,7 +332,7 @@ func runIn(root, dir string, r *Run, kind, command string, setup *Setup, out io.
 	cmd.Dir = dir
 	both := io.MultiWriter(out, &buf, live)
 	cmd.Stdout, cmd.Stderr = both, both
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = 5 * time.Second
 	limit := RunLimit(kind, setup)
@@ -367,7 +371,7 @@ func readRun(root string, t *Task, r *Run, kind, text string, setup *Setup) {
 		}
 		r.Rescued = strings.Contains(text, flakyMark)
 		c := ParseTestOutput(text, pat)
-		r.Ran, r.Failed, r.FailedIDs, r.Skipped = c.Ran, c.Failed, c.IDs, c.Skipped
+		r.Ran, r.Failed, r.FailedIDs, r.Skipped, r.CargoNames = c.Ran, c.Failed, c.IDs, c.Skipped, c.CargoNames
 		if t != nil {
 			r.Seen = CaseTestsSeen(root, text, t.caseTestFiles())
 		}
@@ -414,6 +418,7 @@ func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 type TestCounts struct {
 	Ran, Failed, Skipped int
 	IDs                  []string
+	CargoNames           bool // cargo IDs are qualified with their test binary
 }
 
 // ParseTests reads test output and returns how many tests ran, how many
@@ -429,11 +434,15 @@ var (
 	// A test file that failed as a whole (an import error): "FAIL  x.test.ts [ x.test.ts ]".
 	reVitestFileFail = regexp.MustCompile(`(?m)^\s*FAIL\s+(\S+)\s*(?:\[[^\]]*\])?\s*$`)
 	// Cypress prints a box per spec: "│ Tests:  3 │", "│ Failing:  1 │".
-	reCyTests     = regexp.MustCompile(`│\s*Tests:\s+(\d+)`)
-	reCyFailing   = regexp.MustCompile(`│\s*Failing:\s+(\d+)`)
-	reCySkipped   = regexp.MustCompile(`│\s*(?:Pending|Skipped):\s+(\d+)`)
-	reRSpecFail   = regexp.MustCompile(`(?m)^rspec \S+ # (.+)$`)
-	reCargoFail   = regexp.MustCompile(`(?m)^test (\S+) \.\.\. FAILED\s*$`)
+	reCyTests   = regexp.MustCompile(`│\s*Tests:\s+(\d+)`)
+	reCyFailing = regexp.MustCompile(`│\s*Failing:\s+(\d+)`)
+	reCySkipped = regexp.MustCompile(`│\s*(?:Pending|Skipped):\s+(\d+)`)
+	reRSpecFail = regexp.MustCompile(`(?m)^rspec \S+ # (.+)$`)
+	reCargoFail = regexp.MustCompile(`^test (\S+) \.\.\. FAILED\s*$`)
+	// The test binary a cargo run is in: build/<package>/<hash>/out/<bin>-<hash>
+	// in the build-dir layout of cargo 1.100, deps/<bin>-<hash> in older ones.
+	reCargoBin    = regexp.MustCompile(`^\s+Running \S.*\((?:.*/)?(?:build/([^/()]+)/[0-9a-f]+/out/|deps/)([^/()]+)-[0-9a-f]+(?:\.exe)?\)\s*$`)
+	reCargoDoc    = regexp.MustCompile(`^\s+Doc-tests (\S+)\s*$`)
 	rePHPUnitFail = regexp.MustCompile(`(?m)^\d+\) ([\w\\]+::\w+)`)
 	rePHPUnitSkip = regexp.MustCompile(`(?:Skipped|Incomplete|Risky): (\d+)`)
 	reMochaItem   = regexp.MustCompile(`^\s+\d+\) (.*)$`)
@@ -609,10 +618,7 @@ func ParseTestOutput(text, custom string) TestCounts {
 		for _, line := range reCargoResult.FindAllString(text, -1) {
 			c.Skipped += sumSkipped(line)
 		}
-		for _, x := range reCargoFail.FindAllStringSubmatch(text, -1) {
-			c.IDs = append(c.IDs, x[1])
-		}
-		c.IDs = uniq(c.IDs)
+		c.IDs, c.CargoNames = cargoFailures(text)
 		return c
 	}
 	if m := reMocha.FindStringSubmatch(text); m != nil {
@@ -684,6 +690,30 @@ func ParseTestOutput(text, custom string) TestCounts {
 		return c
 	}
 	return TestCounts{Ran: -1}
+}
+
+// cargoFailures: the failing tests' names, each after the test binary its
+// Running line names ("app/app: tests::two"), since two crates' tests can
+// share a path. cargo: whether any Running line named a binary.
+func cargoFailures(text string) (ids []string, cargo bool) {
+	bin := ""
+	for _, line := range strings.Split(text, "\n") {
+		if m := reCargoBin.FindStringSubmatch(line); m != nil {
+			bin, cargo = m[2], true
+			if m[1] != "" {
+				bin = m[1] + "/" + m[2]
+			}
+		} else if m := reCargoDoc.FindStringSubmatch(line); m != nil {
+			bin = m[1]
+		} else if m := reCargoFail.FindStringSubmatch(line); m != nil {
+			if bin == "" {
+				ids = append(ids, m[1])
+			} else {
+				ids = append(ids, bin+": "+m[1])
+			}
+		}
+	}
+	return uniq(ids), cargo
 }
 
 func uniq(s []string) []string {
@@ -768,6 +798,9 @@ func Judge(r *Run, baseline *Run) Verdict {
 				}
 				var fresh []string
 				for _, id := range r.FailedIDs {
+					if _, path, ok := strings.Cut(id, ": "); ok && r.CargoNames && !baseline.CargoNames && base[path] {
+						continue // a baseline from 0.8.12 named cargo failures without their crate
+					}
 					if !base[id] {
 						fresh = append(fresh, id)
 					}

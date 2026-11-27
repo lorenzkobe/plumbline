@@ -1,0 +1,60 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running unittests src/lib.rs (target/debug/build/a/c845f345ae4eeb1c/out/a-c845f345ae4eeb1c)
+
+running 1 test
+test tests::two ... FAILED
+
+failures:
+
+---- tests::two stdout ----
+
+thread 'tests::two' (452641750) panicked at a/src/lib.rs:2:32:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::two
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p a --lib`
+     Running unittests src/lib.rs (target/debug/build/b/2abf59208e759838/out/b-2abf59208e759838)
+
+running 1 test
+test tests::two ... FAILED
+
+failures:
+
+---- tests::two stdout ----
+
+thread 'tests::two' (452641754) panicked at b/src/lib.rs:2:32:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::two
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p b --lib`
+   Doc-tests a
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests b
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 2 targets failed:
+    `-p a --lib`
+    `-p b --lib`

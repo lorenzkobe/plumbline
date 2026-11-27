@@ -212,6 +212,11 @@ The user asked for every item in 0.8.3 rather than one release each. Numbers bef
 - [x] The task skill: no full suite before approval unless Plumbline asks, and a bug is reproduced with one test file (from a session on another machine whose 65-minute suite ran before the plan).
 - Left: a cargo run on the approved code builds from scratch (no `target/` in the temporary copy); cargo's failure names collide across crates in the full suite too.
 
+## Release 0.8.13 (2026-11-27)
+- [x] cargo runs in a temporary copy build in a persistent `target/plumbline-copy`, not the checkout's `target/` (the user's call: sharing it made the checkout's next `cargo test` run the copy's binary, shown live with cargo 1.100).
+- [x] cargo failure names carry their test binary from the `Running` line; baselines from 0.8.12 still match by the bare name.
+- [x] nx and turbo listings run through yarn v1 parse: only the first JSON value is read.
+
 ## The open items (0.6.11), shipped before release 5
 - [x] M16: the baseline is retaken on the code a followed branch switch or pull lands on, while nothing changed since approval.
 - [x] T1: staticcheck is clean. Run it with `GOTOOLCHAIN=go1.27.4 go run honnef.co/go/tools/cmd/staticcheck@latest ./...` (the `go` on the PATH is 1.23, and its automatic switch picks a toolchain too old for Go 1.27's standard library).

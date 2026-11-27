@@ -1,0 +1,15 @@
+yarn run v1.22.22
+$ /work/tws/node_modules/.bin/turbo ls --output=json
+{
+  "packageManager": "yarn",
+  "packages": {
+    "count": 1,
+    "items": [
+      {
+        "name": "a",
+        "path": "packages/a"
+      }
+    ]
+  }
+}
+Done in 0.46s.

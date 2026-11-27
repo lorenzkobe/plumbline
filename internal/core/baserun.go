@@ -125,6 +125,8 @@ func runOnBase(root string, t *Task, kind, command string, s *Setup) (*Run, stri
 	}
 	wt := filepath.Join(dir, filepath.Base(root))
 	defer removeBase(root, dir, wt)
+	target, release := copyTarget(root, wt)
+	defer release()
 	if err := addDetached(root, wt, commit, []string{"GIT_LFS_SKIP_SMUDGE=1"}); err != nil {
 		return nil, "git couldn't check out the approved code: " + err.Error()
 	}
@@ -141,7 +143,7 @@ func runOnBase(root string, t *Task, kind, command string, s *Setup) (*Run, stri
 	if err := appendRun(root, r); err != nil {
 		return nil, "couldn't record the run: " + err.Error()
 	}
-	text := runIn(root, wt, r, kind, command, s, io.Discard)
+	text := runIn(root, wt, r, kind, command, s, []string{"CARGO_TARGET_DIR=" + target}, io.Discard)
 	r.PrintAfter = t.BaseTree
 	readRun(root, nil, r, kind, toRepoPaths(text, wt, root), s)
 	if err := appendRun(root, r); err != nil {
@@ -191,6 +193,81 @@ func linkBaseInputs(root, wt string) error {
 		}
 	}
 	return nil
+}
+
+// copyTarget: the cargo target folder for a run in the temporary copy wt,
+// and the release of its lock once the run is over.
+// The checkout's own target holds the workspace crates under the hashes the
+// copy builds too, so sharing it would leave the copy's binaries for the
+// checkout's next run, and cargo would take them as current. Copies get
+// plumbline-copy inside it instead, which keeps the built dependencies
+// between runs. Anything not plainly the checkout's own git-ignored folder
+// gives the copy a target of its own, built from scratch. cargo takes a
+// binary newer than the sources as current, so plumbline-copy is held, from
+// before the checkout until the run ends, by one copy at a time: another
+// copy then builds in its own target.
+func copyTarget(root, wt string) (string, func()) {
+	own, none := filepath.Join(wt, "target"), func() {}
+	dir := copyTargetDir(root)
+	if dir == "" {
+		return own, none
+	}
+	f, err := os.OpenFile(filepath.Join(dir, ".plumbline-lock"), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return own, none
+	}
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		f.Close()
+		return own, none
+	}
+	return dir, func() { f.Close() }
+}
+
+// copyTargetDir: plumbline-copy for root, made if missing, or "" when it
+// can't be used.
+func copyTargetDir(root string) string {
+	if fi, err := os.Lstat(filepath.Join(root, "Cargo.toml")); err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	base := filepath.Join(root, "target")
+	if env := os.Getenv("CARGO_TARGET_DIR"); env != "" {
+		base = env
+		if !filepath.IsAbs(base) {
+			base = filepath.Join(root, base)
+		}
+	}
+	base = filepath.Clean(base)
+	if fi, err := os.Lstat(base); err != nil || !fi.IsDir() {
+		return ""
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return ""
+	}
+	realBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return ""
+	}
+	if isInsideFold(realBase, realRoot) {
+		if !IsInside(realBase, realRoot) {
+			return "" // inside only in another letter case: git can't be asked about that path
+		}
+		rel, err := filepath.Rel(realRoot, realBase)
+		if err != nil || rel == "." || !plainDirs(realRoot, realBase) {
+			return ""
+		}
+		if _, err := gitIn(realRoot, nil, "check-ignore", "-q", "--", filepath.ToSlash(rel)); err != nil {
+			return ""
+		}
+	}
+	dir := filepath.Join(base, "plumbline-copy")
+	if err := os.Mkdir(dir, 0o755); err != nil && !os.IsExist(err) {
+		return ""
+	}
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return dir
 }
 
 // plainDirs: every folder from wt down to dir exists and is a real folder,
@@ -450,6 +527,8 @@ func runInCopy(root string, t *Task, s *Setup, tree, command string, rels []stri
 	}
 	wt := filepath.Join(dir, filepath.Base(root))
 	defer removeBase(root, dir, wt)
+	target, release := copyTarget(root, wt)
+	defer release()
 	if err := addDetached(root, wt, commit, []string{"GIT_LFS_SKIP_SMUDGE=1"}); err != nil {
 		return nil, fmt.Errorf("git couldn't check out the code to run: %v", err)
 	}
@@ -461,7 +540,7 @@ func runInCopy(root string, t *Task, s *Setup, tree, command string, rels []stri
 	if err := appendRun(root, r); err != nil {
 		return nil, err
 	}
-	text := runIn(root, wt, r, KindRelated, command, s, out)
+	text := runIn(root, wt, r, KindRelated, command, s, []string{"CARGO_TARGET_DIR=" + target}, out)
 	r.PrintAfter = tree
 	readRun(root, t, r, KindRelated, toRepoPaths(text, wt, root), s)
 	if err := appendRun(root, r); err != nil {

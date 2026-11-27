@@ -432,6 +432,11 @@ func listUnits(real string, c MonorepoCmd) ([]monoUnit, string) {
 	if i := bytes.IndexByte(text, '{'); i > 0 {
 		text = text[i:]
 	}
+	// yarn v1 prints "Done in 0.46s." after the tool's JSON.
+	var first json.RawMessage
+	if json.NewDecoder(bytes.NewReader(text)).Decode(&first) == nil {
+		text = first
+	}
 	var units []monoUnit
 	var why string
 	switch c.Tool {

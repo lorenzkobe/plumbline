@@ -56,6 +56,24 @@ func (t *Task) bugCaseFiles() []string {
 // Suite › refunds twice, a.test.ts > refunds twice), with a parameter
 // after it (test_x[1]). A longer name that starts the same
 // (TestRefundTwice) isn't it.
+// testNames: a run's failing names as tests are named in a case: cargo's
+// without the test binary before them, which would match a case named
+// after the package.
+func testNames(r *Run) []string {
+	if !r.CargoNames {
+		return r.FailedIDs
+	}
+	out := make([]string, len(r.FailedIDs))
+	for i, id := range r.FailedIDs {
+		_, path, ok := strings.Cut(id, ": ")
+		if !ok {
+			path = id
+		}
+		out[i] = path
+	}
+	return out
+}
+
 func failedNamed(ids []string, name string) bool {
 	re, err := regexp.Compile(`(^|::| › | > |/|\.| )` + regexp.QuoteMeta(name) + `($|/|\[|::| › | > | )`)
 	if err != nil {
@@ -156,7 +174,7 @@ func bugRedMissing(t *Task, s *Setup, fp string, runs []*Run) []string {
 				continue
 			}
 			if name != "" && len(r.FailedIDs) > 0 {
-				if !failedNamed(r.FailedIDs, name) {
+				if !failedNamed(testNames(r), name) {
 					continue
 				}
 			} else {

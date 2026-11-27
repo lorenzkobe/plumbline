@@ -294,8 +294,9 @@ func AffectedProof(t *Task, s *Setup, runs []*Run, fp string) *Run {
 	if at < 0 || runs[at].Failed > 0 && (unnamedFailures(runs[at]) > 0 || base != nil && unnamedFailures(base) > 0) || !JudgeNow(runs[at], base, s).OK {
 		return nil
 	}
-	// Failure names in these tools are per unit (tests::two in two crates),
-	// so a failure can't be matched to the baseline's: only a clean run counts.
+	// nx and turbo name failures per unit, and a cargo baseline from before
+	// 0.8.13 names them without their crate, so a failure can't be matched
+	// to the baseline's: only a clean run counts.
 	if _, mono := monorepoOf(s); mono && (runs[at].Failed > 0 || runs[at].Exit != 0) {
 		return nil
 	}

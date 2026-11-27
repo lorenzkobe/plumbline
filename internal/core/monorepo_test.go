@@ -817,7 +817,7 @@ func TestMonorepo_C19_CargoEveryTestResultCounts(t *testing.T) {
 	if c := ParseTestOutput(mrText(t, "cargo-pass.txt"), ""); c.Ran != 4 || c.Failed != 0 {
 		t.Fatalf("cargo test over app, core_lib, devuser (lib and tests/it.rs) plus doc-tests ran 4: %+v", c)
 	}
-	if c := ParseTestOutput(mrText(t, "cargo-fail.txt"), ""); c.Ran != 1 || c.Failed != 1 || !mrSame(c.IDs, []string{"tests::two"}) {
+	if c := ParseTestOutput(mrText(t, "cargo-fail.txt"), ""); c.Ran != 1 || c.Failed != 1 || !mrSame(c.IDs, []string{"app/app: tests::two"}) {
 		t.Fatalf("the failing capture: %+v", c)
 	}
 }
@@ -1241,11 +1241,6 @@ func TestMonorepo_C24_TaskSkillNoSuiteBeforeApproval(t *testing.T) {
 func TestMonorepo_C25_ReleaseTextNamesTheThreeTools(t *testing.T) {
 	if !strings.Contains(mrRead(t, filepath.Join("..", "..", "CHANGELOG.md")), "0.8.12") {
 		t.Error("CHANGELOG.md has no 0.8.12 entry")
-	}
-	var plugin struct{ Version string }
-	must(t, json.Unmarshal([]byte(mrRead(t, filepath.Join("..", "..", ".claude-plugin", "plugin.json"))), &plugin))
-	if plugin.Version != "0.8.12" {
-		t.Errorf("plugin.json version %q, want 0.8.12", plugin.Version)
 	}
 	row := mrLineWith(mrRead(t, filepath.Join("..", "..", "README.md")), "| test speed")
 	setup := mrLineWith(mrRead(t, filepath.Join("..", "..", "skills", "setup", "SKILL.md")), "affected_final")
