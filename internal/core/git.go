@@ -21,48 +21,47 @@ func Fingerprint(root string, ignore []string) (string, error) {
 		return "", err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	var indexTime time.Time
-	// Start from the real index so git can reuse its file stat cache.
-	gitDir, err := gitOut(root, "rev-parse", "--git-dir")
-	if err == nil {
-		gd := strings.TrimSpace(gitDir)
-		if !filepath.IsAbs(gd) {
-			gd = filepath.Join(root, gd)
-		}
-		if src, err := os.Open(filepath.Join(gd, "index")); err == nil {
-			_, _ = io.Copy(tmp, src)
-			if fi, err := src.Stat(); err == nil {
-				indexTime = fi.ModTime()
-			}
-			src.Close()
-		}
-	}
 	tmp.Close()
-	// Keep the real index's time on the copy. Git re-reads files changed in
-	// the same second the index was written ("racy clean"); a copy with a
-	// newer time hides a quick same-size edit, and proof would be recorded
-	// against the old code.
-	if !indexTime.IsZero() {
-		_ = os.Chtimes(tmpName, indexTime, indexTime)
-	}
+	defer os.Remove(tmpName)
+	// Start from the real index so git can reuse its file stat cache.
+	index := indexPath(root)
 	env := append(os.Environ(), "GIT_INDEX_FILE="+tmpName, "GIT_OPTIONAL_LOCKS=0")
-	args := []string{"add", "-A", "--", "."}
+	base := []string{"add", "-A", "--", "."}
 	if worktreesUnignored(root) {
 		// Builders' copies sit inside the main checkout and are never its
 		// code. (Naming a path git already ignores is an error in git add.)
-		args = append(args, ":(exclude)"+WorktreesDir)
+		base = append(base, ":(exclude)"+WorktreesDir)
 	}
 	// The setup file isn't code: runs count only for the saved command that
 	// made them, so a setup change leaves the proof standing (CFG1).
-	for _, g := range liveGlobs(root, append(append([]string{}, ignore...), RepoSetupFile)) {
-		args = append(args, ":(exclude,glob)"+g)
+	globs := append(append([]string{}, ignore...), RepoSetupFile)
+	add := func(globs []string) error {
+		if err := seedIndex(tmpName, index); err != nil {
+			return err
+		}
+		args := append([]string{}, base...)
+		for _, g := range globs {
+			args = append(args, ":(exclude,glob)"+g)
+		}
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git add: %v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
-	add := exec.Command("git", args...)
-	add.Dir = root
-	add.Env = env
-	if out, err := add.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("git add: %v: %s", err, strings.TrimSpace(string(out)))
+	filtered := prefixOnDisk(root, ignore)
+	if filtered {
+		globs = liveGlobs(root, globs)
+	}
+	if err := add(globs); err != nil {
+		if filtered {
+			return "", err
+		}
+		if err := add(liveGlobs(root, globs)); err != nil {
+			return "", err
+		}
 	}
 	wt := exec.Command("git", "write-tree")
 	wt.Dir = root
@@ -72,6 +71,69 @@ func Fingerprint(root string, ignore []string) (string, error) {
 		return "", fmt.Errorf("git write-tree: %v", err)
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+func seedIndex(tmpName, index string) error {
+	tmp, err := os.Create(tmpName)
+	if err != nil {
+		return err
+	}
+	var indexTime time.Time
+	if src, err := os.Open(index); err == nil {
+		_, _ = io.Copy(tmp, src)
+		if fi, err := src.Stat(); err == nil {
+			indexTime = fi.ModTime()
+		}
+		src.Close()
+	}
+	tmp.Close()
+	// Keep the real index's time on the copy. Git re-reads files changed in
+	// the same second the index was written ("racy clean"); a copy with a
+	// newer time hides a quick same-size edit, and proof would be recorded
+	// against the old code.
+	if !indexTime.IsZero() {
+		_ = os.Chtimes(tmpName, indexTime, indexTime)
+	}
+	return nil
+}
+
+func prefixOnDisk(root string, globs []string) bool {
+	for _, g := range globs {
+		if p := globPrefix(g); p != "" {
+			top, _, _ := strings.Cut(p, "/")
+			if _, err := os.Lstat(filepath.Join(root, top)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func indexPath(root string) string {
+	if os.Getenv("GIT_DIR") == "" {
+		dot := filepath.Join(root, ".git")
+		if fi, err := os.Lstat(dot); err == nil && fi.IsDir() {
+			return filepath.Join(dot, "index")
+		} else if err == nil && fi.Mode().IsRegular() {
+			if b, err := os.ReadFile(dot); err == nil {
+				if gd, ok := strings.CutPrefix(strings.TrimSpace(string(b)), "gitdir: "); ok && gd != "" {
+					if !filepath.IsAbs(gd) {
+						gd = filepath.Join(root, gd)
+					}
+					return filepath.Join(gd, "index")
+				}
+			}
+		}
+	}
+	out, err := gitOut(root, "rev-parse", "--git-dir")
+	if err != nil {
+		return ""
+	}
+	gd := strings.TrimSpace(out)
+	if !filepath.IsAbs(gd) {
+		gd = filepath.Join(root, gd)
+	}
+	return filepath.Join(gd, "index")
 }
 
 // ChangedSince lists the files that differ from commit: committed since,

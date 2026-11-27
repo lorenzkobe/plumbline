@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.10: fewer git calls per fingerprint
+- The code fingerprint behind every proof now starts git 2 times in a plain repo, not 4. It reads the index path from `.git` itself (a folder, or a `gitdir:` file for a linked worktree) and asks git only when `.git` is a symlink, `GIT_DIR` is set, or root has no `.git` of its own.
+- When the top folder of an `ignore_changes` glob is on disk (`coverage/` for `coverage/**`), the globs git already ignores are dropped first, as before, and the tree is scanned once: 3 git starts. Otherwise git add runs with every exclude, and only if git refuses one (an ignored setup file on disk) is it retried with the ignored ones dropped.
+- Every fingerprint is the same as before: the tests compare it with the old algorithm, hash for hash, in plain repos, linked worktrees, `GIT_DIR` checkouts and subfolders.
+- `go test ./...` passed in 413s, against 432s for 0.8.9, on a quiet 12-CPU Mac. The 10-minute timeout seen before reproduced only while other tests were loading the machine; `make test` keeps its 30-minute timeout.
+
 ## 0.8.9: affected tests at the end of a task
 - Related Go runs now include every package that imports a changed package, or whose tests do, through `go list -test`. Before, they ran only the changed packages. If go list fails or reports a broken package, or a changed folder isn't one of the suite's packages (a symlinked folder, another module), the changed packages run alone, as before.
 - New setup option `affected_final`, off unless saved. When it's on and the test command has an import graph (plain `go test`, or jest or vitest with no saved `test_related`), `plumbline run checks --final` runs the affected tests instead of the full suite and labels them "test (affected, full suite not run)". A passing run of them is accepted as the final commit's proof, and the commit question says "affected tests passed (<graph>); the full suite didn't run".
