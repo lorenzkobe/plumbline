@@ -123,6 +123,12 @@ type Task struct {
 	Lookups  map[string]Lookup `json:"lookups,omitempty"` // socraticode, mempalace, serena, context7
 	ToolDown map[string]string `json:"tool_down,omitempty"`
 	Reads    map[string]Read   `json:"reads,omitempty"`
+	// JiraLinks: the links in the task's Jira ticket and what was done with each.
+	JiraLinks []JiraLink `json:"jira_links,omitempty"`
+	// JiraRead: the ticket was read by its key, so JiraLinks holds its links.
+	JiraRead    bool        `json:"jira_read,omitempty"`
+	JiraLinkLog []linkEvent `json:"jira_link_log,omitempty"`
+	JiraSites   []string    `json:"jira_sites,omitempty"`
 
 	Checkpoint1At time.Time `json:"checkpoint1_at,omitempty"`
 	Checkpoint2At time.Time `json:"checkpoint2_at,omitempty"`

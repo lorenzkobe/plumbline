@@ -10,7 +10,7 @@ Task: $ARGUMENTS
 Hooks enforce the gates and say what's missing when you hit one; this page is the order of work. Dig in fully, stay on the task, prove the result. If you got something wrong at a checkpoint, go back a step instead of pushing on.
 
 ## 1. Read the task
-- Jira ticket: read the ticket and every comment with the Jira tools (comments often change the requirements). List any attachment you can't open by name and ask the user to share it; never guess what an image shows. Pass the ticket to `plumbline task start --ticket`.
+- Jira ticket: read the ticket and every comment with the Jira tools (comments often change the requirements). Open every link in them too (prototypes, designs, specs, linked tickets, attachments): WebFetch for a public page; the Figma or Atlassian tools, or Claude in Chrome (it has the user's sign-ins, and other browser tools can't run before approval), for one behind a login. Read the ticket by its key, so its links can be tied to it. The checkpoint is refused until each link is opened, or listed under `## Links` in understanding.md (plan.md for a small task) with why it couldn't be opened and named in a question asking the user for screenshots or access (the checkpoint question counts). Never guess what an image or a page shows. Pass the ticket to `plumbline task start --ticket`.
 - The user's own words: if vague, ask all your questions in one message, each with a suggestion.
 
 ## 2. Check the setup and start

@@ -88,6 +88,7 @@ func PostToolUse(in *HookInput) Output {
 		defer c.absorbIntoBuilders() // runs before close: still under the lock
 	}
 	c.noteBrowserAllowed()
+	c.noteLinkEvent()
 	switch {
 	case in.ToolName == "Read":
 		if in.AgentID != "" {
@@ -510,6 +511,9 @@ func (c *hookCtx) bind(id string, mustBeNew bool) {
 			t.Lookups[fam] = had
 		}
 	}
+	for _, e := range takeSessionLinkEvents(c.in.SessionID) { // a new task or an adopted one: the ticket's links read before it
+		t.applyLinkEvent(e)
+	}
 	_ = SaveTask(t)
 	_ = BindSession(c.in.SessionID, t)
 	c.task = t
@@ -828,6 +832,8 @@ func (c *hookCtx) afterPlan(abs string) Output {
 		return nil
 	}
 	p := c.groundingProblems()
+	linkP, unasked := c.linkProblems("")
+	p = append(p, linkP...)
 	plan := ""
 	for _, d := range []string{DocUnderstanding, DocPlan} {
 		if text, _, err := ReadDoc(t, d); err == nil {
@@ -848,7 +854,7 @@ func (c *hookCtx) afterPlan(abs string) Output {
 		if t.Size == "small" {
 			shape = "then two or three full sentences in plain words, no file or code names"
 		}
-		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Approve and commit when green" (the last commit then needs no commit question), "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`))
+		return Context("PostToolUse", msg(`plan.md has what the plan question needs. Post the plan in the chat first, as checkpoints.md's "The plan in chat" shows: "Done When: ..." first, `+shape+`. Then ask: AskUserQuestion, header "Checkpoint", options "Approve", "Approve and commit when green" (the last commit then needs no commit question), "Change something", "Drop it", with the question itself saying the problem, the fix and the risk in two or three sentences, because it can cover the chat.`+linkAskNote(unasked)))
 	}
 	return Context("PostToolUse", msg("before the plan question, still needed: "+strings.Join(uniq(p), "; ")+". Do these now, so the question isn't refused."))
 }

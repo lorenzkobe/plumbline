@@ -11,7 +11,7 @@ Designs are agreed in mockups before any real screen is built. Plumbline holds t
 
 ## 1. Start
 - Read the task (Jira ticket and every comment, as in the task workflow) and ask what's unclear in one message, each question with your suggestion.
-- Designs from Figma: ask whether the user will share screenshots or connect the Figma MCP. Never guess what an image shows.
+- Designs from Figma: open the ticket's Figma links with the Figma MCP or Claude in Chrome; if neither can, ask whether the user will share screenshots or connect the Figma MCP. Never guess what an image shows.
 - Check the setup and the tools as in the task workflow, then start a design task: `plumbline task start --design --title "..." [--ticket X] --size small|normal|big --why "..."`, on its own line. A project with `"parts": {"design": false}` refuses it; use /plumbline:task then.
 
 ## 2. The brand kit

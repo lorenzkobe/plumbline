@@ -2529,6 +2529,11 @@ func (c *hookCtx) checkpointProblems(cp int) []string {
 	}
 	if cp == 1 || combined {
 		p = append(p, c.groundingProblems()...)
+		linkP, unasked := c.linkProblems(c.questionText())
+		p = append(p, linkP...)
+		if len(unasked) > 0 {
+			p = append(p, unaskedProblem(unasked))
+		}
 		text, _, err := ReadDoc(t, DocUnderstanding)
 		switch {
 		case err != nil && combined && t.Size == "small" && !t.Hotfix():
